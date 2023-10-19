@@ -1,0 +1,184 @@
+Ptp4a1.1		No associated gene						NA	NA	
+Arhgef4.1		No associated gene						NA	NA	
+AC169382.1		No associated gene						NA	NA	
+Sept2.1		No associated gene						NA	NA	
+Zc3h11a.1		No associated gene						NA	NA	
+Gm16701.1		No associated gene						NA	NA	
+AL845275.1		No associated gene						NA	NA	
+Olfr364-ps1		No associated gene						NA	NA	
+Olfr1025-ps1		No associated gene						NA	NA	
+Olfr1150-ps1		No associated gene						NA	NA	
+Olfr1185-ps1		No associated gene						NA	NA	
+Olfr1191-ps1		No associated gene						NA	NA	
+Olfr1192-ps1		No associated gene						NA	NA	
+Olfr1224-ps1		No associated gene						NA	NA	
+Olfr1315-ps1		No associated gene						NA	NA	
+AL731706.1		No associated gene						NA	NA	
+AL731706.2		No associated gene						NA	NA	
+AC121792.1		No associated gene						NA	NA	
+Nnt.1		No associated gene						NA	NA	
+Olfr721-ps1		No associated gene						NA	NA	
+AC163638.2		No associated gene						NA	NA	
+CT009536.1		No associated gene						NA	NA	
+AC160336.1		No associated gene						NA	NA	
+Gm5089.1		No associated gene						NA	NA	
+4930594M22Rik.1		No associated gene						NA	NA	
+AC113595.1		No associated gene						NA	NA	
+AC140267.1		No associated gene						NA	NA	
+AC137513.1		No associated gene						NA	NA	
+Gm41392.1		No associated gene						NA	NA	
+OR5BS1P		No associated gene						NA	NA	
+Gm38619.1		No associated gene						NA	NA	
+AC154200.1		No associated gene						NA	NA	
+AC166172.1		No associated gene						NA	NA	
+Olfr105-ps		No associated gene						NA	NA	
+AC103362.1		No associated gene						NA	NA	
+Snhg4.1		No associated gene						NA	NA	
+Pcdha11.1		No associated gene						NA	NA	
+AC156546.1		No associated gene						NA	NA	
+Ancv1r		No associated gene						NA	NA	
+AC163347.1		No associated gene						NA	NA	
+AC132307.1		No associated gene						NA	NA	
+AC124764.1		No associated gene						NA	NA	
+AC142100.1		No associated gene						NA	NA	
+CAAA01066123.1		No associated gene						NA	NA	
+AC109619.1		No associated gene						NA	NA	
+Olfr1555-ps1		No associated gene						NA	NA	
+Olfr1438-ps1		No associated gene						NA	NA	
+Olfr1493-ps1		No associated gene						NA	NA	
+AC106834.1		No associated gene						NA	NA	
+Gm35438.1		No associated gene						NA	NA	
+CT867961.1		No associated gene						NA	NA	
+CT868697.1		No associated gene						NA	NA	
+FQ976806.1		No associated gene						NA	NA	
+Btbd35f1.1		No associated gene						NA	NA	
+CU019598.1		No associated gene						NA	NA	
+Olfr1326-ps1		No associated gene						NA	NA	
+Fam90a1b.1		No associated gene						NA	NA	
+BX088531.1		No associated gene						NA	NA	
+BX571804.1		No associated gene						NA	NA	
+CR974424.1		No associated gene						NA	NA	
+CR974480.1		No associated gene						NA	NA	
+CR628363.1		No associated gene						NA	NA	
+CR628363.2		No associated gene						NA	NA	
+CU041232.1		No associated gene						NA	NA	
+CU041232.2		No associated gene						NA	NA	
+BX571788.1		No associated gene						NA	NA	
+BX571788.2		No associated gene						NA	NA	
+CR974488.1		No associated gene						NA	NA	
+BX119993.1		No associated gene						NA	NA	
+AC125149.3		No associated gene						NA	NA	
+AC125149.5		No associated gene						NA	NA	
+AC125149.1		No associated gene						NA	NA	
+AC125149.2		No associated gene						NA	NA	
+AC125149.4		No associated gene						NA	NA	
+AC133103.4		No associated gene						NA	NA	
+AC133103.6		No associated gene						NA	NA	
+AC133103.7		No associated gene						NA	NA	
+AC133103.5		No associated gene						NA	NA	
+AC133103.1		No associated gene						NA	NA	
+AC133103.3		No associated gene						NA	NA	
+AC168977.2		No associated gene						NA	NA	
+AC168977.1		No associated gene						NA	NA	
+CAAA01118383.1		No associated gene						NA	NA	
+Vmn1r186		No associated gene						NA	NA	
+AC102264.1		No associated gene						NA	NA	
+AC132444.1		No associated gene						NA	NA	
+AC132444.3		No associated gene						NA	NA	
+AC132444.5		No associated gene						NA	NA	
+AC132444.4		No associated gene						NA	NA	
+AC132444.2		No associated gene						NA	NA	
+AC132444.6		No associated gene						NA	NA	
+CAAA01165726.1		No associated gene						NA	NA	
+Ccl21b.1		No associated gene						NA	NA	
+AC087559.3		No associated gene						NA	NA	
+Fam205a4.1		No associated gene						NA	NA	
+AC087559.2		No associated gene						NA	NA	
+AC140325.2		No associated gene						NA	NA	
+AC140325.1		No associated gene						NA	NA	
+Gm3286.1		No associated gene						NA	NA	
+AC140325.3		No associated gene						NA	NA	
+AC140325.4		No associated gene						NA	NA	
+Il11ra2.1		No associated gene						NA	NA	
+Ccl27a.1		No associated gene						NA	NA	
+CR974586.2		No associated gene						NA	NA	
+Ccl21c.1		No associated gene						NA	NA	
+CR974586.3		No associated gene						NA	NA	
+CR974586.5		No associated gene						NA	NA	
+CR974586.4		No associated gene						NA	NA	
+CR974586.1		No associated gene						NA	NA	
+Ccl27a.2		No associated gene						NA	NA	
+Il11ra2.2		No associated gene						NA	NA	
+Ccl19.1		No associated gene						NA	NA	
+Ccl21a.1		No associated gene						NA	NA	
+Gm10931		No associated gene						NA	NA	
+CT868723.1		No associated gene						NA	NA	
+CAAA01147332.1		No associated gene						NA	NA	
+AC164084.2		No associated gene						NA	NA	
+AC164084.3		No associated gene						NA	NA	
+AC164084.1		No associated gene						NA	NA	
+AC165294.1		No associated gene						NA	NA	
+AC165294.2		No associated gene						NA	NA	
+AC165294.3		No associated gene						NA	NA	
+AC125178.1		No associated gene						NA	NA	
+AC125178.3		No associated gene						NA	NA	
+AC125178.2		No associated gene						NA	NA	
+AC123873.3		No associated gene						NA	NA	
+AC123873.1		No associated gene						NA	NA	
+AC123873.2		No associated gene						NA	NA	
+AC126035.1		No associated gene						NA	NA	
+AC163611.1		No associated gene						NA	NA	
+AC163611.2		No associated gene						NA	NA	
+AC140365.1		No associated gene						NA	NA	
+AC124606.2		No associated gene						NA	NA	
+AC124606.1		No associated gene						NA	NA	
+AC133095.2		No associated gene						NA	NA	
+AC133095.1		No associated gene						NA	NA	
+AC234645.1		No associated gene						NA	NA	
+AC149090.1		No associated gene						NA	NA	
+Pakap.1		No associated gene				NA		NA	NA	
+BX470216.1		No associated gene				NA		NA	NA	
+AL607142.1		No associated gene				NA		NA	NA	
+AL607088.1		No associated gene				NA		NA	NA	
+Gm28710.1		No associated gene				NA		NA	NA	
+Jakmip1.1		No associated gene				NA		NA	NA	
+CAAA01077340.1		No associated gene				NA		NA	NA	
+Fam220a.1		No associated gene				NA		NA	NA	
+Gm16499.1		No associated gene				NA		NA	NA	
+AC159140.1		No associated gene				NA		NA	NA	
+AC150683.1		No associated gene				NA		NA	NA	
+AC149091.1		No associated gene				NA		NA	NA	
+AC151602.1		No associated gene				NA		NA	NA	
+Olfr290.1		No associated gene				NA		NA	NA	
+AC139579.1		No associated gene				NA		NA	NA	
+Olfr548-ps1		No associated gene				NA		NA	NA	
+Olfr573-ps1		No associated gene				NA		NA	NA	
+Olfr588-ps1		No associated gene				NA		NA	NA	
+Olfr625-ps1		No associated gene				NA		NA	NA	
+Olfr680-ps1		No associated gene				NA		NA	NA	
+Olfr709-ps1		No associated gene				NA		NA	NA	
+Aldoa.1		No associated gene				NA		NA	NA	
+AC132407.1		No associated gene				NA		NA	NA	
+Dpep2.1		No associated gene				NA		NA	NA	
+Olfr839-ps1		No associated gene				NA		NA	NA	
+Olfr896-ps1		No associated gene				NA		NA	NA	
+Olfr911-ps1		No associated gene				NA		NA	NA	
+AC160966.1		No associated gene				NA		NA	NA	
+AC166256.1		No associated gene				NA		NA	NA	
+Gm16364.1		No associated gene				NA		NA	NA	
+C730027H18Rik.1		No associated gene				NA		NA	NA	
+AC141477.1		No associated gene				NA		NA	NA	
+Ddit3.1		No associated gene				NA		NA	NA	
+AC135859.1		No associated gene				NA		NA	NA	
+Cccd201		No associated gene				NA		NA	NA	
+St6galnac2.1		No associated gene				NA		NA	NA	
+AC241534.1		No associated gene				NA		NA	NA	
+AC124742.1		No associated gene				NA		NA	NA	
+Gm35558.1		No associated gene				NA		NA	NA	
+Ighv5-8.1		No associated gene				NA		NA	NA	
+Ighv1-13.1		No associated gene				NA		NA	NA	
+Olfr1369-ps1		No associated gene				NA		NA	NA	
+Olfr465-ps1		No associated gene				NA		NA	NA	
+AC192334.1		No associated gene				NA		NA	NA	
+AC171003.1		No associated gene				NA		NA	NA	
+AC163685.1		No associated gene				NA		NA	NA	
