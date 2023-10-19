@@ -3,7 +3,7 @@
 .RData
 .Ruserdata
 
-./Saves
-./Data
-./General_Cell_Type_Analysis
-./Plots
+Saves/
+Data/
+General_Cell_Type_Analysis/
+Plots/
