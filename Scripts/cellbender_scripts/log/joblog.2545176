@@ -1,0 +1,106 @@
+Job 2545176 started on:  n7677
+Job 2545176 started on:  Thu Apr 4 18:19:30 PDT 2024
+ 
+mkdir: cannot create directory ‘/u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10’: File exists
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-10/outs/raw_feature_bc_matrix.h5 --output TriSeptum-10.h5
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash ac9418745f)
+cellbender:remove-background: 2024-04-04 18:19:39
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-10/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 26335 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 6582
+cellbender:remove-background: Prior on counts for empty droplets is 888
+cellbender:remove-background: Excluding 6382 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 19953 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 444
+cellbender:remove-background: Using 2439 probable cell barcodes, plus an additional 7259 barcodes, and 23912 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 1326 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2545176.2.xyang123_pod.q/tmpd8_1qsad
+cellbender:remove-background: No saved checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...
+cellbender:remove-background: [epoch 001]  average training loss: 9464.7503
+cellbender:remove-background: [epoch 002]  average training loss: 8873.4007  (159.3 seconds per epoch)
+cellbender:remove-background: Will checkpoint every 3 epochs
+cellbender:remove-background: [epoch 003]  average training loss: 8217.0024
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 004]  average training loss: 7692.2038
+cellbender:remove-background: [epoch 005]  average training loss: 7231.1809
+cellbender:remove-background: [epoch 005] average test loss: 7497.0651
+cellbender:remove-background: [epoch 006]  average training loss: 7019.1826
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 007]  average training loss: 6840.1316
+cellbender:remove-background: [epoch 008]  average training loss: 6708.9577
+cellbender:remove-background: [epoch 009]  average training loss: 6635.1947
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 010]  average training loss: 6604.0515
+cellbender:remove-background: [epoch 010] average test loss: 6584.1749
+cellbender:remove-background: [epoch 011]  average training loss: 6649.3323
+cellbender:remove-background: [epoch 012]  average training loss: 6636.7274
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 013]  average training loss: 6617.5769
+cellbender:remove-background: [epoch 014]  average training loss: 6590.6900
+cellbender:remove-background: [epoch 015]  average training loss: 6618.6997
+cellbender:remove-background: [epoch 015] average test loss: 6622.9448
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 016]  average training loss: 6605.9428
+cellbender:remove-background: [epoch 017]  average training loss: 6598.1419
+cellbender:remove-background: [epoch 018]  average training loss: 6572.3475
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 019]  average training loss: 6526.2564
+cellbender:remove-background: [epoch 020]  average training loss: 6548.8082
+cellbender:remove-background: [epoch 020] average test loss: 6669.4916
+cellbender:remove-background: [epoch 021]  average training loss: 6595.4742
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 022]  average training loss: 6557.6274
+cellbender:remove-background: [epoch 023]  average training loss: 6508.9641
+cellbender:remove-background: [epoch 024]  average training loss: 6581.4201
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 025]  average training loss: 6575.1418
+cellbender:remove-background: [epoch 025] average test loss: 6505.0006
+cellbender:remove-background: [epoch 026]  average training loss: 6589.8600
+cellbender:remove-background: [epoch 027]  average training loss: 6593.7513
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 028]  average training loss: 6600.6658
+cellbender:remove-background: [epoch 029]  average training loss: 6576.4289
+cellbender:remove-background: [epoch 030]  average training loss: 6538.8834
+cellbender:remove-background: [epoch 030] average test loss: 6429.7385
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 031]  average training loss: 6511.8263
+cellbender:remove-background: [epoch 032]  average training loss: 6517.4705
+cellbender:remove-background: [epoch 033]  average training loss: 6494.0058
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 034]  average training loss: 6472.5405
+cellbender:remove-background: [epoch 035]  average training loss: 6472.3176
+cellbender:remove-background: [epoch 035] average test loss: 6417.2285
+cellbender:remove-background: [epoch 036]  average training loss: 6459.6275
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 037]  average training loss: 6436.0740
+cellbender:remove-background: [epoch 038]  average training loss: 6429.7573
+cellbender:remove-background: [epoch 039]  average training loss: 6423.2712
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz
+cellbender:remove-background: [epoch 040]  average training loss: 6406.6781
+cellbender:remove-background: [epoch 040] average test loss: 6321.4231
+cellbender:remove-background: [epoch 041]  average training loss: 6413.1744
+cellbender:remove-background: [epoch 042]  average training loss: 6401.6164
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/ckpt.tar.gz

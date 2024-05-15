@@ -1,0 +1,1315 @@
+---
+title: "DEG_visualization"
+output: html_document
+date: "2024-01-22"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/julianas/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(plyr)
+library(dplyr)
+library(Seurat)
+library(enrichplot)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+library(simplifyEnrichment)
+library(stringr)
+library(enrichplot)
+library(EnhancedVolcano)
+library(biomaRt)
+library(readxl)
+library(UpSetR)
+library(tidyr)
+library(purrr)
+library(ggridges)
+library(ggpubr)
+library(ComplexHeatmap)
+library(ComplexUpset)
+library(ggplotify)
+```
+
+```{r}
+sc_list <- list()
+for (i in c(100, 200, 300, 400, 500)) {
+  load(paste0("~/scratch/medial_septum_sct/Results/Supercell_DEG/", i, "sc_Neuron.Rda"))
+  DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+  DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+  DEG_df$comparison <- factor(DEG_df$comparison)
+  DEG_df$supercell_count <- i
+  DEG_df$method <- "supercell"
+  
+  name <- paste0("supercell_", as.character(i))
+  sc_list[[name]] <- DEG_df
+}
+
+load("~/scratch/medial_septum_sct/Results/Pseudobulk_DEG/Neuron.Rda")
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+DEG_df$comparison <- factor(DEG_df$comparison)
+DEG_df$supercell_count <- 0
+DEG_df$method <- "pseudobulk"
+sc_list[["pseudobulk"]] <- DEG_df
+
+load("~/scratch/medial_septum_sct/Results/DEG/Neuron.Rda")
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+DEG_df$comparison <- factor(DEG_df$comparison)
+DEG_df$supercell_count <- 0
+DEG_df$method <- "single_cell"
+sc_list[["single_cell"]] <- DEG_df
+
+combined_df <- do.call("rbind", sc_list)
+combined_df$supercell_count <- as.character(combined_df$supercell_count)
+combined_df$supercell_count <- factor(combined_df$supercell_count)
+
+DEG_df <- combined_df
+```
+
+```{r}
+##merge DEG results in 1 df 
+
+gene_annotation <- readRDS("~/scratch/medial_septum_sct/Saves/gene_annotation.Rds")
+
+#load(file = "Saves/Pseudobulk_DEG_results.Rda")
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+DEG_df$comparison <- factor(DEG_df$comparison)
+
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+DEG_df_annotated <- left_join(DEG_df, gene_annotation2, by = c("gene"="mgi_symbol"))
+DEG_df_annotated$chromosome_name <- factor(DEG_df_annotated$chromosome_name, levels = c((1:19),"X","Y","MT"))
+
+```
+
+```{r}
+##elbow plots (all cell types)
+DEG_df_filtered <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > log(1.25))
+
+##FCG 
+gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "FCG")) %>% dplyr::select(gene, comparison) %>% unique()
+gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame()
+gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+gene_list <- gene_list %>% dplyr::select("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX")
+
+set_vars <- c("Ovary:SexChromXX", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM")
+plot <- UpSetR::upset(data = gene_list, sets = set_vars, keep.order = TRUE)
+plot
+
+pdf("Plots/Supercell_DEG/elbow/500sc/FCG.pdf",width  = 10, height = 5)
+print(plot)
+dev.off()
+
+##Aneuploidy
+gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Aneuploidy")) %>% dplyr::select(gene, comparison) %>% unique()
+gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% data.frame(check.names = FALSE)
+gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+gene_list <- gene_list %>% dplyr::select("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Aneuploidy")
+
+set_vars <- c("Aneuploidy", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM")
+plot <- UpSetR::upset(data = gene_list, sets = set_vars, keep.order = TRUE)
+plot
+
+pdf("Plots/Supercell_DEG/elbow/500sc/Aneuploidy.pdf",width  = 10, height = 5)
+print(plot)
+dev.off()
+
+##Dose
+gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Dose")) %>% dplyr::select(gene, comparison) %>% unique()
+gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+gene_list <- gene_list %>% dplyr::select("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose")
+
+set_vars <- c("Ydose", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM")
+plot <- UpSetR::upset(data = gene_list, sets = set_vars, keep.order = TRUE)
+plot
+
+pdf("Plots/Supercell_DEG/elbow/500sc/Dose.pdf",width  = 10, height = 5)
+print(plot)
+dev.off()
+
+##Quadratic
+gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Quadratic")) %>% dplyr::select(gene, comparison) %>% unique()
+gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names=FALSe)
+gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+gene_list <- gene_list %>% dplyr::select("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose", "Ydose^2")
+
+set_vars <- c("Ydose^2", "Ydose", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM")
+plot <- UpSetR::upset(data = gene_list, sets = set_vars, keep.order = TRUE)
+plot
+
+pdf("Plots/Supercell_DEG/elbow/500sc/Quadratic.pdf",width  = 10, height = 5)
+print(plot)
+dev.off()
+```
+
+```{r}
+##elbow plots (individual cell types)
+DEG_df_filtered <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > log(1.25))
+
+##FCG 
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "FCG") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  #gene_list <- gene_list %>% dplyr::select("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX")
+
+  set_vars <- c("Ovary:SexChromXX", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=140)),
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=30))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=40),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank(),
+                                                                               plot.margin = margin(5,5,5,5, "cm")))))
+  plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/Supercell_DEG/elbow_celltype/FCG.pdf", width = 160, height = 60)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 1)))
+dev.off()
+
+##Aneuploidy
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Aneuploidy") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  
+  set_vars <- c("Aneuploidy", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=140)),
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=30))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=50),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank(),
+                                                                               plot.margin = margin(5,5,5,5, "cm")))))
+ plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/Supercell_DEG/elbow_celltype/Aneuploidy.pdf", width  = 180, height = 70)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 1)))
+dev.off()
+
+##Full continuous
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Dose") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  
+  set_vars <- c("Ydose", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  min_size = 5
+  if (i == 5) {min_size = 1}
+  
+  plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=180)),
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=30))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=50),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank(),
+                                                                               plot.margin = margin(5,5,5,5, "cm")))))
+ plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/Supercell_DEG/elbow_celltype/Dose.pdf", width  = 180, height = 70)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 1)))
+dev.off()
+
+
+##Full quadratic
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Quadratic") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  
+  set_vars <- c("Ydose^2", "Ydose", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+ plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=140)),
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=30))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=50),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank(),
+                                                                               plot.margin = margin(5,5,5,5, "cm")))))
+ plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/Supercell_DEG/elbow_celltype/Quadratic.pdf", width  = 200, height = 70)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 1)))
+dev.off()
+```
+
+```{r}
+##get barplot of just normative difference intersections 
+DEG_df_filtered <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05) %>% dplyr::mutate(comparison = factor(comparison))
+
+##Full
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Full") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  
+  set_vars <- c("Ovary:Ydose2", "Ovary:Ydose1", "Ovary:Xdose2", "Ydose2_vs_Ydose1", "Ydose2_vs_Ydose0", "Ydose1_vs_Ydose0", "Xdose2_vs_Xdose1", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, any_of(set_vars))
+  
+  possible_combinations <- do.call("c", lapply(seq_along(set_vars), function(i) combn(set_vars, i, FUN = list)))
+  normative_intersections <- possible_combinations[grepl("XXF_vs_XYM", possible_combinations)]
+
+  min_size=5
+  if (i == 10) {min_size = 10}
+  if (i == 5) {min_size = 1}
+  
+  plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=160)),
+                              intersections = normative_intersections,
+                              min_size = min_size,
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=20))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=50),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank()))))
+  plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/DEG/elbow_celltype/Full_normative.pdf", width  = 260, height = 250)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 4)))
+dev.off()
+
+
+##Full aneuploidy
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Full_aneuploidy") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  
+  set_vars <- c("Ovary:Aneuploidy", "Ovary:SexChromXX", "Aneuploidy", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  possible_combinations <- do.call("c", lapply(seq_along(set_vars), function(i) combn(set_vars, i, FUN = list)))
+  normative_intersections <- possible_combinations[grepl("XXF_vs_XYM", possible_combinations)]
+  
+   plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=60)),
+                              intersections = normative_intersections,
+                              min_size = 1,
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=10))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=15),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank())))) +
+     theme(plot.margin = unit(c(3,3,3,3), "cm"))
+  plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/DEG/elbow_celltype/Aneuploidy_normative2.pdf", width  = 100, height = 80)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 4)))
+dev.off()
+
+
+##Full continuous
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Full_continuous") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  
+  set_vars <- c("Xdose:Ydose", "Ovary:Ydose", "Ovary:Xdose", "Ydose", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  possible_combinations <- do.call("c", lapply(seq_along(set_vars), function(i) combn(set_vars, i, FUN = list)))
+  normative_intersections <- possible_combinations[grepl("XXF_vs_XYM", possible_combinations)]
+  
+  min_size = 1
+  if (i == 1) {min_size = 10}
+  
+  plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=60)),
+                              intersections = normative_intersections,
+                              min_size = min_size,
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=10))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=15),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank())))) +
+     theme(plot.margin = unit(c(3,3,3,3), "cm"))
+  plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/DEG/elbow_celltype/Full_continuous_normative2.pdf", width  = 120, height = 90)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 4)))
+dev.off()
+
+
+##Full quadratic
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  gene_list <- DEG_df_filtered %>% dplyr::filter(model %in% c("Normative", "Full_quadratic") & cell == currentcell) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  
+  set_vars <- c("Ydose^2", "Ydose", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  possible_combinations <- do.call("c", lapply(seq_along(set_vars), function(i) combn(set_vars, i, FUN = list)))
+  normative_intersections <- possible_combinations[grepl("XXF_vs_XYM", possible_combinations)]
+  
+  min_size = 1
+  #if (i == 1) {min_size = 5}
+  
+ plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell,
+                              themes=upset_default_themes(text=element_text(size=60)),
+                              intersections = normative_intersections,
+                              min_size = min_size,
+                              matrix=(intersection_matrix(geom=geom_point(shape='circle', size=10))),
+                              base_annotations = list(
+                                'Intersection size'=(intersection_size(text=list(size=15),
+                                                                       width=0.4,
+                                                                       text_colors=c(on_background='black',on_bar='black'),
+                                                                                     bar_number_threshold=1.0)+ 
+                                                                         theme(panel.grid.major = element_blank(),
+                                                                               panel.grid.minor = element_blank()))))+
+     theme(plot.margin = unit(c(3,3,3,3), "cm"))
+  plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/DEG/elbow_celltype/Quadratic_normative2.pdf", width  = 80, height = 100)
+do.call(ggarrange, c(plot_list, list(ncol = 2, nrow = 4)))
+dev.off()
+```
+
+```{r}
+##overall count 
+plot_list <- list()
+
+test_df <- DEG_df_annotated %>% dplyr::filter(model %in% c("Normative", "FCG") & adj.P.Val < 0.05)
+barplot_df <- data.frame(table(test_df$comparison))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX"))
+
+plot_list[["FCG"]] <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  ylim(0, 15000) +
+  guides(fill=guide_legend(title="comparison")) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+test_df <- DEG_df_annotated %>% dplyr::filter(model %in% c("Normative", "Full_aneuploidy") & adj.P.Val < 0.05)
+barplot_df <- data.frame(table(test_df$comparison))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Aneuploidy", "Ovary:Aneuploidy", "Ovary:SexChromXX"))
+
+plot_list[["Aneuploidy"]] <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  ylim(0, 15000) +
+  guides(fill=guide_legend(title="comparison")) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+test_df <- DEG_df_annotated %>% dplyr::filter(model %in% c("Normative", "Full_continuous") & adj.P.Val < 0.05)
+barplot_df <- data.frame(table(test_df$comparison))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose", "Ovary:Xdose", "Ovary:Ydose", "Xdose:Ydose"))
+
+plot_list[["Continuous"]] <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  ylim(0, 15000) +
+  guides(fill=guide_legend(title="comparison")) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+test_df <- DEG_df_annotated %>% dplyr::filter(model %in% c("Normative", "Full_quadratic") & adj.P.Val < 0.05)
+barplot_df <- data.frame(table(test_df$comparison))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose", "Ydose^2"))
+
+plot_list[["Quadratic"]] <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  ylim(0, 15000) +
+  guides(fill=guide_legend(title="comparison")) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/Counts.pdf",width  = 20, height = 5)
+ggarrange(plotlist = plot_list, ncol = 4, nrow = 1)
+dev.off()
+
+```
+
+```{r}
+##create barplot of DEG counts by chromosome and gene category by model and overall  
+
+##FCG
+test_df <- DEG_df_annotated %>% dplyr::filter(model %in% c("Normative", "FCG"))
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$chromosome_name))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Xdose", "Ovary:SexChromXX"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  guides(fill=guide_legend(title="comparison")) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/FCG_chromosome.pdf",width  = 13, height = 10)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$Class))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Xdose", "Ovary:SexChromXX"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/FCG_class.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$PAR))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Xdose", "Ovary:SexChromXX"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/FCG_par.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+test_df <- test_df %>% dplyr::filter(chromosome_name == "X")
+barplot_df <- data.frame(table(test_df$comparison, test_df$Escapee))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Xdose", "Ovary:SexChromXX"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/FCG_escape.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+##XY analysis
+test_df <- DEG_df_annotated %>% 
+  mutate(comparison = ifelse(model == c("XY_males"), paste(DEG_df_annotated$comparison, "male", sep = "_"), 
+                             ifelse(model == c("XY_females"), paste(DEG_df_annotated$comparison, "female", sep = "_"), 
+                                    ifelse(model == c("XY_combined"), paste(DEG_df_annotated$comparison, "combined", sep = "_"),
+                                           DEG_df_annotated$comparison))))
+                             
+test_df <- test_df %>% dplyr::filter(model %in% c("Normative", "XY_males", "XY_females", "XY_combined"))
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$chromosome_name))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "XXY_vs_XY_male", "XXY_vs_XY_female", "XXY_vs_XY_combined", "XYY_vs_XY_male", "XYY_vs_XY_female", "XYY_vs_XY_combined"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL)  +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/XY_chromosome.pdf",width  = 13, height = 10)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$Class))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "XXY_vs_XY_male", "XXY_vs_XY_female", "XXY_vs_XY_combined", "XYY_vs_XY_male", "XYY_vs_XY_female", "XYY_vs_XY_combined"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/XY_class.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$PAR))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "XXY_vs_XY_male", "XXY_vs_XY_female", "XXY_vs_XY_combined", "XYY_vs_XY_male", "XYY_vs_XY_female", "XYY_vs_XY_combined"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/XY_par.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+test_df <- test_df %>% dplyr::filter(chromosome_name == "X")
+barplot_df <- data.frame(table(test_df$comparison, test_df$Escapee))
+barplot_df$Var1 <- factor(barplot_df$Var1, levels = c("XXF_vs_XYM", "XXY_vs_XY_male", "XXY_vs_XY_female", "XXY_vs_XY_combined", "XYY_vs_XY_male", "XYY_vs_XY_female", "XYY_vs_XY_combined"))
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/XY_escape.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+##Full analysis
+test_df <- DEG_df_annotated %>% dplyr::filter(model %in% c("Normative", "Full"))
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$chromosome_name))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose2_vs_Xdose1", "Ydose1_vs_Ydose0", "Ydose2-Ydose0", "Ydose2_vs_Ydose1", "GonadFemale:Xdose2", "GonadFemale:Ydose1", "GonadFemale:Ydose2")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL)  +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_chromosome.pdf",width  = 13, height = 10)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$Class))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose2_vs_Xdose1", "Ydose1_vs_Ydose0", "Ydose2-Ydose0", "Ydose2_vs_Ydose1", "GonadFemale:Xdose2", "GonadFemale:Ydose1", "GonadFemale:Ydose2")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_class.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$PAR))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose2_vs_Xdose1", "Ydose1_vs_Ydose0", "Ydose2-Ydose0", "Ydose2_vs_Ydose1", "GonadFemale:Xdose2", "GonadFemale:Ydose1", "GonadFemale:Ydose2")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_par.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+test_df <- test_df %>% dplyr::filter(chromosome_name == "X")
+barplot_df <- data.frame(table(test_df$comparison, test_df$Escapee))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose2_vs_Xdose1", "Ydose1_vs_Ydose0", "Ydose2-Ydose0", "Ydose2_vs_Ydose1", "GonadFemale:Xdose2", "GonadFemale:Ydose1", "GonadFemale:Ydose2")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_escape.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+##Full continuous analysis 
+test_df <- DEG_df_annotated %>% dplyr::filter(model %in% c("Normative", "Full_continuous"))
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$chromosome_name))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose", "GonadFemale:Xdose", "GonadFemale:Ydose", "Xdose:Ydose")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL)  +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_cont_chromosome.pdf",width  = 13, height = 10)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$Class))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose", "GonadFemale:Xdose", "GonadFemale:Ydose", "Xdose:Ydose")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_cont_class.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+barplot_df <- data.frame(table(test_df$comparison, test_df$PAR))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose", "GonadFemale:Xdose", "GonadFemale:Ydose", "Xdose:Ydose")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_cont_par.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+
+test_df <- test_df %>% dplyr::filter(chromosome_name == "X")
+barplot_df <- data.frame(table(test_df$comparison, test_df$Escapee))
+levels(barplot_df$Var1) <- c("XXF_vs_XYM", "Ovary_vs_Testis", "Xdose", "Ydose", "GonadFemale:Xdose", "GonadFemale:Ydose", "Xdose:Ydose")
+
+plot <- ggplot(barplot_df, aes(x = Var1, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Var2) + 
+  scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+  theme(legend.title = element_text(size=16),
+        legend.text = element_text(size=12),
+        strip.text.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12))
+
+pdf("Plots/DEG/bar/full_cont_escape.pdf",width  = 12, height = 5)
+print(plot)
+dev.off()
+```
+
+```{r}
+##p-value dotplots 
+ygenes <- DEG_df_annotated %>% dplyr::filter(chromosome_name == "Y") %>% dplyr::arrange(adj.P.Val) %>% dplyr::select(gene) %>% distinct()
+xgenes <- DEG_df_annotated %>% dplyr::filter(chromosome_name == "X" & Escapee == "Non-escapee") %>% dplyr::arrange(adj.P.Val) %>% dplyr::select(gene) %>% distinct() %>% head(20)
+xgenes_escape <- DEG_df_annotated %>% dplyr::filter(Escapee == "Escapee") %>% dplyr::select(gene) %>% distinct()
+genes_to_plot <- c(xgenes_escape, xgenes, ygenes) %>% unlist(use.names = FALSE)
+
+DEG_df_annotated$logP <- -log10(DEG_df_annotated$adj.P.Val)
+DEG_df_annotated$logP[is.infinite(DEG_df_annotated$logP)] <- 400
+
+DEG_df_annotated$FDR <- -log10(DEG_df_annotated$adj.P.Val)
+DEG_df_annotated$FDR[DEG_df_annotated$FDR > 3] <- 3
+DEG_df_annotated$logFC2 <- DEG_df_annotated$logFC
+DEG_df_annotated$logFC2[DEG_df_annotated$logFC2 > 3] <- 3
+DEG_df_annotated$logFC2[DEG_df_annotated$logFC2 < -3] <- -3
+
+for (i in 1:length(allcells)) {
+  plot_list <- list()
+  currentcell <- allcells[i]
+  
+  #Normative
+  plot_df <- DEG_df_annotated %>% 
+    dplyr::filter(model == "Normative" & cell == currentcell & adj.P.Val < 0.05) %>%
+    dplyr::filter(gene %in% genes_to_plot) %>%
+    dplyr::arrange(match(gene, genes_to_plot)) %>%
+    mutate(gene = factor(gene, levels = rev(genes_to_plot)))
+  
+  plot_df$comparison <- factor(plot_df$comparison, levels = c("XXF_vs_XYM"))
+  
+  plot <- ggplot(plot_df, aes(y = gene, x = comparison)) +
+    geom_tile(fill = "white") +  xlab("")+ylab("") +
+    geom_point(aes(colour = logFC2, size = adj.P.Val))  +  
+    scale_color_gradientn(limits = c(-3,3), colours  = colorRampPalette(rev(brewer.pal(5,"RdBu")))(20)) +
+    theme_bw()+theme(axis.text.y = element_text(size = 30),
+                     axis.text.x = element_text(angle = 45, hjust = 1, size = 30),
+                     strip.text.x = element_text(size = 25),
+                     plot.margin = unit(c(4,1,1.3,1.3), "cm"),
+                     plot.title = element_text(size = 40),
+                     legend.position = "none") +
+    scale_size(range = c(5, 10))
+  
+  plot_list[["Normative"]] <- plot
+  
+  #FCG
+  plot_df <- DEG_df_annotated %>% 
+    dplyr::filter(model == "FCG" & cell == currentcell & adj.P.Val < 0.05) %>%
+    dplyr::filter(gene %in% genes_to_plot) %>%
+    dplyr::arrange(match(gene, genes_to_plot)) %>%
+    mutate(gene = factor(gene, levels = rev(genes_to_plot)))
+  
+  plot_df$comparison <- factor(plot_df$comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX"))
+  
+  plot <- ggplot(plot_df, aes(y = gene, x = comparison)) +
+    geom_tile(fill = "white") +  xlab("")+ylab("") +
+    geom_point(aes(colour = logFC2, size = adj.P.Val))  +  
+    scale_color_gradientn(limits = c(-3,3), colours  = colorRampPalette(rev(brewer.pal(5,"RdBu")))(20)) +
+    theme_bw()+theme(axis.text.y = element_text( size = 30),
+                     axis.text.x = element_text(angle = 45, hjust = 1, size = 30),
+                     strip.text.x = element_text(size = 25),
+                     plot.margin = unit(c(4,1,0.3,1.3), "cm"),
+                     plot.title = element_text(size = 40),
+                     legend.position = "none") +
+    scale_size(range = c(5, 10))
+  
+  plot_list[["FCG"]] <- plot
+  
+  #Full_aneuploidy
+  plot_df <- DEG_df_annotated %>% 
+    dplyr::filter(model == "Full_aneuploidy" & cell == currentcell & adj.P.Val < 0.05) %>%
+    dplyr::filter(gene %in% genes_to_plot) %>%
+    dplyr::arrange(match(gene, genes_to_plot)) %>%
+    mutate(gene = factor(gene, levels = rev(genes_to_plot)))
+  
+  plot_df$comparison <- factor(plot_df$comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Aneuploidy", "Ovary:SexChromXX", "Ovary:Aneuploidy"))
+  
+  plot <- ggplot(plot_df, aes(y = gene, x = comparison)) +
+    geom_tile(fill = "white") +  xlab("")+ylab("") +
+    geom_point(aes(colour = logFC2, size = adj.P.Val))  +  
+    scale_color_gradientn(limits = c(-3,3), colours  = colorRampPalette(rev(brewer.pal(5,"RdBu")))(20)) +
+    theme_bw()+theme(axis.text.y = element_text( size = 30),
+                     axis.text.x = element_text(angle = 45, hjust = 1, size = 30),
+                     strip.text.x = element_text(size = 25),
+                     plot.margin = unit(c(4,1,0.3,1.3), "cm"),
+                     plot.title = element_text(size = 40),
+                     legend.position = "none") +
+    scale_size(range = c(5, 10))
+  
+  plot_list[["Full_aneuploidy"]] <- plot
+  
+  #Full_continuous
+  plot_df <- DEG_df_annotated %>% 
+    dplyr::filter(model == "Full_continuous" & cell == currentcell & adj.P.Val < 0.05) %>%
+    dplyr::filter(gene %in% genes_to_plot) %>%
+    dplyr::arrange(match(gene, genes_to_plot)) %>%
+    mutate(gene = factor(gene, levels = rev(genes_to_plot)))
+  
+  plot_df$comparison <- factor(plot_df$comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose", "Ovary:Xdose", "Ovary:Ydose", "Xdose:Ydose"))
+  
+  plot <- ggplot(plot_df, aes(y = gene, x = comparison)) +
+    geom_tile(fill = "white") +  xlab("")+ylab("") +
+    geom_point(aes(colour = logFC2, size = adj.P.Val))  +  
+    scale_color_gradientn(limits = c(-3,3), colours  = colorRampPalette(rev(brewer.pal(5,"RdBu")))(20)) +
+    theme_bw()+theme(axis.text.y = element_text( size = 30),
+                     axis.text.x = element_text(angle = 45, hjust = 1, size = 30),
+                     strip.text.x = element_text(size = 25),
+                     plot.margin = unit(c(4,1,0.8,1.3), "cm"),
+                     plot.title = element_text(size = 40),
+                     legend.text = element_text(size = 20),
+                     legend.title = element_text(size = 20)) +
+    scale_size(range = c(5, 10))
+  
+  plot_list[["Full_continuous"]] <- plot
+  
+  #Full_quadratic
+  plot_df <- DEG_df_annotated %>% 
+    dplyr::filter(model == "Full_quadratic" & cell == currentcell & adj.P.Val < 0.05) %>%
+    dplyr::filter(gene %in% genes_to_plot) %>%
+    dplyr::arrange(match(gene, genes_to_plot)) %>%
+    mutate(gene = factor(gene, levels = rev(genes_to_plot)))
+  
+  plot_df$comparison <- factor(plot_df$comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose", "Ydose^2"))
+  
+  plot <- ggplot(plot_df, aes(y = gene, x = comparison)) +
+    geom_tile(fill = "white") +  xlab("")+ylab("") +
+    geom_point(aes(colour = logFC, size = adj.P.Val))  +  
+    scale_color_gradientn(colours  = colorRampPalette(rev(brewer.pal(5,"RdBu")))(20)) +
+    theme_bw()+theme(axis.text.y = element_text( size = 30),
+                     axis.text.x = element_text(angle = 45, hjust = 1, size = 30),
+                     strip.text.x = element_text(size = 25),
+                     plot.margin = unit(c(4,1,0.8,1.3), "cm"),
+                     plot.title = element_text(size = 40),
+                     legend.text = element_text(size = 20),
+                     legend.title = element_text(size = 20)) +
+    scale_size(range = c(5, 10))
+  
+  plot_list[["Full_quad"]] <- plot
+  
+  pdf(paste0("Plots/DEG/dot_celltype/", currentcell, ".pdf"), width  = 60, height = 25)
+  print(ggarrange(plotlist = plot_list, labels = names(plot_list), nrow = 1, font.label = list(size = 40)))
+  dev.off()
+}
+```
+
+
+
+```{r}
+##Volcano plots (by cell type)
+
+##Normative
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsupercell <- paste0("50sc_", currentcell)
+
+  plot_df <- DEG_df %>%
+    dplyr::filter(model == "Normative" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("XXF_vs_XYM")))
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            pCutoff = 0.05,
+                            FCcutoff = log(1.25),
+                            titleLabSize = 14,
+                            title = currentcell,
+                            drawConnectors = TRUE
+                            )
+  }
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf(paste0("Plots/Supercell_DEG/volcano_celltype/50sc/Normative.pdf"), width  = 15, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 3))
+dev.off()
+
+##FCG
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  #currentsupercell <- paste0("50sc_", currentcell)
+
+  plot_df <- DEG_df %>%
+    dplyr::filter(model == "FCG" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX")))
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            pCutoff = 0.05,
+                            FCcutoff = log(1.25),
+                            titleLabSize = 14,
+                            title = currentcell,
+                            drawConnectors = TRUE
+                            )
+  }
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_celltype/50sc/FCG.pdf", width  = 15, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 3))
+dev.off()
+
+##Full aneuploidy
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df %>%
+    dplyr::filter(model == "Aneuploidy" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Aneuploidy")))
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            pCutoff = 0.05,
+                            FCcutoff = log(1.25),
+                            titleLabSize = 14,
+                            title = currentcell,
+                            drawConnectors = TRUE
+                            )
+  }
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_celltype/50sc/Aneuploidy.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+
+##Full cont.
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df %>%
+    dplyr::filter(model == "Dose" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose")))
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            pCutoff = 0.05,
+                            FCcutoff = log(1.25),
+                            titleLabSize = 14,
+                            title = currentcell,
+                            drawConnectors = TRUE
+                            )
+  }
+  
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_celltype/50sc/Dose.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+##Full quadratic
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df %>%
+    dplyr::filter(model == "Quadratic" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose", "Ydose^2")))
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            pCutoff = 0.05,
+                            FCcutoff = log(1.25),
+                            titleLabSize = 14,
+                            title = currentcell,
+                            drawConnectors = TRUE
+                            )
+  }
+
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_celltype/50sc/Quadratic.pdf", width  = 20, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 1))
+dev.off()
+
+```
+
+```{r}
+##Volcano plots (by cell type) - sex-linked genes labeled only 
+
+##Normative
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df_annotated %>%
+    dplyr::filter(model == "Normative" & cell == currentcell & supercell_count == 200)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("XXF_vs_XYM")))
+  
+  genes_to_label <- plot_df %>% dplyr::filter(Class == "Sex-linked" & adj.P.Val < 0.05 & abs(logFC) >= 0.5) %>% dplyr::select(gene) %>% unlist(use.names = FALSE)
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            FCcutoff = 0.5,
+                            titleLabSize = 14,
+                            title = currentcell,
+                            selectLab = genes_to_label
+                            )
+  }
+}
+
+  plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+  pdf("Plots/Supercell_DEG/volcano_sexlabeled/500ss/Normative.pdf", width  = 15, height = 6)
+  print(ggarrange(plotlist = plot_list, ncol = 3))
+  dev.off()
+  
+##FCG
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df_annotated %>%
+    dplyr::filter(model == "FCG" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX")))
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    genes_to_label <- subset %>% dplyr::filter(Class == "Sex-linked" & adj.P.Val < 0.05 & abs(logFC) >= 0.5) %>% dplyr::select(gene) %>% unlist(use.names = FALSE)
+    
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            FCcutoff = 0.5,
+                            titleLabSize = 14,
+                            title = currentcell,
+                            selectLab = genes_to_label
+                            )
+  }
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_sexlabeled/500ss/FCG.pdf", width  = 15, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 3))
+dev.off()
+
+
+##Full - don't run 
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df_annotated %>%
+    dplyr::filter(model == "Full" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose2_vs_Xdose1", "Ydose1_vs_Ydose0", "Ydose2_vs_Ydose0", "Ydose2_vs_Ydose1", "Ovary:Xdose2", "Ovary:Ydose1", "Ovary:Ydose2")))
+  
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    genes_to_label <- subset %>% dplyr::filter(Class == "Sex-linked" & adj.P.Val < 0.05 & abs(logFC) >= 0.5) %>% dplyr::select(gene) %>% unlist(use.names = FALSE)
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            FCcutoff = 0.5,
+                            titleLabSize = 14,
+                            title = currentcell,
+                            selectLab = genes_to_label
+                            )
+  }
+  
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_sexlabeled/500ss/Full.pdf", width  = 20, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+
+##Full aneuploidy
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df_annotated %>%
+    dplyr::filter(model == "Aneuploidy" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Aneuploidy", "Ovary:Aneuploidy", "Ovary:SexChromXX", "SexChromXX:Aneuploidy")))
+  
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    genes_to_label <- subset %>% dplyr::filter(Class == "Sex-linked" & adj.P.Val < 0.05 & abs(logFC) >= 0.5) %>% dplyr::select(gene) %>% unlist(use.names = FALSE)
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            FCcutoff = 0.5,
+                            titleLabSize = 14,
+                            title = currentcell,
+                            selectLab = genes_to_label
+                            )
+  }
+
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_sexlabeled/500ss/Aneuploidy.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+
+##Full cont.
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df_annotated %>%
+    dplyr::filter(model == "Dose" & cell == currentcell)  %>%
+        #dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose", "Ovary:Xdose", "Ovary:Ydose", "Xdose:Ydose")))
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose")))
+  
+  genes_to_label <- plot_df %>% dplyr::filter(Class == "Sex-linked" & adj.P.Val < 0.05 & abs(logFC) >= 0.5) %>% dplyr::select(gene) %>% unlist(use.names = FALSE)
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            FCcutoff = 0.5,
+                            titleLabSize = 14,
+                            title = currentcell,
+                            selectLab = genes_to_label
+                            )
+  }
+  
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_sexlabeled/500ss/Dose.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+##Full quadratic
+volcano_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+
+  plot_df <- DEG_df_annotated %>%
+    dplyr::filter(model == "Quadratic" & cell == currentcell)  %>%
+    dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose", "Ydose^2")))
+  
+  genes_to_label <- plot_df %>% dplyr::filter(Class == "Sex-linked" & adj.P.Val < 0.05 & abs(logFC) >= 0.5) %>% dplyr::select(gene) %>% unlist(use.names = FALSE)
+
+  for (j in 1:nlevels(plot_df$comparison)) {
+    subset <- plot_df %>% dplyr::filter(comparison == levels(plot_df$comparison)[j])
+    volcano_list[[currentcell]][[j]] <- EnhancedVolcano(subset,
+                            lab = subset$gene,
+                            x = 'logFC',
+                            y = 'adj.P.Val',
+                            subtitle = subset$comparison,
+                            FCcutoff = 0.5,
+                            titleLabSize = 14,
+                            title = currentcell,
+                            selectLab = genes_to_label
+                            )
+  }
+}
+
+plot_list <- unlist(volcano_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/Supercell_DEG/volcano_sexlabeled/500ss/Quadratic.pdf", width  = 20, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 1))
+dev.off()
+
+
+```
+

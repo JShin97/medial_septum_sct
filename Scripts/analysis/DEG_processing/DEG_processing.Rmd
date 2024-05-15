@@ -1,0 +1,148 @@
+---
+title: "DEG_processing.Rmd"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+```
+
+```{r}
+# library(limma)
+# library(edgeR)
+# library(data.table)
+library(plyr)
+library(dplyr)
+library(Matrix)
+library(Seurat)
+#library(enrichplot)
+#library(org.Mm.eg.db)
+#library(ggplot2)
+#library(RColorBrewer)
+#library(grid)
+#library(gridExtra)
+#library(Mus.musculus)
+library(MAST)
+library(lme4)
+library(survcomp)
+library(ggplot2)
+library(UpSetR)
+library(tidyverse)
+library(ComplexUpset)
+library(ggpubr)
+library(readxl)
+```
+
+##DEG datasets
+```{r}
+data.dir <- "~/scratch/medial_septum_sct"
+
+##read in Caden's results 
+allfiles <- list.files(paste0(data.dir, "/Caden_DEG/"))
+allfiles <- allfiles[-1]
+
+normfiles <- list.files(paste0(data.dir, "/Caden_Norm_DEG/"))
+
+```
+
+```{r}
+##returns list of filtered DEGs
+simplify_results <- function(file_name, normfile_name, data_dir, norm_data_dir) {
+  load(paste0(data_dir, "/", file_name))
+  load(paste0(norm_data_dir, "/", normfile_name))
+  
+  currentcell <- gsub("limmaout_", "", file_name)
+  currentcell <- gsub(".rda", "", currentcell)
+  
+  ##Normative Effect
+  for(k in 1:length(resultlist_normative)) {
+ 
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_normative[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  ##Gonad/SexChrom Effect
+  for(k in 1:length(resultlist_sexchrom)) {
+ 
+    currentframe <- resultlist_sexchrom[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_sexchrom[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  ##additional X effect
+  for(k in 1:length(resultlist_additionalX)) {
+ 
+    currentframe <- resultlist_additionalX[[k]]
+    if(nrow(currentframe) == 0) {next}
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_additionalX[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  ##additional Y effect
+  for(k in 1:length(resultlist_additionalY)) {
+ 
+    currentframe <- resultlist_additionalY[[k]]
+    if(nrow(currentframe) == 0) {next}
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_additionalY[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  return(list(DEG_results = DEG_results, top_genes = topgenes))
+}
+```
+
+```{r}
+deg_list <- list()
+topgenes_list <- list()
+for(i in 1:length(allfiles)) {
+  currentfile <- allfiles[i]
+  currentnormfile <- normfiles[i]
+  
+  cell_results <- simplify_results(currentfile, currentnormfile, data_dir = "~/scratch/medial_septum_sct/Caden_DEG", norm_data_dir = "~/scratch/medial_septum_sct/Caden_Norm_DEG")
+
+  deg_df <- do.call("rbind", cell_results$DEG_results)
+  topgenes_df <- do.call("rbind", cell_results$top_genes)
+  
+  deg_list[[currentfile]] <- deg_df
+  topgenes_list[[currentfile]] <- topgenes_df
+}
+
+DEG_df <- do.call("rbind", deg_list)
+DEG_df <- DEG_df %>% dplyr::filter(comparison %in% c("XXF_vs_XYM", "GonadFemale", "SexChromXX", "SexChromXX:GonadFemale", "additionalXTRUE", "additionalYTRUE"))
+DEG_df$effect <- plyr::mapvalues(DEG_df$comparison,
+                                 from = c("XXF_vs_XYM", "GonadFemale", "SexChromXX", "SexChromXX:GonadFemale", "additionalXTRUE", "additionalYTRUE"),
+                                 to = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY"))
+
+saveRDS(DEG_df, file = "Results/ambient_RNA/DEG/DEG_results.rds")
+```

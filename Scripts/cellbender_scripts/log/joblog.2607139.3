@@ -1,0 +1,82 @@
+Job 2607139 started on:    g10
+Job 2607139 started on:    Mon Apr 8 10:12:02 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-22/outs/raw_feature_bc_matrix.h5 --output TriSeptum-22.h5 --cuda
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash 7097df5b52)
+cellbender:remove-background: 2024-04-08 10:12:10
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-22/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 27086 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 968
+cellbender:remove-background: Prior on counts for empty droplets is 21
+cellbender:remove-background: Excluding 9934 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 17152 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 10
+cellbender:remove-background: Using 31080 probable cell barcodes, plus an additional 37178 barcodes, and 122248 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 25 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur
+cellbender:remove-background: Successfully unpacked tarball to /work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_args.npy
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_random.cuda
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_test.loaderstate
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_random.pyro
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_model.torch
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_optim.pyro
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_train.loaderstate
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/posterior.h5
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_optim.torch
+/work/2607139.3.gpu_RTX2080Ti.q/tmpkgp2pmur/7097df5b52_params.pyro
+cellbender:remove-background: Loaded partially-trained checkpoint from ckpt.tar.gz
+cellbender:remove-background: Checkpoint loaded successfully.
+cellbender:remove-background: Running inference...
+cellbender:remove-background: 2024-04-08 10:12:44
+cellbender:remove-background: Inference procedure complete.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne
+cellbender:remove-background: Successfully unpacked tarball to /work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_args.npy
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_random.cuda
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_test.loaderstate
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_random.pyro
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_model.torch
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_optim.pyro
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_train.loaderstate
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/posterior.h5
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_optim.torch
+/work/2607139.3.gpu_RTX2080Ti.q/tmptg1yu8ne/7097df5b52_params.pyro
+cellbender:remove-background: Loaded pre-computed posterior from posterior.h5
+cellbender:remove-background: 2024-04-08 10:13:20
+
+cellbender:remove-background: Saved summary plots as TriSeptum-22.pdf
+cellbender:remove-background: Saved cell barcodes in TriSeptum-22_cell_barcodes.csv
+cellbender:remove-background: Computing target noise counts per gene for MCKP estimator
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/base_cli.py", line 118, in main
+    cli_dict[args.tool].run(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/cli.py", line 185, in run
+    return main(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/cli.py", line 230, in main
+    posterior = run_remove_background(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 133, in run_remove_background
+    file_name=file_name,
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 237, in compute_output_denoised_counts_reports_metrics
+    per_gene=True,
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/posterior.py", line 1579, in compute_mean_target_removal_as_function
+    device=device,
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/estimation.py", line 147, in estimate_noise
+    device=device)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/estimation.py", line 822, in apply_function_dense_chunks
+    s = fun(dense_tensor, **kwargs)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/estimation.py", line 143, in _torch_mean
+    return torch.matmul(x.exp(), c.t())
+torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.97 GiB (GPU 0; 10.75 GiB total capacity; 2.24 GiB already allocated; 80.50 MiB free; 2.26 GiB reserved in total by PyTorch) If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF
+Job 2607139 ended on:    g10
+Job 2607139 ended on:    Mon Apr 8 10:13:53 PDT 2024
+ 

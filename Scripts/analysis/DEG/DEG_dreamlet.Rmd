@@ -1,0 +1,145 @@
+---
+title: "MASHR DEG Analysis"
+output: html_document
+date: "2023-11-21"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/julianas/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(plyr)
+library(dplyr)
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+library(stringr)
+library(readxl)
+library(tidyr)
+library(purrr)
+library(ggridges)
+library(ggpubr)
+library(ggplotify)
+library(scuttle)
+library(Mus.musculus)
+
+library(dreamlet)
+library(muscat)
+library(zenith)
+library(scater)
+library(mashr)
+```
+
+##Load data 
+```{r}
+seurat <- readRDS( "~/scratch/medial_septum_sct/Saves/For_Figures.rds") %>% DietSeurat(counts = TRUE)
+#sce <- as.SingleCellExperiment(seurat)
+
+#For FCG data: 
+sce <- subset(seurat, Genotype %in% c("XYM", "XYF", "XXM", "XXF") & cell.type != c("Unknown")) %>%
+  as.SingleCellExperiment()
+sce$Gonad <- factor(sce$Gonad, levels = c("Male", "Female"))
+sce$SexChrom <- factor(sce$SexChrom, levels = c("XY", "XX"))
+
+#For full models: 
+sce <- subset(seurat, cell.type != c("Unknown")) %>% 
+  as.SingleCellExperiment()
+sce$Gonad <- factor(sce$Gonad, levels = c("Male", "Female"))
+sce$SexChrom <- factor(sce$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+```
+
+##Preprocessing
+```{r}
+#keep cells with sufficient reads 
+sce <- sce[rowSums(counts(sce) > 0) > 0, ]
+#compute QC metrics
+qc <- perCellQCMetrics(sce)
+#remove cells with few or many detected genes 
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce <- sce[, !ol]
+#compute normalized data
+sce <- sce[rowSums(counts(sce) > 1) >= 10, ]
+sce <- computeLibraryFactors(sce)
+sce <- logNormCounts(sce)
+```
+
+##Aggregate to Pseudobulk
+```{r}
+pb <- aggregateToPseudoBulk(sce,
+                            assay = "counts",
+                            cluster_id = "cell.type",
+                            sample_id = "data.sampleName",
+                            verbose = TRUE)
+```
+
+##dreamlet for pseudobulk
+```{r}
+#Normalize and apply voom/voomwithDreamWeights 
+res.proc = processAssays(pb, ~Gonad + SexChrom + Gonad:SexChrom, min.count = 5)
+
+#Differential expression analysis within each assay, evaluated on voom normalized data 
+res.dl = dreamlet(res.proc, ~Gonad + SexChrom + Gonad:SexChrom)
+```
+
+##mashr analysis
+```{r}
+#Run mashr model to borrow information across genes and cell types in estimating coefficients' posterior distribution 
+res_mash <- list()
+
+res_mash[["GonadFemale"]] = run_mash(res.dl, coef = "GonadFemale")
+res_mash[["SexChromXX"]] = run_mash(res.dl, coef = "SexChromXX")
+res_mash[["GonadFemale:SexChromXX"]] = run_mash(res.dl, coef = "GonadFemale:SexChromXX")
+
+plot_list <- list()
+plot_list[["GonadFemale"]] <- plotVolcano(res_mash[["GonadFemale"]])
+plot_list[["SexChromXX"]] <- plotVolcano(res_mash[["SexChromXX"]])
+plot_list[["GonadFemale:SexChromXX"]] <- plotVolcano(res_mash[["GonadFemale:SexChromXX"]])
+
+
+pdf("Plots/MASHR_DEG/volcano/FCG_volcano.pdf", width = 20, height = 5)
+print(ggarrange(plotlist = plot_list, nrow = 1))
+dev.off()
+```
+
+```{r}
+#Summarize mashr results 
+
+#original logFC 
+head(res_mash$logFC.original)
+#posterior mean for logFC (updated logFC)
+head(get_pm(res_mash$model))
+
+#number of gene-by-celltype tests are significant 
+table(get_lfsr(res_mash$model) < 0.05, useNA = "ifany")
+#number of genes signiicant in at least 1 cell type 
+table(apply(get_lfsr(res_mash$model), 1, min, na.rm = TRUE) < 0.05)
+sort(names(get_significant_results(res_mash$model)))
+#number of genes significant in each cell type 
+apply(get_lfsr(res_mash$model), 2, function(x) sum(x < 0.05, na.rm = TRUE))
+```
+
+##Visualization of results 
+```{r}
+# Load Gene Ontology database 
+# use gene 'SYMBOL', or 'ENSEMBL' id
+# use get_MSigDB() to load MSigDB 
+go.gs = get_GeneOntology("CC", to="SYMBOL")
+
+# valid values for statistic: 
+# "tstatistic", "abs(tstatistic)", "logFC", "abs(logFC)" -- fix here 
+df_gs = zenith_gsa(res_mash, go.gs)
+
+# Heatmap of results
+plotZenithResults(df_gs, 5, 1)
+
+#Volcano
+plotVolcano(res_mash)
+```
+

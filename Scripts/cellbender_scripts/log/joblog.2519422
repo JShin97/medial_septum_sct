@@ -1,0 +1,16 @@
+Job 2519422 started on:  n7677
+Job 2519422 started on:  Wed Apr 3 17:48:05 PDT 2024
+ 
+/work/UGE/8.6.4/n7677/job_scripts/2519422: line 42: cd: /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts: No such file or directory
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/base_cli.py", line 115, in main
+    args = cli_dict[args.tool].validate_args(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/cli.py", line 49, in validate_args
+    assert os.access(file_dir, os.W_OK), \
+AssertionError: Cannot write to specified output directory /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts/XY-TriSeptum-1. Ensure the directory exists and is write accessible.
+/work/UGE/8.6.4/n7677/job_scripts/2519422: line 60: --epochs: command not found
+Job 2519422 ended on:  n7677
+Job 2519422 ended on:  Wed Apr 3 17:48:20 PDT 2024
+ 

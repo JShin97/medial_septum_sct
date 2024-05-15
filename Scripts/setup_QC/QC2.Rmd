@@ -1,0 +1,206 @@
+---
+title: "QC2"
+output: html_document
+date: "2024-04-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_sepum_sct")
+
+library(Seurat)
+library(stringr)
+library(readxl)
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readr)
+#library(multtest)
+#library(mutoss)
+#library(metap)
+library(purrr)
+#library(SoupX)
+library(hdf5r)
+library(ggpubr)
+library(RSpectra)
+library(DropletUtils)
+library(BiocParallel)
+library(DoubletFinder)
+library(harmony)
+
+```
+
+```{r}
+sample.dir <- "/u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts2"
+samples <- list.dirs(path = sample.dir, full.names = FALSE, recursive = FALSE)
+```
+
+```{r}
+##load original objects
+seurat_list <- lapply(samples, function(sample){
+data_path <- paste0(sample.dir, "/", sample, "/", sample, "_filtered_seurat.h5")
+count_data <- Read10X_h5(data_path)
+cur_seurat <- CreateSeuratObject(
+counts = count_data,
+project='MS_SCT'
+)
+cur_seurat$SampleID <- sample
+return(cur_seurat)
+})
+saveRDS(seurat_list, "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list.Rds")
+```
+
+```{r}
+##QC:
+
+seurat_list <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list.Rds")
+
+seurat_list_noempty <- for(i in 1:length(seurat_list)) {
+  sample <- seurat_list[[i]]
+  # (1). Identify total RNA count for each cell
+  cell_count <- sample$nCount_RNA
+  # (2). Define the second least RNA count as the lower bound
+  l_cell_count <- sort(cell_count)[2]
+  # (3). Detect the empty droplets
+  e_cell_count <- emptyDrops(sample@assays$RNA@counts, lower = l_cell_count,BPPARAM=MulticoreParam())
+  sample_noempty <- sample[,which(e_cell_count$FDR <= 0.01)]
+  seurat_list_noempty[[i]] <- sample_noempty
+}
+
+seurat_list <- for(i in 1:length(seurat_list)) {
+  sample <- seurat_list[[i]]
+  # (1) Pre-process sample
+  sample <- NormalizeData(sample)
+  sample <- FindVariableFeatures(sample, selection.method = "vst", nfeatures = 2000)
+  sample <- ScaleData(sample)
+  sample <- RunPCA(sample)
+  sample <- RunUMAP(sample, dims = 1:30)
+  # (2). pK Identification (no ground-truth)
+  sweep.res.list <- paramSweep(sample, PCs = 1:30, sct = FALSE)
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  pdf(file = paste0("Plots/QC/doublet/", unique(sample$SampleID), ".pdf"),width=3,height=5)
+  bcmvn_sample <- find.pK(sweep.stats)
+  dev.off()
+  mpK <-as.numeric(as.vector(bcmvn_sample$pK[which.max(bcmvn_sample$BCmetric)]))
+  # (3). Run DoubletFinder
+  DoubletRate = ncol(sample)*8*1e-6 # ~1000 cells, and a multiplet rate of ~0.8% according to 10XGenomics
+  nExp_poi <- round(DoubletRate*ncol(sample))
+  sample <- doubletFinder(sample, PCs = 1:30, pN = 0.25, pK = mpK, nExp = nExp_poi, reuse.pANN = FALSE, sct = F)
+  # (4). Remove doublets
+  table(sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)])
+  sample$doubletfinder<-sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)]
+  seurat_list_df[[i]] <- sample
+}
+saveRDS(seurat_list_df, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_df.Rds")
+```
+
+```{r}
+seuratObject <- merge(x = seurat_list_df[[1]], y = seurat_list_df[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
+
+seuratObject@meta.data[, grepl("pANN", colnames(seuratObject@meta.data))] <- NULL
+seuratObject@meta.data[, grepl("DF", colnames(seuratObject@meta.data))] <- NULL
+
+##add metadata
+load(file = "Saves/metadata.Rda")
+sample_metadata <- seuratObject@meta.data
+sample_metadata <- sample_metadata %>%
+tibble::rownames_to_column(var = "cell") %>%
+left_join(., original_metadata, by = c("SampleID" = "orig.ident")) %>%
+left_join(., technical_metadata, by = c("SampleID" = "Sample_ID"))
+sample_metadata <- sample_metadata %>%
+dplyr::select(-Genotype.y) %>%
+dplyr::rename(Genotype = Genotype.x)
+rownames(sample_metadata) <- sample_metadata$cell
+sample_metadata <- sample_metadata[, -1]
+for (meta in names(sample_metadata)) {
+seuratObject[[meta]] <- sample_metadata[[meta]]
+}
+
+saveRDS(seuratObject, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
+```
+
+```{r}
+#check original object 
+
+## integrate with standard workflow by sequencing date
+original <- readRDS("Saves/Caden/For_Figures.rds")
+sample_metadata <- original@meta.data
+
+sample_metadata <- sample_metadata %>%
+left_join(., technical_metadata, by = c("orig.ident" = "Sample_ID"))
+for (meta in names(sample_metadata)) {
+original[[meta]] <- sample_metadata[[meta]]
+}
+
+DimPlot(original, group.by = c("Sequencing_Date", "Library_Prep"))
+DimPlot(original, group.by = c("orig.ident"))
+DimPlot(original, group.by = c("Genotype", "Gonad", "SexChrom"))
+DimPlot(original, group.by = c("cell.type"))
+```
+
+```{r}
+seuratObject <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
+seurat_list <- SplitObject(seuratObject, split.by = "SampleID")
+seurat_list <- lapply(X = seurat_list,
+  FUN = SCTransform,
+  vst.flavor = "v2",
+  method = "glmGamPoi",
+  return.only.var.genes = FALSE,
+  conserve.memory = TRUE)
+var.features <- SelectIntegrationFeatures(object.list = seurat_list, nfeatures = 3000)
+
+seuratObject.sct <- merge(x = seurat_list[[1]], y = seurat_list[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
+VariableFeatures(seuratObject.sct) <- var.features
+seuratObject.sct <- RunPCA(seuratObject.sct, verbose = TRUE)
+seuratObject.sct <- RunHarmony(seuratObject.sct, assay.use="SCT", group.by.vars = "SampleID")
+seuratObject.sct <- RunUMAP(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindNeighbors(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindClusters(seuratObject.sct, reduction = "harmony", resolution = 0.4)
+save(seurat_list, seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_merged_integrated_SampleID.Rds")
+
+######################################################
+
+seuratObject <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
+seurat_list <- SplitObject(seuratObject, split.by = "Sequencing_Date")
+seurat_list <- lapply(X = seurat_list,
+  FUN = SCTransform,
+  vst.flavor = "v2",
+  method = "glmGamPoi",
+  return.only.var.genes = FALSE,
+  conserve.memory = TRUE)
+var.features <- SelectIntegrationFeatures(object.list = seurat_list, nfeatures = 3000)
+
+seuratObject.sct <- merge(x = seurat_list[[1]], y = seurat_list[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
+VariableFeatures(seuratObject.sct) <- var.features
+seuratObject.sct <- RunPCA(seuratObject.sct, verbose = TRUE)
+seuratObject.sct <- RunHarmony(seuratObject.sct, assay.use="SCT", group.by.vars = "Sequencing_Date")
+seuratObject.sct <- RunUMAP(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindNeighbors(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindClusters(seuratObject.sct, reduction = "harmony", resolution = 0.4)
+save(seurat_list, seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_merged_integrated_SD.Rds")
+
+######################################################
+
+seuratObject <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
+seurat_list <- SplitObject(seuratObject, split.by = "Library_prep")
+seurat_list <- lapply(X = seurat_list,
+  FUN = SCTransform,
+  vst.flavor = "v2",
+  method = "glmGamPoi",
+  return.only.var.genes = FALSE,
+  conserve.memory = TRUE)
+var.features <- SelectIntegrationFeatures(object.list = seurat_list, nfeatures = 3000)
+
+seuratObject.sct <- merge(x = seurat_list[[1]], y = seurat_list[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
+VariableFeatures(seuratObject.sct) <- var.features
+seuratObject.sct <- RunPCA(seuratObject.sct, verbose = TRUE)
+seuratObject.sct <- RunHarmony(seuratObject.sct, assay.use="SCT", group.by.vars = "Library_Prep")
+seuratObject.sct <- RunUMAP(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindNeighbors(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindClusters(seuratObject.sct, reduction = "harmony", resolution = 0.4)
+save(seurat_list, seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_merged_integrated_LP.Rds")
+
+```
+
+
+

@@ -1,20 +1,17 @@
 ---
-title: "DEG3"
+title: "Pathway Overrepresentation Analysis"
 output: html_document
 ---
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "/u/project/xyang123/julianas/medial_septum_sct")
-```
 
-```{r}
 library(limma)
 library(edgeR)
 library(data.table)
 library(plyr)
 library(dplyr)
-library(fastDummies)
 library(Seurat)
 library(clusterProfiler)
 library(enrichplot)
@@ -24,7 +21,6 @@ library(RColorBrewer)
 library(grid)
 library(gridExtra)
 library(SingleCellExperiment)
-#library(Matrix.utils)
 library(magrittr)
 library(simplifyEnrichment)
 library(stringr)
@@ -37,100 +33,20 @@ library(tidyr)
 ```
 
 ```{r}
-seurat <- readRDS( "Saves/For_Figures.rds") %>% 
-    DietSeurat(counts = TRUE)
+seurat <- readRDS( "~/scratch/medial_septum_sct/Saves/For_Figures.rds") %>% DietSeurat(counts = TRUE)
 ```
 
 ```{r}
-gene_annotation <- read.table("Gene_annotation/gene_annotation_final.txt", sep = "\t")
-#gene_annotation <- read.table("Gene_annotation/gene_annotation_biomart.txt", sep = "\t")
+gene_annotation <- readRDS("~/scratch/medial_septum_sct/Saves/gene_annotation.Rds")
 
-#xescape_brain <- read_xlsx("Gene_annotation/xescape_brain.xlsx")
-#colnames(xescape_brain) <- xescape_brain[1, ]
-#xescape_brain <- xescape_brain[-1, ]
-
-#gene_annotation$gene_class <- ifelse(gene_annotation$Chr %in% c("X", "Y"), "Sex-linked", "Autosome")
-#gene_annotation$Xescape <- ifelse(gene_annotation$Input %in% xescape_brain$Gene, "Escapee", "Non-escapee")
-
-par_genes <- c("Mid1", "Sts", "Nlgn4", "Asmt")
-```
-
-```{r}
-#clean up results - make loop that cycles over all cell types? 
 allcells <- unique(seurat$cell.type)
 allcells <- allcells[!allcells == "Unknown"]
 
 alldata <- list.dirs("Data/Derived/DEG", recursive = TRUE)
 alldata <- alldata[-1]
-currentcell <- allcells[1]
-for (i in 1:length(alldata)) {
-  load(paste0(alldata[i], "/", currentcell, ".rda"))
-}
-
-normative_df <- bind_rows(resultlist_normative, .id = "comparison") %>%
-  dplyr::mutate(model = "normative",
-                celltype = currentcell) %>%
-  tibble::rownames_to_column(var = "Gene")
-
-fcg_df <- bind_rows(resultlist_fcg, .id = "comparison") %>%
-  dplyr::mutate(model = "FCG",
-                celltype = currentcell) %>%
-  tibble::rownames_to_column(var = "Gene")
-fcg_df$Gene <- gsub("\\...*", "", fcg_df$Gene)
-
-dose_df <- bind_rows(resultlist_dosage, .id = "comparison") %>%
-  dplyr::mutate(model = "Dose",
-                celltype = currentcell) %>%
-  tibble::rownames_to_column(var = "Gene")
-dose_df$Gene <- gsub("\\...*", "", dose_df$Gene)
-
-XY_male_df <- bind_rows(resultlist_XY, .id = "comparison") %>%
-  dplyr::mutate(model = "XY_male",
-                celltype = currentcell) %>%
-  tibble::rownames_to_column(var = "Gene")
-XY_male_df$Gene <- gsub("\\...*", "", XY_male_df$Gene)
-
-interaction_genes <- bind_rows(resultlist_XY_comb[3:6], .id = "comparison") %>%
-  dplyr::filter(adj.P.Val < 0.05) %>%
-  tibble::rownames_to_column(var = "Gene") %>%
-  dplyr::select(Gene) %>%
-  unlist(use.names = FALSE)
-interaction_genes <- gsub("\\...*", "", interaction_genes)
-interaction_genes <- interaction_genes[!duplicated(interaction_genes)]
-
-XY_comb_df <- bind_rows(resultlist_XY_comb[1:2], .id = "comparison") %>%
-  dplyr::mutate(model = "XY_comb",
-                celltype = currentcell) %>%
-  tibble::rownames_to_column(var = "Gene")
-XY_comb_df$Gene <- gsub("\\...*", "", XY_comb_df$Gene)
-XY_comb_df <- XY_comb_df %>% dplyr::filter(!Gene %in% interaction_genes)
-
-addX_df <- bind_rows(resultlist_additionalX, .id = "comparison") %>%
-  dplyr::mutate(model = "additionalX",
-                celltype = currentcell) %>%
-  tibble::rownames_to_column(var = "Gene")
-addX_df$Gene <- gsub("\\...*", "", addX_df$Gene)
-
-addY_df <- bind_rows(resultlist_additionalY, .id = "comparison") %>%
-  dplyr::mutate(model = "additionalY",
-                celltype = currentcell) %>%
-  tibble::rownames_to_column(var = "Gene")
-addY_df$Gene <- gsub("\\...*", "", addY_df$Gene)
-
-combined_df <- rbind(normative_df, fcg_df, dose_df, XY_male_df, XY_comb_df, addX_df, addY_df)
-
-combined_df <- combined_df %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.5) %>% 
-  left_join(gene_annotation, by = c("Gene"="Input"), multiple = "all")
-combined_df$Chr <- ifelse(combined_df$Gene == "AC149090", "unplaced scaffold", combined_df$Chr)
 ```
 
 ```{r}
-allcells <- unique(seurat$cell.type)
-allcells <- allcells[!allcells == "Unknown"]
-
-alldata <- list.dirs("Data/Derived/DEG", recursive = TRUE)
-alldata <- alldata[-1]
-
 suppressWarnings(rm(combined_df_all))
 
 for(i in 1:length(allcells)) {
@@ -868,22 +784,6 @@ str_split(final$model.condition.cell[1], "\\.")[1]
 
 ```
 
-```{r}
-gene_list <- combined_df_all %>% dplyr::filter(comparison %in% c("XXF_vs_XYM", "SexChromXX", "Xdose2", "Ydose1", "Ydose2", "XXY_vs_XY", "XYY_vs_XY") | (model == "FCG" & comparison %in% c("GonadMale", "GonadFemale")))
-gene_list <- as.data.frame(table(gene_list$Gene, gene_list$comparison))
-gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq)
-gene_list[2:10] <- ifelse(gene_list[2:10] == 0, 0, 1)
-gene_list[2:10] <- lapply(gene_list[2:10], factor)
-
-set_vars <- c("XXF_vs_XYM", "GonadMale", "GonadFemale", "SexChromXX", "XXY_vs_XY", "XYY_vs_XY", "Xdose2", "Ydose1", "Ydose2")
-plot <- UpSetR::upset(data = gene_list, sets = set_vars)
-plot
-
-pdf("Markers/SoupX/pathway/cell_type/upsetplot_0_1_2_model.pdf",width  = 10, height = 5)
-print(plot)
-dev.off()
-```
-
 
 ```{r}
 barplotframe <- as.data.frame(table(resultlist$Gene_class))
@@ -922,13 +822,6 @@ combined_all_pathway_frame$fold[combined_all_pathway_frame$fold < -1] <- -1
 genesofinterest <- c("Xist", "Eif2s3x", "Ddx3x", "Kdm5c", "Kdm6a", "Uty", "Kdm5d", "Ddx3y", "Eif2s3y")
 ```
 
-```{r}
-##visualize DEG results: volcano plots 
-
-
-##highlight genes that are sex-linked, escapees, and PAR? 
-
-```
 
 ```{r}
 ##pathway analysis final loop - OVERREPRESENTATION ANALYSIS 

@@ -1,0 +1,59 @@
+Job 2603327 started on:    g12
+Job 2603327 started on:    Sun Apr 7 22:38:18 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-6/outs/raw_feature_bc_matrix.h5 --output TriSeptum-6.h5 --cuda
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash 99d05ea688)
+cellbender:remove-background: 2024-04-07 22:38:24
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-6/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 26056 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 8073
+cellbender:remove-background: Prior on counts for empty droplets is 658
+cellbender:remove-background: Excluding 4880 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 21176 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 329
+cellbender:remove-background: Using 2076 probable cell barcodes, plus an additional 10587 barcodes, and 73065 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 982 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2603327.21.gpu_RTX2080Ti.q/tmp_n9cf6gt
+cellbender:remove-background: No saved checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/base_cli.py", line 118, in main
+    cli_dict[args.tool].run(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/cli.py", line 185, in run
+    return main(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/cli.py", line 230, in main
+    posterior = run_remove_background(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 95, in run_remove_background
+    inferred_model, _, _, _ = run_inference(dataset_obj=dataset_obj, args=args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 750, in run_inference
+    final_elbo_fail_fraction=args.final_elbo_fail_fraction)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/contextlib.py", line 74, in inner
+    return func(*args, **kwds)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/train.py", line 178, in run_training
+    total_epoch_loss_train = train_epoch(svi, train_loader)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/train.py", line 60, in train_epoch
+    epoch_loss += svi.step(x_cell_batch)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/pyro/infer/svi.py", line 145, in step
+    loss = self.loss_and_grads(self.model, self.guide, *args, **kwargs)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/pyro/infer/traceenum_elbo.py", line 467, in loss_and_grads
+    (loss_particle / self.num_particles).backward(retain_graph=True)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/torch/_tensor.py", line 489, in backward
+    self, gradient, retain_graph, create_graph, inputs=inputs
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/torch/autograd/__init__.py", line 199, in backward
+    allow_unreachable=True, accumulate_grad=True)  # Calls into the C++ engine to run the backward pass
+RuntimeError: CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call,so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1.
+Job 2603327 ended on:    g12
+Job 2603327 ended on:    Sun Apr 7 22:38:39 PDT 2024
+ 

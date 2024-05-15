@@ -1,0 +1,62 @@
+Job 2538803 started on:    g12
+Job 2538803 started on:    Thu Apr 4 13:25:20 PDT 2024
+ 
+mkdir: cannot create directory '/u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-1': File exists
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-1/outs/raw_feature_bc_matrix.h5 --output /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-1/TriSeptum-1.h5 --expected-cells 10000 --total-droplets-included 15000 --fpr 0.01 --epochs 150 --cuda
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash 813d8f43b5)
+cellbender:remove-background: 2024-04-04 13:25:41
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-1/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 31053 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 25021 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 5706
+cellbender:remove-background: Prior on counts for empty droplets is 1111
+cellbender:remove-background: Excluding 4328 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 20693 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 555
+cellbender:remove-background: Using 10000 probable cell barcodes, plus an additional 5000 barcodes, and 43390 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 1098 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2538803.1.gpu_RTX2080Ti.q/tmpsc5ip99t
+cellbender:remove-background: No saved checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/base_cli.py", line 118, in main
+    cli_dict[args.tool].run(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/cli.py", line 185, in run
+    return main(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/cli.py", line 230, in main
+    posterior = run_remove_background(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/run.py", line 95, in run_remove_background
+    inferred_model, _, _, _ = run_inference(dataset_obj=dataset_obj, args=args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/run.py", line 739, in run_inference
+    run_training(model=model,
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/train.py", line 178, in run_training
+    total_epoch_loss_train = train_epoch(svi, train_loader)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/train.py", line 60, in train_epoch
+    epoch_loss += svi.step(x_cell_batch)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/pyro/infer/svi.py", line 145, in step
+    loss = self.loss_and_grads(self.model, self.guide, *args, **kwargs)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/pyro/infer/traceenum_elbo.py", line 467, in loss_and_grads
+    (loss_particle / self.num_particles).backward(retain_graph=True)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/_tensor.py", line 522, in backward
+    torch.autograd.backward(
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/autograd/__init__.py", line 266, in backward
+    Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+RuntimeError: CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1.
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Job 2538803 ended on:    g12
+Job 2538803 ended on:    Thu Apr 4 13:26:03 PDT 2024
+ 

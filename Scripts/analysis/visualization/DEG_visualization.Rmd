@@ -1,0 +1,190 @@
+---
+title: "DEG visualization (original)"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+```
+
+```{r}
+# library(limma)
+# library(edgeR)
+# library(data.table)
+library(plyr)
+library(dplyr)
+library(Matrix)
+library(Seurat)
+#library(enrichplot)
+#library(org.Mm.eg.db)
+#library(ggplot2)
+#library(RColorBrewer)
+#library(grid)
+#library(gridExtra)
+#library(Mus.musculus)
+library(MAST)
+library(lme4)
+library(survcomp)
+library(ggplot2)
+library(UpSetR)
+library(tidyverse)
+library(ComplexUpset)
+library(ggpubr)
+library(readxl)
+library(tidytext)
+```
+
+```{r}
+DEG_df <- readRDS(file = "Results/ambient_RNA/DEG/DEG_results.rds")
+seurat <- readRDS(file = "Saves/Caden/For_Figures.rds")
+```
+
+```{r}
+##Normative count 
+
+DEG_df %>% filter(effect == "Normative" & adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>% 
+  mutate(sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var3)) +
+  geom_bar(stat = "identity", position = "identity") +
+  facet_wrap(~Var2) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=.95),
+        text = element_text(size = 14)) +
+  labs(x = NULL) +
+  guides(fill = guide_legend(title = "Direction"))
+
+pdf("Plots/Caden/Barplot/Normative_count.pdf", width = 7, height = 7)
+last_plot()
+dev.off()
+```
+
+```{r}
+##Counts for all Sex Effects
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>%
+  dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction"))
+
+pdf("Plots/Caden/Barplot/Allsexeffects_count_split.pdf", width = 23, height = 12)
+last_plot()
+dev.off()
+
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>%
+  dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(abs_Freq = Freq, 
+         Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = reorder_within(Var1, -abs_Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction")) 
+
+pdf("Plots/Caden/Barplot/Allsexeffects_count_split_ordered.pdf", width = 23, height = 12)
+last_plot()
+dev.off()
+
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>%
+  dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL)
+pdf("Plots/Caden/Barplot/Allsexeffects_count.pdf", width = 23, height = 12)
+last_plot()
+dev.off()
+
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>%
+  dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Type")) 
+
+pdf("Plots/Caden/Barplot/Allsexeffects_count_ordered.pdf", width = 23, height = 12)
+last_plot()
+dev.off()
+
+##Proportion counts 
+cluster.set <- unique(seurat$cell.type)
+gene.set <- sapply(X = cluster.set, function(c) {
+  cells.c <- WhichCells(object = seurat, expression = cell.type == c)
+  nFeature.c <- sum(rowSums(seurat[['RNA']]@counts[, cells.c ]) != 0)
+  return(nFeature.c)
+})
+names(gene.set) <- c("Neuron", "Astrocyte", "Oligo.PC", "Microglia", "Progenitor", "Myelinating.Oligo", "Endothelial", "Ependymal", "Unknown")
+gene.set <- gene.set[!names(gene.set) %in% c("Unknown", "Progenitor")]
+gene.set <- as.data.frame(gene.set) %>%
+  rownames_to_column(var = "Celltype")
+
+DEG_df %>% filter(adj.P.Val < 0.05 & abs(logFC) >= 0.1 & !cell_type == "Progenitor") %>% 
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  left_join(gene.set, by = c("Var1" = "Celltype")) %>%
+  mutate(Proportion = Freq / gene.set,
+         Var2 = factor(Var2, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY"))) %>%
+    ggplot(., aes(x = Var1, y = Proportion, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_grid(~Var2) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=.95),
+          text = element_text(size = 25)) +
+    labs(x = NULL) +
+  guides(fill = guide_legend(title = "Cell Type")) 
+
+pdf("Plots/Caden/Barplot/Allsexeffects_prop.pdf", width = 23, height = 12)
+last_plot()
+dev.off()
+
+DEG_df %>% filter(adj.P.Val < 0.05 & abs(logFC) >= 0.1 & !cell_type == "Progenitor") %>% 
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  left_join(gene.set, by = c("Var1" = "Celltype")) %>%
+  mutate(Proportion = Freq / gene.set,
+         Var2 = factor(Var2, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY"))) %>%
+    ggplot(., aes(x = reorder_within(Var1, -Proportion, Var2), y = Proportion, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_grid(~Var2, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=.95),
+          text = element_text(size = 25)) +
+    labs(x = NULL) +
+  guides(fill = guide_legend(title = "Cell Type")) 
+
+pdf("Plots/Caden/Barplot/Allsexeffects_prop_ordered.pdf", width = 23, height = 12)
+last_plot()
+dev.off()
+```

@@ -5,17 +5,16 @@ output: html_document
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/u/project/xyang123/julianas/medial_septum_sct")
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
 
 library(limma)
 library(edgeR)
 library(data.table)
 library(dplyr)
-library(fastDummies)
 library(plyr)
 library(Seurat)
-library(clusterProfiler)
-library(enrichplot)
+#library(clusterProfiler)
+#library(enrichplot)
 library(org.Mm.eg.db)
 library(ggplot2)
 library(RColorBrewer)
@@ -25,8 +24,7 @@ library(gridExtra)
 
 ```{r}
 ##Load in files 
-seurat <- readRDS("Saves/For_Figures.rds") %>% 
-    DietSeurat(counts = TRUE)
+seurat <- readRDS( "Saves/Caden/For_Figures.rds") %>% DietSeurat(counts = TRUE)
 
 metadata <- seurat@meta.data %>% dplyr::select(nCount_RNA, nFeature_RNA, data.sampleName, Genotype, cell.type, Gonad, SexChrom, Trisomy)
 ```
@@ -66,7 +64,7 @@ seurat$addY <- plyr::mapvalues(seurat$SexChrom,
 seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
 seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
 seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
-seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Trisomy", "Non-Trisomy"))
+seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
 ```
 
 ###################################
@@ -76,6 +74,8 @@ LINEAR MODELING WITH LIMMA
 ```{r}
 allcells <- unique(seurat@meta.data$cell.type)
 allcells <- allcells[!allcells == "Unknown"]
+
+newcells <- c("Neuron", "Astrocyte", "Oligo.PC", "Microglia", "Progenitor", "Myelinating.Oligo", "Endothelial", "Ependymal")
 ```
 
 ```{r}
@@ -85,6 +85,7 @@ for(i in 1:length(allcells)){
   resultlist_normative <- list()
   
   currentcell <- as.character(allcells[i])
+  newcell <- as.character(newcells[i]) ##rename
   currentsubset_original <- subset(seurat, cell.type == currentcell)
   gc()
   
@@ -102,15 +103,14 @@ for(i in 1:length(allcells)){
   y <- new("EList")
   y$E <- test 
   fit <- lmFit(y, design = design)
-  contrasts <- makeContrasts(XXF_vs_XYM = GenotypeXXF - GenotypeXYM,
-                           levels = design)
+  contrasts <- makeContrasts(XXF_vs_XYM = GenotypeXXF - GenotypeXYM,levels = design)
   
   fit <- contrasts.fit(fit, contrasts)
   fit <- eBayes(fit, trend = TRUE, robust = TRUE)
   
   resultlist_normative[["XXF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "XXF_vs_XYM")
 
-  save(resultlist_normative, file = paste0("Data/Derived/DEG/normative/", currentcell,".rda"))
+  save(resultlist_normative, file = paste0("~/scratch/medial_septum_sct/Caden_Norm_DEG/limmaout_", newcell,".rda"))
 }
 ```
 
@@ -122,7 +122,7 @@ for(i in 1:length(allcells)) {
   resultlist_fcg <- list()
   
   currentcell <- as.character(allcells[i])
-  currentsubset_original <- subset(seurat, cell.type == currentcell & Genotype == c("XYM","XXF","XXM" ,"XYF"))
+  currentsubset_original <- subset(seurat, cell.type == currentcell & Genotype %in% c("XYM","XXF","XXM" ,"XYF"))
   gc()
   
   currentsubset <- subset(currentsubset_original)
@@ -145,7 +145,7 @@ for(i in 1:length(allcells)) {
   
   resultlist_fcg[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
   resultlist_fcg[["XX_vs_XY"]] <- topTable(fit, n = Inf, coef = "SexChromXX")
-  resultlist_fcg[["GonadFemale:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale:SexChromXX")
+  resultlist_fcg[["Ovary:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale:SexChromXX")
   
   save(resultlist_fcg, file = paste0("Data/Derived/DEG/FCG/", currentcell,".rda"))
 }
@@ -160,7 +160,7 @@ for(i in 1:length(allcells)) {
   resultlist_fcg_dose <- list()
   
   currentcell <- as.character(allcells[i])
-  currentsubset_original <- subset(seurat, cell.type == currentcell & Genotype == c("XYM","XXF","XXM" ,"XYF"))
+  currentsubset_original <- subset(seurat, cell.type == currentcell & Genotype %in% c("XYM","XXF","XXM" ,"XYF"))
   gc()
   
   currentsubset <- subset(currentsubset_original)
@@ -174,7 +174,6 @@ for(i in 1:length(allcells)) {
   top2 <- which(Matrix::rowMeans(test >= 1) >= 0.15) #9000 gene > 0.1, 6000 gene > 0.2
   test <- normalized[top2,]
   
-  #design <- model.matrix(~nCount_RNA + nFeature_RNA + SexChrom + Xdose_cont + Ydose_cont, data = datatotest) 
   design <- model.matrix(~nCount_RNA + nFeature_RNA + Xdose_cont + Ydose_cont, data = datatotest) 
 
   y <- new("EList")
@@ -183,8 +182,7 @@ for(i in 1:length(allcells)) {
   fit <- eBayes(fit, trend = TRUE, robust = TRUE)
   
   resultlist_fcg_dose[["Xdose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont")
-  resultlist_fcg_dose[["Ydose"]] <- topTable(fit, n = Inf, coef = "Ydose_cont")
-  
+
   save(resultlist_fcg_dose, file = paste0("Data/Derived/DEG/FCG_dose/", currentcell,".rda"))
 }
 ```
@@ -355,9 +353,9 @@ for(i in 1:length(allcells)) {
   resultlist_full[["Ydose1_vs_Ydose0"]] <- topTable(fit, n = Inf, coef = "Ydose1")
   resultlist_full[["Ydose2_vs_Ydose0"]] <- topTable(fit, n = Inf, coef = "Ydose2")
   resultlist_full[["Ydose2_vs_Ydose1"]] <- topTable(fit, n = Inf, coef = "Ydose2-Ydose1")
-  resultlist_full[["GonadFemale:Xdose2"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Xdose2")
-  resultlist_full[["GonadFemale:Ydose1"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose1")
-  resultlist_full[["GonadFemale:Ydose2"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose2")
+  resultlist_full[["Ovary:Xdose2"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Xdose2")
+  resultlist_full[["Ovary:Ydose1"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose1")
+  resultlist_full[["Ovary:Ydose2"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose2")
 
   save(resultlist_full, file = paste0("Data/Derived/DEG/full/", currentcell,".rda"))
 }
@@ -394,8 +392,8 @@ for(i in 1:length(allcells)) {
   resultlist_full_cont[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
   resultlist_full_cont[["Xdose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont")
   resultlist_full_cont[["Ydose"]] <- topTable(fit, n = Inf, coef = "Ydose_cont")
-  resultlist_full_cont[["GonadFemale:Xdose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Xdose_cont")
-  resultlist_full_cont[["GonadFemale:Ydose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose_cont")
+  resultlist_full_cont[["Ovary:Xdose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Xdose_cont")
+  resultlist_full_cont[["Ovary:Ydose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose_cont")
   resultlist_full_cont[["Xdose:Ydose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont.Ydose_cont")
 
   save(resultlist_full_cont, file = paste0("Data/Derived/DEG/full_cont/", currentcell,".rda"))
@@ -431,8 +429,8 @@ for(i in 1:length(allcells)) {
   
   resultlist_full_quad[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
   resultlist_full_quad[["Xdose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont")
-  resultlist_full_quad[["Ydose"]] <- topTable(fit, n = Inf, coef = "poly(Ydose_cont, degree = 2)1")
-  resultlist_full_quad[["Ydose^2"]] <- topTable(fit, n = Inf, coef = "poly(Ydose_cont, degree = 2)2")
+  resultlist_full_quad[["Ydose"]] <- limma::topTable(fit, n = Inf, coef = 6:7)
+  #resultlist_full_quad[["Ydose^2"]] <- topTable(fit, n = Inf, coef = "poly(Ydose_cont, degree = 2)2")
 
   save(resultlist_full_quad, file = paste0("Data/Derived/DEG/full_quad/", currentcell,".rda"))
 }
@@ -469,9 +467,9 @@ for(i in 1:length(allcells)) {
   resultlist_add[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
   resultlist_add[["XX_vs_XY"]] <- topTable(fit, n = Inf, coef = "base_SexChromXX")
   resultlist_add[["Aneuploidy"]] <- topTable(fit, n = Inf, coef = "TrisomyNon-Trisomy")
-  resultlist_add[["GonadFemale:base_SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale.base_SexChromXX")
-  resultlist_add[["GonadFemale:Aneuploidy"]] <- topTable(fit, n = Inf, coef = "GonadFemale.TrisomyNon-Trisomy")
-  resultlist_add[["base_SexChromXX:Aneuploidy"]] <- topTable(fit, n = Inf, coef = "base_SexChromXX.TrisomyNon-Trisomy")
+  resultlist_add[["Ovary:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale.base_SexChromXX")
+  resultlist_add[["Ovary:Aneuploidy"]] <- topTable(fit, n = Inf, coef = "GonadFemale.TrisomyNon-Trisomy")
+  resultlist_add[["SexChromXX:Aneuploidy"]] <- topTable(fit, n = Inf, coef = "base_SexChromXX.TrisomyNon-Trisomy")
 
   save(resultlist_add, file = paste0("Data/Derived/DEG/full_add/", currentcell,".rda"))
 }
@@ -486,7 +484,7 @@ for(i in 1:length(allcells)) {
   resultlist_additionalX <- list()
   
   currentcell <- as.character(allcells[i])
-  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom == c("XY", "XXY"))
+  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom %in% c("XY", "XXY"))
   gc()
   
   currentsubset <- subset(currentsubset_original)
@@ -521,7 +519,7 @@ for(i in 1:length(allcells)) {
   resultlist_additionalX_cont <- list()
   
   currentcell <- as.character(allcells[i])
-  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom == c("XY", "XXY"))
+  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom %in% c("XY", "XXY"))
   gc()
   
   currentsubset <- subset(currentsubset_original)
@@ -557,7 +555,7 @@ for(i in 1:length(allcells)) {
   resultlist_additionalY <- list()
   
   currentcell <- as.character(allcells[i])
-  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom == c("XY", "XX", "XXY", "XYY"))
+  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom %in% c("XY", "XX", "XXY", "XYY"))
   gc()
   
   currentsubset <- subset(currentsubset_original)
@@ -600,7 +598,7 @@ for(i in 1:length(allcells)) {
   resultlist_additionalY_cont <- list()
   
   currentcell <- as.character(allcells[i])
-  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom == c("XY", "XX", "XXY", "XYY"))
+  currentsubset_original <- subset(seurat, cell.type == currentcell & SexChrom %in% c("XY", "XX", "XXY", "XYY"))
   gc()
   
   currentsubset <- subset(currentsubset_original)

@@ -1,0 +1,16 @@
+Job 2538759 started on:    g11
+Job 2538759 started on:    Thu Apr 4 13:24:19 PDT 2024
+ 
+Traceback (most recent call last):
+  File "/u/project/xyang123/shared/tools/miniconda3/envs/cellbender/bin/cellbender", line 33, in <module>
+    sys.exit(load_entry_point('cellbender', 'console_scripts', 'cellbender')())
+  File "/u/project/xyang123/shared/tools/miniconda3/envs/cellbender/bin/cellbender", line 22, in importlib_load_entry_point
+    for entry_point in distribution(dist_name).entry_points
+  File "/u/project/xyang123/shared/tools/miniconda3/envs/cellbender/lib/python3.8/importlib/metadata.py", line 503, in distribution
+    return Distribution.from_name(distribution_name)
+  File "/u/project/xyang123/shared/tools/miniconda3/envs/cellbender/lib/python3.8/importlib/metadata.py", line 177, in from_name
+    raise PackageNotFoundError(name)
+importlib.metadata.PackageNotFoundError: cellbender
+Job 2538759 ended on:    g11
+Job 2538759 ended on:    Thu Apr 4 13:24:23 PDT 2024
+ 

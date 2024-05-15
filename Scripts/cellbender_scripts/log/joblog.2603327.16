@@ -1,0 +1,26 @@
+Job 2603327 started on:    g12
+Job 2603327 started on:    Sun Apr 7 22:38:18 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-23/outs/raw_feature_bc_matrix.h5 --output TriSeptum-23.h5 --cuda
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash c7e452e566)
+cellbender:remove-background: 2024-04-07 22:38:24
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-23/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 27028 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 1035
+cellbender:remove-background: Prior on counts for empty droplets is 36
+cellbender:remove-background: Excluding 9717 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 17311 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 18
+cellbender:remove-background: Using 31797 probable cell barcodes, plus an additional 34423 barcodes, and 15599 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 44 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2603327.16.gpu_RTX2080Ti.q/tmpm45ka41a
+cellbender:remove-background: No saved checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...

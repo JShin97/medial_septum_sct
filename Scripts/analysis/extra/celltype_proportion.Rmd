@@ -1,0 +1,146 @@
+---
+title: "celltype_proportion"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+```
+
+```{r}
+# library(limma)
+# library(edgeR)
+# library(data.table)
+library(plyr)
+library(dplyr)
+library(Matrix)
+library(Seurat)
+#library(enrichplot)
+#library(org.Mm.eg.db)
+#library(ggplot2)
+#library(RColorBrewer)
+#library(grid)
+#library(gridExtra)
+#library(Mus.musculus)
+library(MAST)
+library(lme4)
+library(survcomp)
+library(ggplot2)
+library(UpSetR)
+library(tidyverse)
+library(speckle)
+```
+
+```{r}
+##Load in files 
+seurat <- readRDS( "Saves/Caden/For_Figures.rds")
+####
+seurat$cell.type <- factor(seurat$cell.type)
+allcells <- levels(seurat$cell.type)
+
+cells_to_remove <- c("Unknown", "Oligodendrocyte Progenitor Cell")
+allcells <- allcells[!allcells %in% cells_to_remove]
+newcells <- c("Neuron", "Astrocyte", "Oligo.PC", "Microglia", "Progenitor", "Myelinating.Oligo", "Endothelial", "Ependymal")
+
+#gene_universe <- rownames(seurat@assays$RNA@counts)
+#write.table(gene_universe, file = "Gene_annotation/gene_universe.txt", sep = "\t")
+```
+
+```{r}
+cell_metadata <- seurat@meta.data %>% dplyr::select(data.sampleName, Gonad, SexChrom, Genotype, cell.type)
+sample_metadata <- seurat@meta.data %>% dplyr::select(data.sampleName, Gonad, SexChrom, Genotype)
+rownames(sample_metadata) <- NULL
+sample_metadata <- unique(sample_metadata)
+sample_metadata <- sample_metadata %>% 
+  group_by(Genotype) %>%
+  mutate(Sample2 = paste0(Genotype, row_number()))
+
+cell_metadata <- left_join(cell_metadata, sample_metadata[, c(1, 5)], by = "data.sampleName") %>% relocate(Sample2)
+
+cell.counts <- table(cell_metadata$cell.type, cell_metadata$data.sampleName) %>% t()
+trueprops <- rowSums(cell.counts)/sum(rowSums(cell.counts))
+cell.counts <- cell.counts %>% as.data.frame() 
+
+cell_metadata <- left_join(cell_metadata, cell.counts, by = c("data.sampleName" = "Var1", "cell.type" = "Var2"))
+
+cell_metadata <- cell_metadata %>%
+  group_by(Sample2) %>%
+  mutate(Sample2 = factor(Sample2),
+         Genotype = factor(Genotype, levels = c("XXF", "XXM", "XXYF", "XXYM", "XYF", "XYM", "XYYF", "XYYM")))
+
+input <- cell_metadata %>%
+  dplyr::select(Sample2, Genotype, cell.type) %>%
+  filter(!cell.type %in% c("Unknown", "Intermediate Progenitor Cell"))
+input$cell.type2 <- plyr::mapvalues(input$cell.type, 
+                                    from = c("Myelinating Oligodendrocyte", "Oligodendrocyte Progenitor Cell"),
+                                    to = c("Myelinating.Oligo", "OPC"))
+input$cell.type2 <- factor(input$cell.type2)
+input2 <- input %>% 
+  filter(!cell.type == "Neuron")
+input2$cell.type2 <- plyr::mapvalues(input2$cell.type, 
+                                    from = c("Myelinating Oligodendrocyte", "Oligodendrocyte Progenitor Cell"),
+                                    to = c("Myelinating.Oligo", "OPC"))
+input2$cell.type2 <- factor(input2$cell.type2)
+```
+
+```{r}
+propeller(clusters = input$cell.type2, sample = input$Sample2, group = input$Genotype)
+
+##all cell types + by sample
+plot1 <- plotCellTypeProps(clusters=input$cell.type2, sample=input$Sample2) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        axis.title.x = element_text(margin = margin(t = 20)))
+##all cell types + by genotype
+plot2 <- plotCellTypeProps(clusters=input$cell.type2, sample=input$Genotype) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        axis.title.x = element_text(margin = margin(t = 20)))
+##no neuron cells + by sample
+plot3 <- plotCellTypeProps(clusters=input2$cell.type2, sample=input2$Sample2) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        axis.title.x = element_text(margin = margin(t = 20)))
+##no neuron cells + by genotype 
+plot4 <- plotCellTypeProps(clusters=input2$cell.type2, sample=input2$Genotype) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        axis.title.x = element_text(margin = margin(t = 20)))
+
+pdf("Plots/Caden/Barplot/Cluster_prop_Sample.pdf", width = 20, height = 8)
+ggarrange(plotlist = list(plot1, plot3), nrow = 1)
+dev.off()
+
+pdf("Plots/Caden/Barplot/Cluster_prop_Genotype.pdf", width = 10, height = 8)
+ggarrange(plotlist = list(plot2, plot4), nrow = 1)
+dev.off()
+
+########
+
+##get statistics 
+
+abundances <- table(input$cell.type, input$Sample2) 
+abundances <- unclass(abundances) 
+
+index <- match(colnames(abundances), sample_metadata$Sample2)
+sample_metadata <- sample_metadata[index, ]
+
+y <- DGEList(abundances, samples = sample_metadata)
+keep <- filterByExpr(y, group=y$samples$Genotype)
+y$counts <- y$counts[keep, ]
+
+design <- model.matrix(~Genotype, y$samples)
+y <- estimateDisp(y, design, trend="none")
+fit.ab <- glmQLFit(y, design, robust=TRUE, abundance.trend=FALSE)
+res <- glmQLFTest(fit.ab, coef=ncol(design))
+
+topTags(res)
+
+write.table(res, file = "Results/ambient_RNA/DAG/celltype_abundance_test.txt", sep = "\t", quote = FALSE)
+#### - propeller weird 
+prop.logit <- getTransformedProps(clusters = input$cell.type2, 
+                                  sample = input$Sample2,
+                                  transform = "logit")
+design.anova <- model.matrix(~0+Genotype, data = sample_metadata)
+
+propeller.anova(prop.logit, design = design.anova, robust=TRUE,trend = FALSE, sort=TRUE)
+
+```

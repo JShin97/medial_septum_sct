@@ -1,0 +1,711 @@
+---
+title: "pseudobulk_visualization"
+output: html_document
+date: "2024-02-27"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+```
+
+```{r}
+library(limma)
+library(edgeR)
+library(data.table)
+library(tidyverse)
+library(Seurat)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+library(readxl)
+library(ggpubr)
+library(ggplotify)
+library(scuttle)
+library(Mus.musculus)
+library(mashr)
+library(str2str)
+library(EnhancedVolcano)
+library(dplyr)
+library(grDevices)
+library(ComplexHeatmap)
+library(RRHO2)
+library(GeneOverlap)
+library(tm)
+```
+
+```{r, eval = FALSE}
+summed_seurat <- readRDS("Saves/Pseudobulk_sum_sce_to_seurat.RDS")
+
+##Edit metadata 
+allcells <- unique(summed_seurat$cell.type)
+
+summed_seurat$Xdose <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% factor(levels = c(1, 2))
+summed_seurat$Xdose_cont <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% as.character() %>% as.numeric()
+summed_seurat$Ydose <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% factor(levels = c(0, 1, 2))
+summed_seurat$Ydose_cont <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% as.character() %>% as.numeric()
+summed_seurat$base_SexChrom <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c("XX", "XY", "XY", "XY")) %>% factor(levels = c("XY", "XX"))
+summed_seurat$addX <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 0, 0)) %>% as.numeric()
+summed_seurat$addY <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 0, 0, 1)) %>% as.numeric()
+
+summed_seurat$Gonad <- factor(summed_seurat$Gonad, levels = c("Male", "Female"))
+summed_seurat$SexChrom <- factor(summed_seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+summed_seurat$Genotype <- factor(summed_seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+summed_seurat$Trisomy <- factor(summed_seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+```
+
+```{r}
+##merge DEG results in 1 df 
+load(file = "Results/Pseudobulk_DEG/DEG_all_models_interaction_results.Rda")
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Dose", "Dose2", "Aneuploidy", "Complete"))
+
+gene_annotation <- readRDS("Saves/gene_annotation.Rds")
+gene_annotation <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+DEG_df_annotated <- left_join(DEG_df, gene_annotation, by = c("gene"="mgi_symbol"))
+DEG_df_annotated$chromosome_name <- factor(DEG_df_annotated$chromosome_name, levels = c((1:19),"X","Y","MT"))
+```
+
+BAR PLOTS
+```{r}
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::mutate(model_comparison = paste(model, comparison, sep = " - ")) %>%
+  dplyr::mutate(model_comparison = factor(model_comparison, levels = c("Normative - XXF_vs_XYM", "FCG - Ovary_vs_Testis", "FCG - XX_vs_XY", "FCG - Gonad:SexChrom", 
+                                                                       "Dose - Ovary_vs_Testis", "Dose - Xdose", "Dose - Ydose", "Dose - Gonad:Xdose", "Dose - Gonad:Ydose",
+                                                                       "Dose2 - Ovary_vs_Testis", "Dose2 - Xdose", "Dose2 - Ydose1", "Dose2 - Ydose2", "Dose2 - Gonad:Xdose", "Dose2 - Gonad:Ydose1", "Dose2 - Gonad:Ydose2",
+                                                                       "Aneuploidy - Ovary_vs_Testis", "Aneuploidy - XX_vs_XY", "Aneuploidy - Aneuploidy", "Aneuploidy - Gonad:SexChrom", "Aneuploidy - Gonad:Aneuploidy", 
+                                                                       "Complete - Ovary_vs_Testis", "Complete - XX_vs_XY", "Complete - addX", "Complete - addY", "Complete - Gonad:SexChrom", "Complete - Gonad:addX", "Complete - Gonad:addY"))) %>%
+  {table(.$cell_type, .$model_comparison)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~Var2, ncol = 11) +
+    scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Types"))
+
+pdf("Plots/Pseudobulk_DEG/barplot/DEG_counts_ct_normative.pdf", width  = 25,  height = 9)
+print(last_plot())
+dev.off()
+
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::filter(model %in% c("Normative")) %>%
+  dplyr::mutate(sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  dplyr::select(cell_type, comparison, sign) %>%
+  ftable(DEG_df) %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = comparison, y = Freq, fill = cell_type)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~sign, ncol = 2) +
+    scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Types")) +
+    scale_y_continuous(limits = c(0, 500))
+
+pdf("Plots/Pseudobulk_DEG/barplot/DEG_counts_Normative_split.pdf", width = 9, height = 3)
+print(last_plot())
+dev.off()
+
+DEG_df %>%
+  dplyr::filter(model %in% c("Complete")) %>%
+  dplyr::mutate(sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  as.data.frame() %>%
+  ggplot(.) +
+    geom_histogram(aes(x = P.Val), breaks = seq(0, 1, 0.05),
+                 color = "black", fill = "grey") +
+    scale_y_continuous(expand = expansion(c(0, 0.05))) +
+    theme_bw(base_size = 12) +
+  ggtitle("P-value distribution for Normative Difference")
+
+pdf("Plots/Pseudobulk_DEG/histogram/Normative_pvals.pdf", width = 6, height = 4)
+print(last_plot())
+dev.off()
+
+DEG_df %>%
+  dplyr::filter(model %in% c("Complete")) %>%
+  dplyr::mutate(sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  as.data.frame() %>%
+  ggplot(.) +
+    geom_histogram(aes(x = P.Val), breaks = seq(0, 1, 0.05),
+                 color = "black", fill = "grey") +
+    scale_y_continuous(expand = expansion(c(0, 0.05))) +
+    facet_wrap(~cell_type, ncol = 8) +
+    theme_bw(base_size = 12) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    
+pdf("Plots/Pseudobulk_DEG/histogram/Normative_ct_pvals.pdf", width = 18, height = 4)
+print(last_plot())
+dev.off()
+
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::filter(model %in% c("Normative", "FCG")) %>%
+  {table(.$cell_type, .$comparison)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~Var2, ncol = 6) +
+    scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Types")) +
+    scale_y_continuous(limits = c(0, 9000))
+
+pdf("Plots/Pseudobulk_DEG/barplot/DEG_counts_FCG.pdf", width  = 15, height = 3)
+print(last_plot())
+dev.off()
+
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::filter(model %in% c("Normative", "Complete")) %>%
+  {table(.$cell_type, .$comparison)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~Var2, ncol = 6) +
+    scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Types")) +
+    scale_y_continuous(limits = c(0, 9000))
+  
+pdf("Plots/Pseudobulk_DEG/barplot/DEG_counts_Complete.pdf", width  = 15, height = 3)
+print(last_plot())
+dev.off()
+```
+
+P VALUE HISTOGRAMS
+```{r}
+
+plot_pval <- function(df, model_to_analyze, model_levels) {
+ 
+   df %>%
+    dplyr::filter(model == model_to_analyze) %>%
+    dplyr::mutate(comparison = factor(comparison, levels = model_levels)) %>%
+    as.data.frame() %>%
+    ggplot(.) +
+      geom_histogram(aes(x = P.Val), breaks = seq(0, 1, 0.05),
+                   color = "black", fill = "grey") +
+      facet_grid(~comparison) +
+      scale_y_continuous(expand = expansion(c(0, 0.05))) +
+      theme_bw(base_size = 12) +
+      ggtitle(model_to_analyze)
+}
+
+plot_list <- list()
+
+plot_list$FCG <- plot_pval(DEG_df, "FCG", c("Ovary_vs_Testis", "XX_vs_XY", "Gonad:SexChrom"))
+plot_list$Dose <- plot_pval(DEG_df, "Dose", c("Ovary_vs_Testis", "Xdose", "Ydose", "Gonad:Xdose", "Gonad:Ydose", "Xdose:Ydose"))
+plot_list$Dose2 <- plot_pval(DEG_df, "Dose2", c("Ovary_vs_Testis", "Xdose", "Ydose1", "Ydose2", "Gonad:Xdose", "Gonad:Ydose1", "Gonad:Ydose2"))
+plot_list$Aneuploidy <- plot_pval(DEG_df, "Aneuploidy", c("Ovary_vs_Testis", "XX_vs_XY", "Aneuploidy", "Gonad:SexChrom", "Gonad:Aneuploidy"))
+plot_list$Complete <- plot_pval(DEG_df, "Complete", c("Ovary_vs_Testis", "XX_vs_XY", "addX", "addY", "Gonad:SexChrom", "Gonad:addX", "Gonad:addY"))
+
+pdf("Plots/Pseudobulk_DEG/histogram/Model_pvals.pdf", width = 10, height = 15)
+print(ggarrange(plotlist = plot_list, ncol = 1, nrow = 5, align = "v"))
+dev.off()
+
+```
+
+
+DOT PLOTS
+```{r}
+sexchrom_genes <- c("Xist", "Tsix", "Eif2s3x", "Ddx3x", "Kdm5c", "Kdm6a", "Uty", "Kdm5d", "Ddx3y", "Eif2s3y")
+nr_genes <- c("Esr1", "Esr2", "Ar", "Pgr", "Nr3c1", "Nr3c2")
+neurotrophin_genes <- c("Ntrk1", "Ntrk2", "Ntrk3", "Ngfr")
+coregulators <- c("Ncoa1", "Ncor1", "Ncor2")
+
+##estrogen genes
+esr1_co_genes <- c("Irs4", "Pak3", "Gpr165", "Ecel1", "Glra3", "Gabrg1", "Nnat", "Cartpt", "Greb1", "Rps6ka6", "Sytl4", "Brs3", "Cckar", "Dgkk", "Chodl")
+es_res_genes <- c("Irs4", "Gdpd2", "Ngb", "Adck4", "Magel2", "Unc5d", "Ern2", "Chat", "Gnas")
+# Cyp19a1 = aromatase 
+er_induced_genes <- c("Brinp2", "Unc5b", "Enah", "Rcn1","Irs2", "Tle3", "Nrip1", "Nr2f1")
+validated_genes <- c("Rcn1", "Nrip1", "Astn2", "Nr2f1")
+
+disease_genes <- c("Cntnap2",	"Grin2b",	"Scn2a","Dyrk1a", "App", "Bace")
+extra <- c("Rarb", "Rorb", "Rxrg", "Nfix")
+
+##tollkuhn estrogen response genes 
+er_induced_genes <- c("Pgr", "Nrip1", "Brinp2", "Unc5b", "Enah", "Rcn1", "Irs2", "Tle3")
+er_repressed_genes <- c("Nr2f1", "Astn2")
+
+set1 <- c(sexchrom_genes, nr_genes, neurotrophin_genes, coregulators, "Cyp19a1")
+set2 <- c(es_res_genes, nr_genes, "Cyp19a1")
+set3 <- c(er_induced_genes, er_repressed_genes)
+```
+
+```{r}
+dot_df <- DEG_df %>% 
+  dplyr::mutate(model_comparison = paste(model, comparison, sep = " - ")) %>%
+  dplyr::mutate(model_comparison = factor(model_comparison, levels = c("Normative - XXF_vs_XYM", "FCG - Ovary_vs_Testis", "Dose - Ovary_vs_Testis", "Dose2 - Ovary_vs_Testis", "Aneuploidy - Ovary_vs_Testis", "Complete - Ovary_vs_Testis", 
+                                                                       "FCG - XX_vs_XY", "Aneuploidy - XX_vs_XY", "Complete - XX_vs_XY", 
+                                                                       "Dose - Xdose", "Dose - Ydose", "Dose2 - Xdose", "Dose2 - Ydose1", "Dose2 - Ydose2", 
+                                                                       "Aneuploidy - Aneuploidy", "Complete - addX", "Complete - addY",
+                                                                       "FCG - Gonad:SexChrom", "Aneuploidy - Gonad:SexChrom", "Complete - Gonad:SexChrom", 
+                                                                       "Dose - Gonad:Xdose", "Dose - Gonad:Ydose", "Dose - Xdose:Ydose", "Dose2 - Gonad:Xdose", "Dose2 - Gonad:Ydose1", "Dose2 - Gonad:Ydose2", "Aneuploidy - Gonad:Aneuploidy", "Complete - Gonad:addX", "Complete - Gonad:addY"))) %>%
+  dplyr::mutate(gene = factor(gene))
+
+DEG_list <- split(dot_df, dot_df$model_comparison)
+
+plot_list <- list()
+for(i in seq_along(DEG_list)){
+  
+  currentcomparison <- names(DEG_list)[i]
+  plot_df <- DEG_list[[i]] %>% as.data.frame() %>% dplyr::filter(gene %in% c(set1)) %>%
+    dplyr::mutate(gene = factor(gene, levels = c(set1)))
+  
+  table(plot_df$gene)
+  
+  plot_df$FDR <- -log10(plot_df$adj.P.Val)
+  #plot_df$FDR[plot_df$FDR > 3] <- 3
+  plot_df$logFC2 <- plot_df$logFC
+  plot_df$logFC2[plot_df$logFC2 > 3] <- 3
+  plot_df$logFC2[plot_df$logFC2 < -3] <- -3
+  
+  plot <- ggplot(plot_df, aes(y = gene, x = cell_type)) +
+    geom_tile(fill = "white") + xlab("") + ylab("") +
+    geom_point(aes(colour = logFC2, size = FDR)) +
+    facet_wrap(~model_comparison,  labeller = labeller(groupwrap = label_wrap_gen(10))) + 
+    scale_color_gradientn(limits = c(-3, 3), colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(60)) +
+    theme_bw()+ theme(axis.text.y = element_text( size = 20),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+                   strip.text.x = element_text(size = 15),
+                   plot.margin = unit(c(0.5,0.5,0.5,0.5), "cm"),
+                   plot.title = element_text(size = 20)) + guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                 size =guide_legend(title="-log10(FDR)"))
+  
+  plot_list[[currentcomparison]] <- plot
+}
+pdf("Plots/Pseudobulk_DEG/dotplot/control_genes.pdf", width  = 95, height = 30)
+print(ggarrange(plotlist = plot_list, ncol = 15, nrow = 2))
+dev.off()
+```
+
+GENE OVERLAP ANALYSIS 
+```{r}
+gene_list <- unique(DEG_df$gene)
+
+comparison_levels <- c("Normative - XXF_vs_XYM", "FCG - Ovary_vs_Testis", "Dose - Ovary_vs_Testis", "Dose2 - Ovary_vs_Testis", "Aneuploidy - Ovary_vs_Testis", "Complete - Ovary_vs_Testis", 
+                                                                       "FCG - XX_vs_XY", "Aneuploidy - XX_vs_XY", "Complete - XX_vs_XY", 
+                                                                       "Dose - Xdose", "Dose - Ydose", "Dose2 - Xdose", "Dose2 - Ydose1", "Dose2 - Ydose2", 
+                                                                       "Aneuploidy - Aneuploidy", "Complete - addX", "Complete - addY",
+                                                                       "FCG - Gonad:SexChrom", "Aneuploidy - Gonad:SexChrom", "Complete - Gonad:SexChrom", 
+                                                                       "Dose - Gonad:Xdose", "Dose - Gonad:Ydose", "Dose - Xdose:Ydose", "Dose2 - Gonad:Xdose", "Dose2 - Gonad:Ydose1", "Dose2 - Gonad:Ydose2", "Aneuploidy - Gonad:Aneuploidy", "Complete - Gonad:addX", "Complete - Gonad:addY")
+
+
+##OVERLAP WITH CONTROL GENES
+testgenes1 <- readxl::read_xlsx("Gene_annotation/control_genes/tollkuhn_table10.xlsx", sheet = 1) %>% dplyr::filter(padj < 0.05)
+colnames(testgenes1)[1] <- "gene"
+testgenes2 <- readxl::read_xlsx("Gene_annotation/control_genes/tollkuhn_table2.xlsx", sheet = 1)  %>% dplyr::filter(padj < 0.05)
+colnames(testgenes2)[1] <- "gene"
+
+sex_list <- list()
+for(i in 1:7) {sex_list[i] <- readxl::read_xlsx("Gene_annotation/control_genes/tollkuhn_table4.xlsx", sheet = i) %>% dplyr::filter(padj < 0.05)}
+
+#control_genes <- list(testgenes1, testgenes2) %>% lapply(., function(x) {x %>% dplyr::select(gene) %>% unlist(use.names = FALSE)})
+#names(control_genes) <- c("estrogen_response", "estrogen_vs_vehicle")
+
+androgen_response_genes <- read_xlsx(path = "Gene_annotation/control_genes/androgen_database.xlsx", col_names = FALSE)
+colnames(androgen_response_genes)[1] <- "Genes"
+androgen_response_genes <- na.omit(androgen_response_genes)
+androgen_response_genes <- androgen_response_genes %>% 
+    mutate(Genes = strsplit(as.character(Genes), " ")) %>% 
+    unnest(Genes)
+
+estrogen_response_genes <- read_xlsx(path = "Gene_annotation/control_genes/estrogen_database.xlsx", col_names = FALSE)
+colnames(estrogen_response_genes)[1] <- "Genes"
+estrogen_response_genes <- na.omit(estrogen_response_genes)
+estrogen_response_genes <- estrogen_response_genes %>% 
+    mutate(Genes = strsplit(as.character(Genes), " ")) %>% 
+    unnest(Genes)
+
+convert_mouse_to_human <- function(gene_list) { 
+     output = c()
+     mouse_human_genes = read.csv("https://www.informatics.jax.org/downloads/reports/HOM_MouseHumanSequence.rpt",sep="\t")
+
+     for(gene in gene_list) {
+          class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name == "mouse, laboratory"))[['DB.Class.Key']]
+          if( !identical(class_key, integer(0)) ) {
+               human_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="human"))[,"Symbol"]
+               for(human_gene in human_genes) {
+                    output = rbind(c(gene, human_gene), output)
+               }
+          }
+     }
+     return (output)
+}
+
+convert_human_to_mouse <- function(gene_list) {
+    output = c()
+    mouse_human_genes = read.csv("https://www.informatics.jax.org/downloads/reports/HOM_MouseHumanSequence.rpt",sep="\t")
+
+    for(gene in gene_list) {
+          class_key = (mouse_human_genes %>% filter(Symbol == gene & Common.Organism.Name == "human"))[['DB.Class.Key']]
+          if( !identical(class_key, integer(0)) ) {
+            human_genes = (mouse_human_genes %>% filter(DB.Class.Key == class_key & Common.Organism.Name=="mouse, laboratory"))[,"Symbol"]
+            for(human_gene in human_genes) {
+                output = rbind(c(gene, human_gene), output)
+            }
+          }
+     }
+     return (output)
+}
+
+androgen_response_genes <- convert_human_to_mouse(androgen_response_genes$Genes)
+estrogen_response_genes <- convert_human_to_mouse(estrogen_response_genes$Genes)
+
+androgen_response_genes2 <- read_xlsx(path = "Gene_annotation/control_genes/androgen_regulated_genes.xlsx", sheet = 2, col_names = TRUE, skip = 1)
+
+ere_mouse_genes <- read_xls(path = "Gene_annotation/control_genes/ere_mouse.xls", sheet = 1, col_names = TRUE)
+ere_conserved_genes <- read_xls(path = "Gene_annotation/control_genes/ere_conserved.xls", sheet = 2, col_names = FALSE, skip = 2)
+
+x_chromosome_genes <- DEG_df_annotated %>% dplyr::filter(chromosome_name == "X")
+y_chromosome_genes <- DEG_df_annotated %>% dplyr::filter(chromosome_name == "Y")
+escape_genes <- DEG_df_annotated %>% dplyr::filter(Escapee == "Escapee")
+
+hormone_control_genes <- list(androgen_response_genes[,2], androgen_response_genes2[,2], estrogen_response_genes[,2], testgenes1$gene, testgenes2$gene, sex_list[[1]], sex_list[[2]], sex_list[[3]], sex_list[[4]], sex_list[[5]], sex_list[[6]], sex_list[[7]])
+names(hormone_control_genes) <- c("androgen_database", "androgen_response", "estrogen_database", "estrogen_response", "estrogen_vs_vehicle", "male_female_cluster1", "male_female_cluster2", "male_female_cluster3", "male_female_cluster4", "male_female_cluster5", "male_female_cluster6", "male_female_cluster7")
+
+sex_control_genes <- list(x_chromosome_genes$gene, escape_genes$gene, y_chromosome_genes$gene)
+names(sex_control_genes) <- c("X_chromosome", "X_inactivation_escape", "Y_chromosome")
+  
+overlap_df <- DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::mutate(model_comparison = paste(model, comparison, sep = " - ")) %>%
+  dplyr::mutate(model_comparison = factor(model_comparison, levels = comparison_levels))
+
+cell_list <- list()
+for(i in 1:length(allcells)){
+  
+  currentcell <- allcells[i]
+  deg_list <- overlap_df %>% dplyr::filter(cell_type == currentcell) %>% split(., f = .$model_comparison)
+  deg_list <- lapply(deg_list, function(x) {x %>% dplyr::select(gene) %>% unlist(use.names = FALSE)})
+
+  go.obj<- newGOM(sex_control_genes, deg_list, genome.size = length(gene_list))
+  
+  pvals <- getMatrix(go.obj, name="pval") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "pval")
+  odds <- getMatrix(go.obj, name="odds.ratio") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "odds")
+  
+  cell_counts <- lapply(deg_list, function(x) {length(x)}) %>% do.call("rbind", .) %>% as.data.frame() %>% tibble::rownames_to_column(var = "set")
+  df <- left_join(pvals, odds, by=c("setA" = "setA", "setB" = "setB"))
+  #df <- left_join(df, cell_counts, by=c("setA" = "set")) %>% dplyr::rename(setA_size = V1)
+  df <- left_join(df, cell_counts, by=c("setB" = "set")) %>% dplyr::rename(setB_size = V1)
+  #df$setA <- paste0(df$setA, " (", df$setA_size, ")")
+  #df$setB <- paste0(df$setB, " (", df$setB_size, ")")
+  df$cell_type <- currentcell
+  
+  df$odds <- ifelse(df$pval > 0.05, NA, df$odds)
+  #df$odds <- ifelse(df$odds == Inf, NA, df$odds)
+  
+  cell_list[[currentcell]] <- df
+}
+
+plot_list <- lapply(cell_list, function(x) {
+  subset <- x[is.finite(x$odds), ]
+  max <- max(subset$odds) %>% ceiling()
+  min <- min(subset$odds) %>% floor()
+  
+  x$odds <- ifelse(x$odds == Inf, max + 10, x$odds)
+  
+  #max <- max(x$odds, na.rm = TRUE) %>% ceiling()
+  #x$setA <- factor(x$setA, levels = comparison_levels)
+  x$setB <- factor(x$setB, levels = comparison_levels)
+  
+  # x$setA <- paste("(", x$setA_size, ") ", x$setA)
+  # x$setB <- paste("(", x$setB_size, ") ", x$setB)
+  
+  ggplot(x, aes(x = setA, y = setB, fill = odds)) +
+    geom_tile() +
+    theme_minimal() +
+    scale_fill_gradient2(low="pink", high="darkred", limits = c(0, max + 10)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+          text = element_text(size= 25)) +
+    ggtitle(x$cell_type)
+})
+
+pdf("Plots/Pseudobulk_DEG/overlap/Sex_control_sets_overlap.pdf", height = 25, width = 40)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+```
+
+```{r}
+##OVERLAP WITH NORMATIVE DIFFERENCE - within model comparison 
+gene_list <- unique(DEG_df$gene)
+
+comparison_levels <- c("Normative - XXF_vs_XYM", "FCG - Ovary_vs_Testis", "Dose - Ovary_vs_Testis", "Dose2 - Ovary_vs_Testis", "Aneuploidy - Ovary_vs_Testis", "Complete - Ovary_vs_Testis", 
+                                                                       "FCG - XX_vs_XY", "Aneuploidy - XX_vs_XY", "Complete - XX_vs_XY", 
+                                                                       "Dose - Xdose", "Dose - Ydose", "Dose2 - Xdose", "Dose2 - Ydose1", "Dose2 - Ydose2", 
+                                                                       "Aneuploidy - Aneuploidy", "Complete - addX", "Complete - addY",
+                                                                       "FCG - Gonad:SexChrom", "Aneuploidy - Gonad:SexChrom", "Complete - Gonad:SexChrom", 
+                                                                       "Dose - Gonad:Xdose", "Dose - Gonad:Ydose", "Dose - Xdose:Ydose", "Dose2 - Gonad:Xdose", "Dose2 - Gonad:Ydose1", "Dose2 - Gonad:Ydose2", "Aneuploidy - Gonad:Aneuploidy", "Complete - Gonad:addX", "Complete - Gonad:addY")
+
+overlap_df <- DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::mutate(model_comparison = paste(model, comparison, sep = " - ")) %>%
+  dplyr::mutate(model_comparison = factor(model_comparison, levels = comparison_levels))
+
+cell_list <- list()
+for(i in 1:length(allcells)){
+  
+  currentcell <- allcells[i]
+  deg_list <- overlap_df %>% dplyr::filter(cell_type == currentcell) %>% split(., f = .$model_comparison)
+  deg_list <- lapply(deg_list, function(x) {x %>% dplyr::select(gene) %>% unlist(use.names = FALSE)})
+  
+  gom.self <- newGOM(deg_list, genome.size=length(gene_list))
+  #gom.self <- newGOM(deg_list[grepl(c("Ovary_vs_Testis"), names(deg_list))], genome.size=length(gene_list))
+  
+  pvals <- getMatrix(gom.self, name="pval") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "pval")
+  odds <- getMatrix(gom.self, name="odds.ratio") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "odds")
+  
+  cell_counts <- lapply(deg_list, function(x) {length(x)}) %>% do.call("rbind", .) %>% as.data.frame() %>% tibble::rownames_to_column(var = "set")
+  df <- left_join(pvals, odds, by=c("setA" = "setA", "setB" = "setB"))
+  df <- left_join(df, cell_counts, by=c("setA" = "set")) %>% dplyr::rename(setA_size = V1)
+  df <- left_join(df, cell_counts, by=c("setB" = "set")) %>% dplyr::rename(setB_size = V1)
+  #df$setA <- paste0(df$setA, " (", df$setA_size, ")")
+  #df$setB <- paste0(df$setB, " (", df$setB_size, ")")
+  df$cell_type <- currentcell
+  
+  df$odds <- ifelse(df$pval > 0.05, NA, df$odds)
+  #df$odds <- ifelse(df$odds == Inf, NA, df$odds)
+  
+  cell_list[[currentcell]] <- df
+}
+
+plot_list <- lapply(cell_list, function(x) {
+  x$odds_log <- log(x$odds)
+  
+  subset <- x[is.finite(x$odds_log), ]
+  max <- max(subset$odds_log) %>% ceiling()
+  min <- min(subset$odds_log) %>% floor()
+  
+  x$odds_log <- ifelse(x$odds_log == Inf, max + 10, x$odds_log)
+  
+  #max <- max(x$odds, na.rm = TRUE) %>% ceiling()
+  x$setA <- factor(x$setA, levels = comparison_levels)
+  x$setB <- factor(x$setB, levels = comparison_levels)
+  
+  # x$setA <- paste("(", x$setA_size, ") ", x$setA)
+  # x$setB <- paste("(", x$setB_size, ") ", x$setB)
+  
+  ggplot(x, aes(x = setA, y = setB, fill = odds_log)) +
+    geom_tile() +
+    theme_minimal() +
+    scale_fill_gradient2(low="pink", high="darkred", limits = c(min, max + 10)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+          text = element_text(size= 15)) +
+    ggtitle(x$cell_type)
+})
+
+pdf("Plots/Pseudobulk_DEG/overlap/test_overlap.pdf", height = 20, width = 40)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+```
+
+```{r}
+##OVERLAP WITH EACH OTHER - normative
+gene_list <- unique(DEG_df$gene)
+
+overlap_df <- DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::mutate(model_comparison = paste(model, comparison, sep = " - "))
+
+get_normative_overlap <- function(x, model_to_analyze, model_levels) {
+  
+  cell_list <- list()
+  for(i in 1:length(allcells)) {
+    
+    currentcell <- allcells[i]
+    
+    deg_list <- x %>% dplyr::filter(cell_type == currentcell & model %in% c("Normative", model_to_analyze)) %>%
+      split(., f = .$model_comparison)
+    deg_list <- lapply(deg_list, function(x) {x %>% dplyr::select(gene) %>% unlist(use.names = FALSE)})
+  
+    gom.self <- newGOM(deg_list[grepl("Normative", names(deg_list))], deg_list[grepl(model_to_analyze, names(deg_list))], genome.size=length(gene_list))
+    pvals <- getMatrix(gom.self, name="pval")
+    odds <- getMatrix(gom.self, name="odds.ratio")
+    
+    cell_count_a <- lapply(deg_list[grepl(model_to_analyze, names(deg_list))], function(x) {length(x)}) %>% do.call("rbind", .)
+    cell_count_b <- deg_list[grepl("Normative", names(deg_list))] %>% unlist() %>% length()
+    
+    df <- rbind(pvals, odds) %>% 
+      t() %>%
+      as.data.frame()
+    
+    #setA <- paste0(rownames(cell_count_a), " (", cell_count_a[,1], ")")
+    #df$setA <- setA
+    
+    df$setA <- rownames(cell_count_a)
+    df$setB <- paste0(currentcell, " (", cell_count_b, ")")
+    df$cell_type <- currentcell
+    rownames(df) <- NULL
+    intersection <- getMatrix(gom.self, name="intersection") %>%  as.data.frame()
+    colnames(intersection) <- "intersection_size"
+    df <- cbind(df, intersection)
+    
+    df$odds_log <- log(df$odds)
+    
+    df$odds <- ifelse(df$pvals > 0.05, NA, df$odds)
+    df$odds <- ifelse(df$odds == Inf, 3000, df$odds) ##fix this part
+    
+    df$odds_log <- ifelse(df$pvals > 0.05, NA, df$odds_log)
+    df$odds_log <- ifelse(df$odds_log == Inf, 10, df$odds_log)
+    
+    cell_list[[currentcell]] <- df
+  }
+  
+  cell_df <- do.call("rbind", cell_list)
+  max <- max(cell_df$odds, na.rm = TRUE) %>% ceiling()
+  cell_df$setA <- factor(cell_df$setA, levels = model_levels)
+  
+  plot<- ggplot(cell_df, aes(x = setA, y = setB, fill = odds)) +
+    geom_tile() +
+    theme_minimal() +
+    scale_fill_gradient2(low="pink", high="red", limits = c(0, max)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+          text = element_text(size= 15)) +
+    ggtitle(model_to_analyze)
+  
+  return(list(plot, cell_df))
+}
+
+plot_list <- list()
+
+results <- get_normative_overlap(overlap_df, "FCG", c("FCG - Ovary_vs_Testis", "FCG - XX_vs_XY", "FCG - Gonad:SexChrom"))
+plot_list$FCG <- results[[1]]
+counts <- results[[2]]
+counts %>% dplyr::select(setA, intersection_size, cell_type) %>% pivot_wider(names_from = cell_type, values_from = intersection_size)
+
+results <- get_normative_overlap(overlap_df, "Dose", c("Dose - Ovary_vs_Testis", "Dose - Xdose", "Dose - Ydose", "Dose - Gonad:Xdose", "Dose - Gonad:Ydose", "Dose - Xdose:Ydose"))
+plot_list$Dose <- results[[1]]
+counts <- results[[2]]
+counts %>% dplyr::select(setA, intersection_size, cell_type) %>% pivot_wider(names_from = cell_type, values_from = intersection_size)
+
+results <- get_normative_overlap(overlap_df, "Dose2", c("Dose2 - Ovary_vs_Testis", "Dose2 - Xdose", "Dose2 - Ydose1", "Dose2 - Ydose2", "Dose2 - Gonad:Xdose", "Dose2 - Gonad:Ydose1", "Dose2 - Gonad:Ydose2"))
+plot_list$Dose2 <- results[[1]]
+counts <- results[[2]]
+counts %>% dplyr::select(setA, intersection_size, cell_type) %>% pivot_wider(names_from = cell_type, values_from = intersection_size)
+
+results <- get_normative_overlap(overlap_df, "Aneuploidy", c("Aneuploidy - Ovary_vs_Testis", "Aneuploidy - XX_vs_XY", "Aneuploidy - Aneuploidy", "Aneuploidy - Gonad:SexChrom", "Aneuploidy - Gonad:Aneuploidy"))
+plot_list$Aneuploidy <-  results[[1]]
+counts <- results[[2]]
+counts %>% dplyr::select(setA, intersection_size, cell_type) %>% pivot_wider(names_from = cell_type, values_from = intersection_size)
+
+results <- get_normative_overlap(overlap_df, "Complete", c("Complete - Ovary_vs_Testis", "Complete - XX_vs_XY", "Complete - addX", "Complete - addY", "Complete - Gonad:SexChrom", "Complete - Gonad:addX", "Complete - Gonad:addY"))
+plot_list$Complete <-  results[[1]]
+counts <- results[[2]]
+counts %>% dplyr::select(setA, intersection_size, cell_type) %>% pivot_wider(names_from = cell_type, values_from = intersection_size)
+
+
+pdf("Plots/Pseudobulk_DEG/overlap/Normative_overlap_allct.pdf", height = 6, width = 38)
+print(ggarrange(plotlist = plot_list, ncol = 5, nrow = 1))
+dev.off()
+```
+
+
+F STATISTIC PLOT
+```{r}
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  dplyr::mutate(model_comparison = paste(model, comparison, sep = " - ")) %>%
+  dplyr::mutate(model_comparison = factor(model_comparison, levels = c("Normative - XXF_vs_XYM", "FCG - Ovary_vs_Testis", "FCG - XX_vs_XY", "FCG - Ovary:XX", "Complete - Ovary_vs_Testis", "Complete - XX_vs_XY", "Complete - addX", "Complete - addY", "Complete - Ovary:XX", "Complete - Ovary:addX", "Complete - Ovary:addY"))) %>%
+  ggplot(., aes(x = model_comparison, y = F, color = cell_type)) +
+    geom_boxplot() +
+    scale_x_discrete(guide = guide_axis(angle = 45))
+
+pdf("Plots/Pseudobulk_DEG/barplot/DEG_counts_ct2.pdf", width  = 25,  height = 3)
+print(last_plot())
+dev.off()
+```
+
+RRHO ANALYSIS - FIX THIS 
+```{r}
+#testgenes <- readxl::read_xlsx("Gene_annotation/control_genes/tollkuhn_table2.xlsx", sheet = 1)
+testgenes <- readxl::read_xlsx("Gene_annotation/control_genes/tollkuhn_table10.xlsx", sheet = 1)
+
+colnames(testgenes)[1] <- "gene"
+testgenes$input_score <- -log10(testgenes$padj) * testgenes$log2FoldChange
+control_genes <- testgenes %>% dplyr::select(gene, input_score)
+
+currentcell <- allcells[7]
+gonad_genes <- DEG_df %>% dplyr::filter(model == "FCG" & comparison == "Ovary_vs_Testis" & cell_type == currentcell)
+gonad_genes$input_score <- ((-log10(gonad_genes$adj.P.Val)) * gonad_genes$logFC)
+gonad_genes <- gonad_genes %>% dplyr::select(gene, input_score)
+
+allgenes <- full_join(control_genes, gonad_genes, by="gene", suffix = c(".control", ".FCG_Gonad"))
+allgenes <- allgenes %>% replace(is.na(.), 0)
+
+geneset1 <- allgenes[1:2] %>% as.data.frame()
+geneset2 <- allgenes[c(1,3)] %>% as.data.frame()
+
+RRHO_obj <-  RRHO2_initialize(geneset1, geneset2, labels = c("estrogen_vs_vehicle", "FCG_Ovary_vs_Testis"), log10.ind=TRUE)
+RRHO2_heatmap(RRHO_obj)
+
+currentcell <- allcells[7]
+gonad_genes <- DEG_df %>% dplyr::filter(model == "Complete" & comparison == "Ovary_vs_Testis" & cell_type == currentcell)
+gonad_genes$input_score <- -log10(gonad_genes$adj.P.Val) * gonad_genes$logFC
+gonad_genes <- gonad_genes %>% dplyr::select(gene, input_score)
+
+allgenes <- full_join(control_genes, gonad_genes, by="gene", suffix = c(".control", ".FCG_Gonad"))
+allgenes <- allgenes %>% replace(is.na(.), 0)
+
+geneset1 <- allgenes[1:2] %>% as.data.frame()
+geneset2 <- allgenes[c(1,3)] %>% as.data.frame()
+
+RRHO_obj <-  RRHO2_initialize(geneset1, geneset2, labels = c("estrogen_vs_vehicle", "Complete_Ovary_vs_Testis"), log10.ind=TRUE)
+RRHO2_heatmap(RRHO_obj)
+```
+
+VOLCANO PLOTS
+```{r}
+DEG_list <- split(DEG_df, DEG_df$model)
+
+plot_list <- list()
+for(i in seq_along(DEG_list)){
+  
+  currentmodel <- names(DEG_list)[i]
+  for(j in 1:length(allcells)) {
+    
+    currentcell <- allcells[j]
+    plot_df <- DEG_list[[i]] %>% as.data.frame() %>% dplyr::filter(cell_type == currentcell) %>% dplyr::mutate(comparison = factor(comparison))
+    
+    for(k in 1:nlevels(plot_df$comparison)) {
+      currentcomparison <- levels(plot_df$comparison)[k]
+      
+      df <- plot_df %>% dplyr::filter(comparison == currentcomparison)
+      plot <- EnhancedVolcano(df, 
+                          lab = df$gene,
+                          x = 'logFC',
+                          y = 'adj.P.Val', 
+                          title = currentcell,
+                          subtitle = unique(df$model_comparison),
+                          pCutoff = 0.05,
+                          FCcutoff = 0.3, 
+                          titleLabSize = 13, 
+                          legendLabSize = 10)
+      plot_list[[currentmodel]][[currentcomparison]][[currentcell]] <- plot
+    }
+  }
+}
+
+for(i in 1:length(plot_list)) {
+  
+  currentmodel <- names(plot_list)[[i]]
+  cell_list <- plot_list[[i]] %>% unlist(., recursive = FALSE, use.names = FALSE)
+  
+  pdf(paste0("Plots/Pseudobulk_DEG/volcano/", currentmodel, ".pdf"), width  = 18, height = 12)
+  print(ggarrange(plotlist = cell_list, ncol = 4, nrow = 2))
+  dev.off()
+  
+}
+```

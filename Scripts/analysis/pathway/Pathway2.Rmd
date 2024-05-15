@@ -1,0 +1,506 @@
+---
+title: "pathway2"
+output: html_document
+date: "2024-02-23"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+```
+
+```{r}
+library(limma)
+library(edgeR)
+library(data.table)
+library(plyr)
+library(dplyr)
+library(Seurat)
+library(clusterProfiler)
+library(enrichplot)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+library(simplifyEnrichment)
+library(stringr)
+library(enrichplot)
+library(EnhancedVolcano)
+library(biomaRt)
+library(readxl)
+library(UpSetR)
+library(tidyr)
+library(ggpubr)
+
+source("~/project-xyang123/resources/pathway_enrichment_clusterprofiler.R")
+```
+
+```{r}
+load(file = "Results/Pseudobulk_DEG/DEG_all_models_interaction_results.Rda")
+
+allcells <- c("Astrocyte","Endothelial","Ependymal","Intermediate_Progenitor_Cell","Microglia","Myelinating_Oligodendrocyte","Neuron", "Oligodendrocyte_Progenitor_Cell")
+```
+
+```{r}
+##FUNCTIONS
+
+run_enrich <- function(df, model_to_analyze, sign, currentcell, simplify=TRUE) {
+  pathway_results <- list()
+  df <- df %>% dplyr::filter(model == model_to_analyze) %>% dplyr::mutate(comparison = factor(comparison))
+  
+  for(j in 1:nlevels(df$comparison)) {
+    currentcomparison <- as.character(levels(df$comparison)[j])
+  
+    if(sign == "Up") {
+      path_df <- df %>% dplyr::filter(adj.P.Val < 0.05 & logFC > 0 & cell_type == currentcell & comparison == currentcomparison)
+    }
+    else {
+      path_df <- df %>% dplyr::filter(adj.P.Val < 0.05 & logFC < 0 & cell_type == currentcell & comparison == currentcomparison)
+    }
+    if(nrow(path_df) == 0) {next} 
+    
+    genes <- path_df$gene %>% unlist()
+
+    go_enrich <- enrichGO(gene = genes,
+                      universe = gene_list,
+                      OrgDb = org.Mm.eg.db, 
+                      keyType = 'SYMBOL',
+                      ont = "all",
+                      pAdjustMethod = "BH")
+
+    if(nrow(data.frame(go_enrich)) == 0) {next}
+    
+    go_enrich2 <- clusterProfiler::simplify(go_enrich)
+    
+    if(nrow(data.frame(go_enrich2)) == 0) {next}
+    
+    if(simplify == TRUE) {
+      results <- data.frame(go_enrich2)
+    } else {
+      results <- data.frame(go_enrich)
+    }
+      
+    fold <- NULL
+    for(r in 1:nrow(results)){
+      enriched_genes <- unlist(strsplit(results$geneID[r],"/"))
+      enriched_genes <- enriched_genes[enriched_genes %in% path_df$gene]
+      fold[r] <- median(path_df[path_df$gene %in% enriched_genes, "logFC"], na.rm = T) }
+    
+    currentpath <- results
+    currentpath$fold <- fold 
+    currentpath$sign <- sign
+    currentpath$cell_type <- currentcell
+    currentpath$comparison <- currentcomparison
+    currentpath$model <- model_to_analyze
+      
+    pathway_results[[model_to_analyze]][[currentcomparison]][[currentcell]] <- currentpath
+  }
+  return(pathway_results)
+}
+
+run_pathway <- function(df, model_to_analyze, cell, simplify=TRUE) {
+  if(cell == "All") {
+    ct_list <- list()
+    for(i in 1:length(allcells)) {
+      currentcell <- allcells[i]
+      pathway_up_results <- run_enrich(df, model_to_analyze, "Up", currentcell, simplify=TRUE)
+      pathway_down_results <- run_enrich(df, model_to_analyze, "Down", currentcell, simplify=TRUE)
+      ct_list[[currentcell]] <- list(pathway_up_results, pathway_down_results)
+    }
+    return(ct_list)
+    
+  } else {
+    pathway_up_results <- run_enrich(df, model_to_analyze, "Up", cell, simplify = TRUE)
+    pathway_down_results <- run_enrich(df, model_to_analyze, "Down", cell, simplify = TRUE)
+    return(list(pathway_up_results, pathway_down_results))
+  }
+}
+
+bind_cells <- function(x) {
+  
+  cell_list <- list()
+  for(i in 1:length(allcells)) {
+    currentcell <- allcells[i]
+    df <- do.call("c", unlist(x[[currentcell]], recursive = FALSE, use.names = FALSE)) %>% bind_rows()
+    if(nrow(df) == 0) {next}
+    cell_list[[currentcell]] <- df[[1]]
+    }
+  
+  pathway_results <- do.call("rbind", cell_list)
+  return(pathway_results)
+}
+```
+
+```{r}
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Dose", "Dose2", "Aneuploidy", "Complete"))
+# DEG_df$comparison <- factor(DEG_df$comparison, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX", "addX", "addY", "Ovary:XX", "Ovary:addX", "Ovary:addY"))
+
+gene_annotation <- readRDS("Saves/gene_annotation.Rds")
+gene_annotation <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+DEG_df_annotated <- left_join(DEG_df, gene_annotation, by = c("gene"="mgi_symbol"))
+DEG_df_annotated$chromosome_name <- factor(DEG_df_annotated$chromosome_name, levels = c((1:19),"X","Y","MT"))
+
+gene_list <- unique(DEG_df$gene)
+# organism <- org.Mm.eg.db
+# df_go = as.data.frame(org.Mm.egGO)
+# gene_list = unique(sort(df_go$gene_id))
+
+normative_results <- run_pathway(DEG_df, "Normative", "All", simplify = TRUE)
+fcg_results <- run_pathway(DEG_df, "FCG", "All", simplify = TRUE)
+dose_results <- run_pathway(DEG_df, "Dose", "All", simplify = TRUE)
+dose2_results <- run_pathway(DEG_df, "Dose2", "All", simplify = TRUE)
+aneuploidy_results <- run_pathway(DEG_df, "Aneuploidy", "All", simplify = TRUE)
+complete_results <- run_pathway(DEG_df, "Complete", "All", simplify = TRUE)
+
+save(normative_results, fcg_results, dose_results, dose2_results, aneuploidy_results, complete_results, file = "Results/Pseudobulk_DEG/pathway_ALL_interaction.Rda")
+```
+
+```{r}
+load("Results/Pseudobulk_DEG/pathway_ALL_interaction.Rda")
+
+normative_pathway <- bind_cells(normative_results) %>% 
+  dplyr::mutate(comparison = factor(comparison, levels = c("XXF_vs_XYM")))
+fcg_pathway <- bind_cells(fcg_results) %>% 
+  dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Gonad:SexChrom")))
+dose_pathway <- bind_cells(dose_results) %>%
+  dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose", "Gonad:Xdose", "Gonad:Ydose", "Xdose:Ydose")))
+dose2_pathway <- bind_cells(dose2_results) %>%
+  dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "Xdose", "Ydose", "Ydose2", "Gonad:Xdose", "Gonad:Ydose1", "Gonad:Ydose2")))
+aneuploidy_pathway <- bind_cells(aneuploidy_results) %>%
+  dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "Aneuploidy", "Gonad:SexChrom", "Gonad:Aneuploidy")))
+complete_pathway <- bind_cells(complete_results) %>% 
+  dplyr::mutate(comparison = factor(comparison, levels = c("Ovary_vs_Testis", "XX_vs_XY", "addX", "addY", "Gonad:SexChrom", "Gonad:addX", "Gonad:addY")))
+
+##Simplification 
+df_list<- split(normative_pathway, list(normative_pathway$ONTOLOGY))
+df_list <- split(fcg_pathway, list(fcg_pathway$ONTOLOGY, fcg_pathway$comparison))
+df_list <- split(complete_pathway, list(complete_pathway$ONTOLOGY, complete_pathway$comparison))
+
+df_list <- split(dose_pathway, list(dose_pathway$ONTOLOGY, dose_pathway$comparison))
+df_list <- split(dose2_pathway, list(dose2_pathway$ONTOLOGY, dose2_pathway$comparison))
+df_list <- split(aneuploidy_pathway, list(aneuploidy_pathway$ONTOLOGY, aneuploidy_pathway$comparison))
+
+
+simplify_list <- list()
+for(i in 1:length(df_list)) {
+  print(i)
+  currentframe <- df_list[[i]]
+  
+  if(nrow(currentframe) == 0) {next} 
+  else if(nrow(currentframe) == 1) {simplify_list[[names(df_list[i])]] <- currentframe}
+  else {
+     mat <- GO_similarity(currentframe$ID, ont = unique(currentframe$ONTOLOGY))
+     df <- simplifyEnrichment(mat)
+     currentframe <- left_join(currentframe, df, by = c("ID" = "id")) %>%
+          group_by(cluster, cell_type, sign) %>% slice_min(n = 1, order_by = p.adjust, with_ties = FALSE)
+     simplify_list[[names(df_list[i])]] <- currentframe
+  }
+}
+
+##add way to merge pathways for similar pathways 
+normative_pathway_simplified <- do.call("rbind", simplify_list)
+fcg_pathway_simplified <- do.call("rbind", simplify_list)
+complete_pathway_simplified <- do.call("rbind", simplify_list)
+
+dose_pathway_simplified <- do.call("rbind", simplify_list)
+dose2_pathway_simplified <- do.call("rbind", simplify_list)
+aneuploidy_pathway_simplified <- do.call("rbind", simplify_list)
+
+save(normative_pathway_simplified, fcg_pathway_simplified, complete_pathway_simplified, file = "Results/Pseudobulk_DEG/Normative_FCG_Complete_pathway_simplified.Rda")
+save(dose_pathway_simplified, dose2_pathway_simplified, aneuploidy_pathway_simplified, file = "Results/Pseudobulk_DEG/Dose_Dose2_Aneuploidy_pathway_simplified.Rda")
+
+
+load("Results/Pseudobulk_DEG/Normative_FCG_Complete_pathway_simplified.Rda")
+
+##add column counting number of celltypes
+pathway_list <- list(normative_pathway_simplified, fcg_pathway_simplified, complete_pathway_simplified)
+pathway_list2 <- lapply(pathway_list, function(x) {
+  counts <- x %>% 
+    group_by(ONTOLOGY, model, comparison, ID) %>%
+    summarise(shared_cells = n_distinct(cell_type))
+  
+  x <- left_join(x, counts, by=c('ONTOLOGY' = 'ONTOLOGY', 'model' = 'model', 'ID'='ID', 'comparison'='comparison'))
+  
+  # x <- x %>%
+  #   group_by(comparison, cell_type, ID) %>%
+  #   slice_min(n = 1, order_by = p.adjust)
+})
+
+normative_pathway_df <- pathway_list2[[1]]
+fcg_pathway_df <- pathway_list2[[2]]
+complete_pathway_df <- pathway_list2[[3]]
+
+#edit comparison names - remove later 
+normative_pathway_df <- normative_pathway_df %>%
+  dplyr::filter(cell_type != "Intermediate_Progenitor_Cell")
+fcg_pathway_df <- fcg_pathway_df %>% 
+  dplyr::filter(cell_type != "Intermediate_Progenitor_Cell")
+complete_pathway_df <- complete_pathway_df %>% 
+    dplyr::filter(cell_type != "Intermediate_Progenitor_Cell")
+```
+
+
+```{r}
+plot_uniquepathway <- function(x) {
+  plot_list <- list()
+  genedots <- unique(unlist(topgenes$FCG))
+  x$FDR <- -log10(x$p.adjust)
+  
+  for(i in 1:nlevels(x$comparison)) {
+    
+    currentcomparison <- levels(x$comparison)[i]
+    currentx <- x %>% dplyr::filter(comparison == currentcomparison)
+    
+    uniquegenes <- currentx %>% {table(.$geneID)} %>% as.data.frame() %>% dplyr::arrange(desc(Freq))
+    uniquegenes <- currentx[currentx$geneID %in% uniquegenes$Var1[uniquegenes$Freq == 1], ]
+    uniquegenes <- uniquegenes %>% group_by(cell_type) %>% slice_min(order_by = p.adjust, n = 3)
+    
+    pathways <- currentx %>% {table(.$Description)} %>% as.data.frame() %>% dplyr::arrange(desc(Freq))
+    selectedpathways <- pathways %>% head(n = 10)
+    
+    toppathways <- currentx[currentx$Description %in% selectedpathways$Var]
+    toppathways <- toppathways %>% group_by(cell_type) %>% slice_min(order_by = p.adjust, n = 3)
+    
+    uniquepathways <- currentx[currentx$Description %in% pathways$Var1[pathways$Freq == 1], ]
+    uniquepathways <- uniquepathways %>% group_by(cell_type) %>% slice_min(order_by = p.adjust, n = 3)
+    
+    plot <- ggplot(uniquepathways, aes(y = factor(Description), x = cell_type)) +
+      geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle(as.character(currentcomparison)) +
+      geom_point(aes(color = fold, size = FDR)) +
+      scale_color_gradientn(limits = c(-5,5), colors = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40)) +
+      theme_bw() + 
+      theme(axis.text.y = element_text(size = 18),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+            strip.text.x = element_text(size = 25),
+            plot.margin = unit(c(0.5, 1.0, 0.5, 1.0), "cm"),
+            plot.title = element_text(size = 20)) +
+      guides(colour = guide_legend(title = "median logFC"),
+                                   size = guide_legend(title = "-log10(FDR)"))
+    
+    plot_list[[currentcomparison]] <- plot
+  }
+  return(plot_list)
+}
+
+plot_toppathway <- function(x, ontology) {
+  plot_list <- list()
+  x$FDR <- -log10(x$p.adjust)
+  
+  if(ontology == "ALL") {
+      currentx <- x %>% dplyr::filter(p.adjust < 0.05)
+      
+      toppathways1 <- currentx %>% dplyr::filter(shared_cells > 1) %>% group_by(comparison, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+      toppathways2 <- currentx %>% dplyr::filter(shared_cells == 1) %>% group_by(comparison, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+
+      toppathways <- rbind(toppathways1, toppathways2)
+      
+      for(j in 1:nlevels(toppathways$comparison)) {
+        currentcomparison <- levels(toppathways$comparison)[j]
+        toppathways_df <- toppathways %>% dplyr::filter(comparison == currentcomparison) %>%
+          dplyr::arrange(desc(shared_cells)) %>%
+          dplyr::mutate(fold = as.numeric(fold))
+        toppathways_df$Description <- factor(toppathways_df$Description, levels = unique(toppathways_df$Description))
+                        
+        min <- min(toppathways_df$fold) %>% floor()
+        max <- max(toppathways_df$fold) %>% ceiling()
+        
+        plot <- ggplot(toppathways_df, aes(y = Description, x = cell_type)) +
+          geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle(ontology) +
+          geom_point(aes(size = FDR, colour = fold)) +
+          facet_wrap(~ONTOLOGY, scales = "free_y") +
+          scale_color_gradient(low = "blue", high = "red") +
+          scale_size(range = c(5, 12)) +
+          theme_bw() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                text = element_text(size = 25)) +
+          guides(colour = guide_legend(title = "Median logFC"),
+                                       size = guide_legend(title = "-log10(FDR)"))
+        plot_list[[currentcomparison]] <- plot
+      }
+    return(plot_list)
+  } else {
+      currentx <- x %>% dplyr::filter(p.adjust < 0.05 & ONTOLOGY == ontology)
+      
+      toppathways1 <- currentx %>% dplyr::filter(shared_cells > 1) %>% group_by(comparison, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+      toppathways2 <- currentx %>% dplyr::filter(shared_cells == 1) %>% group_by(comparison, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+
+      toppathways <- rbind(toppathways1, toppathways2)
+      
+      for(j in 1:nlevels(toppathways$comparison)) {
+        
+        currentcomparison <- levels(toppathways$comparison)[j]
+        toppathways_df <- toppathways %>% dplyr::filter(comparison == currentcomparison) %>%
+          dplyr::arrange(desc(shared_cells)) %>%
+          dplyr::mutate(fold = as.numeric(fold))
+        toppathways_df$Description <- factor(toppathways_df$Description, levels = unique(toppathways_df$Description))
+        
+        toppathways_df
+                        
+        min <- min(toppathways_df$fold) %>% floor()
+        max <- max(toppathways_df$fold) %>% ceiling()
+        
+        plot <- ggplot(toppathways_df, aes(y = Description, x = cell_type)) +
+          geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle(ontology) +
+          geom_point(aes(size = FDR, colour = fold)) +
+          facet_wrap(~comparison, scales = "free") +
+          scale_color_gradient(low = "blue", high = "red") +
+          scale_size(range = c(3, 10)) +
+          theme_bw() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                text = element_text(size = 25)) +
+          guides(colour = guide_legend(title = "Median logFC"),
+                                       size = guide_legend(title = "-log10(FDR)"))
+        plot_list[[currentcomparison]] <- plot
+      }
+  }
+  return(plot_list)
+}
+```
+
+```{r}
+plot_list <- plot_toppathway(fcg_pathway,"ALL")
+pdf("Plots/Pseudobulk_DEG/pathway/FCG_all_top.pdf", width = 45, height = 18)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+plot_list <- plot_toppathway(complete_pathway, "ALL")
+pdf("Plots/Pseudobulk_DEG/pathway/Complete_all_top.pdf", width = 20, height = 15)
+print(ggarrange(plotlist = plot_list, ncol = 1, nrow = 1))
+dev.off()
+
+plot_list <- plot_toppathway(fcg_pathway_df, "MF")
+pdf("Plots/Pseudobulk_DEG/pathway/FCG_MF_top.pdf", width = 60, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1, align = "v"))
+dev.off()
+
+plot_list <- plot_toppathway(fcg_pathway_df, "CC")
+pdf("Plots/Pseudobulk_DEG/pathway/FCG_CC_top.pdf", width = 40, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1, align = "v"))
+dev.off()
+
+plot_list <- plot_toppathway(fcg_pathway_df, "BP")
+pdf("Plots/Pseudobulk_DEG/pathway/FCG_BP_top.pdf", width = 45, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1, align = "v"))
+dev.off()
+
+plot_list <- plot_toppathway(complete_pathway_df, "MF")
+pdf("Plots/Pseudobulk_DEG/pathway/Complete_MF_top.pdf", width = 130, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 7, nrow = 1, align = "v"))
+dev.off()
+
+plot_list <- plot_toppathway(complete_pathway_df, "BP")
+pdf("Plots/Pseudobulk_DEG/pathway/Complete_BP_top.pdf", width = 110, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 7, nrow = 1, align = "v"))
+dev.off()
+
+plot_list <- plot_toppathway(complete_pathway_df, "CC")
+pdf("Plots/Pseudobulk_DEG/pathway/Complete_CC_top.pdf", width = 100, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 7, nrow = 1, align = "v"))
+dev.off()
+```
+
+```{r}
+##plot male and female-biased pathways separately 
+x <- normative_pathway %>% dplyr::filter(cell_type != "Intermediate_Progenitor_Cell")
+plot_list <- list()
+x$FDR <- -log10(x$p.adjust)
+
+##female-biased pathways
+currentx <- x %>% dplyr::filter(p.adjust < 0.05 & sign == "Up")
+
+counts <- currentx %>% 
+    group_by(ONTOLOGY, ID) %>%
+    summarise(shared_cells = n_distinct(cell_type))
+  
+currentx <- left_join(currentx, counts, by=c('ONTOLOGY' = 'ONTOLOGY', 'ID'='ID'))
+      
+toppathways1 <- currentx %>% dplyr::filter(shared_cells > 1) %>% group_by(comparison, ONTOLOGY, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+toppathways2 <- currentx %>% dplyr::filter(shared_cells == 1) %>% group_by(comparison, ONTOLOGY, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+toppathways <- rbind(toppathways1, toppathways2)
+
+toppathways_df <- toppathways %>% 
+  dplyr::group_by(ONTOLOGY) %>%
+  dplyr::arrange(desc(shared_cells), .by_group = TRUE) %>%
+  dplyr::mutate(fold = as.numeric(fold)) %>%
+  dplyr::mutate(cell_type = factor(cell_type, levels = allcells))
+
+paths_to_remove <- c("cell cycle G1/S phase transition", "membranous septum morphogenesis", "cell junction assembly", "synaptic transmission, glutamatergic", "glutamate receptor signaling pathway", "olfactory bulb development", "presynaptic active zone", "postsynaptic specialization", "DNA−binding transcription activator activity", "ligand−gated channel activity", "ligand−gated monoatomic ion channel activity involved in regulation of presynaptic membrane potential", "glutamate receptor activity")
+toppathways_df <- toppathways_df %>% dplyr::filter(!Description %in% paths_to_remove)
+
+toppathways_df$Description <- factor(toppathways_df$Description, levels = unique(toppathways_df$Description))
+
+min <- min(toppathways_df$fold) %>% floor()
+max <- max(toppathways_df$fold) %>% ceiling()
+        
+plot <- ggplot(toppathways_df, aes(y = Description, x = cell_type)) +
+          geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle("Female-Biased Pathways") +
+          geom_point(aes(size = FDR, colour = fold)) +
+          facet_wrap(~ONTOLOGY, scales = "free_y") +
+          scale_color_gradient(low = "pink", high = "darkred") +
+          scale_size(range = c(5, 12)) +
+          scale_fill_discrete(drop=FALSE) +
+          scale_x_discrete(drop=FALSE) +
+          theme_bw() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                text = element_text(size = 25)) +
+          guides(colour = guide_legend(title = "Median logFC"),
+                                       size = guide_legend(title = "-log10(FDR)"))
+
+plot_list[["Female"]] <- plot
+
+##Male-biased pathways
+currentx <- x %>% dplyr::filter(p.adjust < 0.05 & sign == "Down")
+
+counts <- currentx %>% 
+    group_by(ONTOLOGY, ID) %>%
+    summarise(shared_cells = n_distinct(cell_type))
+  
+currentx <- left_join(currentx, counts, by=c('ONTOLOGY' = 'ONTOLOGY', 'ID'='ID'))
+      
+toppathways1 <- currentx %>% dplyr::filter(shared_cells > 1) %>% group_by(comparison, ONTOLOGY, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+toppathways2 <- currentx %>% dplyr::filter(shared_cells == 1) %>% group_by(comparison, ONTOLOGY, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+toppathways <- rbind(toppathways1, toppathways2)
+      
+toppathways_df <- toppathways %>% 
+  dplyr::group_by(ONTOLOGY) %>%
+  dplyr::arrange(desc(shared_cells), .by_group = TRUE) %>%
+  dplyr::mutate(fold = as.numeric(fold)) %>%
+  dplyr::mutate(cell_type = factor(cell_type, levels = allcells))
+
+paths_to_remove <- c("forebrain generation of neurons", "protein localization to cell periphery", "cell junction assembly", "protein−RNA complex organization", "protein−RNA complex assembly", "ribonucleoprotein complex biogenesis", "P granule", "monoatomic ion channel complex", "postsynaptic specialization membrane", "postsynaptic specialization", "asymmetric synapse","early endosome", "dystrophin−associated glycoprotein complex", "voltage−gated potassium channel complex", "modified amino acid binding",  "peptide receptor activity", "G protein−coupled receptor activity", "PDZ domain binding", "transmembrane transporter binding", "tubulin binding", "translation regulator activity, nucleic acid binding", "translation regulator activity, nucleic acid binding", "tRNA binding", "translation initiation factor activity", "protein demethylase activity", "histone demethylase activity", "protein−RNA complex assembly", "dystrophin−associated glycoprotein complex", "voltage−gated potassium channel complex", "translation factor activity, RNA binding")
+ids_to_remove <- c("GO:0071826", "GO:0022618", "GO:0016010", "GO:0008076")
+
+toppathways_df <- toppathways_df %>% dplyr::filter(!Description %in% paths_to_remove)
+toppathways_df <- toppathways_df %>% dplyr::filter(!ID %in% ids_to_remove)
+
+toppathways_df$Description <- factor(toppathways_df$Description, levels = unique(toppathways_df$Description))
+                        
+min <- min(toppathways_df$fold) %>% floor()
+max <- max(toppathways_df$fold) %>% ceiling()
+        
+plot <- ggplot(toppathways_df, aes(y = Description, x = cell_type)) +
+          geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle("Male-Biased Pathways") +
+          geom_point(aes(size = FDR, colour = fold)) +
+          facet_wrap(~ONTOLOGY, scales = "free_y") +
+          scale_color_gradient(low = "darkblue", high = "lightblue") +
+          scale_size(range = c(5, 12)) +
+          scale_fill_discrete(drop=FALSE) +
+          scale_x_discrete(drop=FALSE) +
+          theme_bw() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                text = element_text(size = 25)) +
+          guides(colour = guide_legend(title = "Median logFC"),
+                                       size = guide_legend(title = "-log10(FDR)"))
+
+plot_list[["Male"]] <- plot
+  
+pdf("Plots/Pseudobulk_DEG/pathway/Normative_all_top_split.pdf", width = 35, height = 25)
+print(ggarrange(plotlist = plot_list, ncol = 1, nrow = 2, align = "v"))
+dev.off()
+ 
+```
+

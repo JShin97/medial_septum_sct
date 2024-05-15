@@ -1,0 +1,90 @@
+---
+title: "Clustering Visualization"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(plyr)
+library(dplyr)
+library(Seurat)
+#library(enrichplot)
+#library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+#library(simplifyEnrichment)
+library(stringr)
+#library(EnhancedVolcano)
+#library(biomaRt)
+library(readxl)
+#library(UpSetR)
+library(tidyr)
+library(purrr)
+#library(ggridges)
+library(ggpubr)
+#library(ComplexHeatmap)
+#library(ComplexUpset)
+library(ggplotify)
+```
+
+```{r}
+seurat <- readRDS("Saves/Caden/For_Figures.rds")
+seurat_subset <- readRDS("Saves/Caden/For_Figures_Neurons.rds")
+```
+
+```{r}
+seurat <- seurat %>%
+  NormalizeData() %>%
+  FindVariableFeatures() %>%
+  ScaleData(features = rownames(seurat)) %>%
+  RunPCA(verbose = FALSE) %>%
+  RunUMAP(dims = 1:30, verbose = TRUE) %>%
+  FindNeighbors(dims = 1:30, verbose = TRUE)
+
+seurat$subtype <- as.character(seurat$cell.type)
+seurat$subtype[Cells(seurat_subset)] <- as.character(seurat_subset$neuronal.subtypes)
+seurat$subtype2 <- as.character(seurat$cell.type)
+seurat$subtype2[Cells(seurat_subset)] <- as.character(seurat_subset$neuronal.subtypes2)
+
+saveRDS(seurat, file = "Saves/Caden/For_Figures_clustered.rds")
+```
+
+```{r}
+##visualization 
+seurat_cleaned <- subset(seurat, cell.type %in% c("Unknown", "Intermediate Progenitor Cell"), invert = TRUE)
+
+DimPlot(seurat_cleaned, group.by = "cell.type")
+pdf("Plots/Caden/UMAP/UMAP_celltype.pdf", width = 7, height = 5)
+print(last_plot())
+dev.off()
+
+DimPlot(seurat_cleaned, group.by = "subtype")
+pdf("Plots/Caden/UMAP/UMAP_subcelltype.pdf", width = 7, height = 5)
+print(last_plot())
+dev.off()
+
+DimPlot(seurat_cleaned, group.by = "subtype2")
+pdf("Plots/Caden/UMAP/UMAP_subcelltype2.pdf", width = 9, height = 5)
+print(last_plot())
+dev.off()
+
+plot1 <- DimPlot(seurat_cleaned, group.by = "Genotype")
+plot2 <- DimPlot(seurat_cleaned, group.by = "Gonad")
+plot3 <- DimPlot(seurat_cleaned, group.by = "SexChrom")
+plot4 <- DimPlot(seurat_cleaned, group.by = "Trisomy")
+
+pdf("Plots/Caden/UMAP/UMAP_vars.pdf", width = 25, height = 5)
+ggarrange(plotlist = list(plot1, plot2, plot3, plot4), nrow = 1)
+dev.off()
+```
+
