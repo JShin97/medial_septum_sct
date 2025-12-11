@@ -7,38 +7,167 @@ date: "2024-05-02"
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
-```
 
-```{r}
-# library(limma)
-# library(edgeR)
-# library(data.table)
-library(plyr)
+library(limma)
+library(edgeR)
+library(data.table)
 library(dplyr)
-library(Matrix)
+library(plyr)
 library(Seurat)
+#library(clusterProfiler)
 #library(enrichplot)
-#library(org.Mm.eg.db)
-#library(ggplot2)
-#library(RColorBrewer)
-#library(grid)
-#library(gridExtra)
-#library(Mus.musculus)
-library(MAST)
-library(lme4)
-library(survcomp)
+library(org.Mm.eg.db)
 library(ggplot2)
-library(UpSetR)
-library(tidyverse)
-library(ComplexUpset)
-library(ggpubr)
-library(readxl)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
 ```
 
 ##DEG datasets
 ```{r}
-data.dir <- "~/scratch/medial_septum_sct"
+data.dir <- "Results/complete_analysis/DEG_SD_metacell_sum_pure/"
+allfiles <- list.files(data.dir)
+allcells <- list.files(paste0(data.dir, allfiles[1])) %>% gsub(".rda", "", .)
+```
 
+```{r}
+topgenes <- list()
+DEG_results <- list()
+
+for(i in 1:length(allcells)) {
+  currentcell <- allcells[i]
+  
+  #Normative difference 
+  file.dir <- paste0(data.dir, "normative/", currentcell, ".rda")
+  load(file.dir)
+  
+  for(k in 1:length(resultlist_normative)) {
+ 
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_normative[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+    currentmodel <- "Normative"
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  #FCG
+  file.dir <- paste0(data.dir, "fcg/", currentcell, ".rda")
+  load(file.dir)
+  
+  for(k in 1:length(resultlist_fcg)) {
+ 
+    currentframe <- resultlist_fcg[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_fcg[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+    currentmodel <- "FCG"
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  #addX
+  file.dir <- paste0(data.dir, "addx/", currentcell, ".rda")
+  load(file.dir)
+  
+  currentframe <- resultlist_addx[["addX"]]
+  if(nrow(currentframe) == 0) {next}
+
+  currentframe <- tibble::rownames_to_column(currentframe, "gene")
+  currentcomparison <- names(resultlist_addx["addX"])
+  currentframe$cell_type <- currentcell
+  currentframe$comparison <- currentcomparison
+  currentframe <- currentframe %>% dplyr::arrange(-logFC)
+  currentmodel <- "addX"
+
+  topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+  DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  
+  #addY1
+  file.dir <- paste0(data.dir, "addy1/", currentcell, ".rda")
+  load(file.dir)
+
+  currentframe <- resultlist_addy1[["addY1"]]
+  if(nrow(currentframe) == 0) {next}
+  
+  currentframe <- tibble::rownames_to_column(currentframe, "gene")
+  currentcomparison <- names(resultlist_addy1["addY1"])
+  currentframe$cell_type <- currentcell
+  currentframe$comparison <- currentcomparison
+  currentframe <- currentframe %>% dplyr::arrange(-logFC)
+  currentmodel <- "addY1"
+
+  topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+  DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  
+  #addY2
+  file.dir <- paste0(data.dir, "addy2/", currentcell, ".rda")
+  load(file.dir)
+
+  currentframe <- resultlist_addy2[["addY2"]]
+  if(nrow(currentframe) == 0) {next}
+  
+  currentframe <- tibble::rownames_to_column(currentframe, "gene")
+  currentcomparison <- names(resultlist_addy2["addY2"])
+  currentframe$cell_type <- currentcell
+  currentframe$comparison <- currentcomparison
+  currentframe <- currentframe %>% dplyr::arrange(-logFC)
+  currentmodel <- "addY2"
+
+  topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+  DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+}
+
+DEG_df <- do.call("rbind", unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$effect <- plyr::mapvalues(DEG_df$comparison, 
+                                 from = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX", "addX", "addY1", "addY2"),
+                                 to = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2"))
+
+save(topgenes, DEG_results, file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell_sum_pure/topgenes_DEGlist_RNA_SD.rda")
+save(DEG_df, file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell_sum_pure/DEG_df_RNA_SD.rda")
+```
+
+```{r}
+load("Results/complete_analysis/DEG_processed/DEG_SD_metacell_sum_pure/DEG_df_RNA_SD.rda")
+
+##plot mean number of DEGs by number of cells
+DEG_counts <- DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  group_by(cell_type) %>% 
+  dplyr::summarize(mean_sig_degs = n(), .groups = "drop")
+cell_numbers <- as.data.frame.array(table(sc_seurat$celltype)) %>% tibble::rownames_to_column(var = "cell_type")
+DEG_counts <- left_join(DEG_counts, cell_numbers, by = "cell_type")
+colnames(DEG_counts) <- c("Celltype", "Mean_DEG", "Cell_count")
+
+ggplot(DEG_counts, aes(x = Cell_count, y = Mean_DEG, color = Celltype)) +
+  geom_point(size = 3) +
+  labs(
+    x = "Number of Cells",
+    y = "Mean Number of Significant DEGs",
+    title = "Dot Plot of Significant DEGs vs. Number of Cells"
+  ) +
+  theme_minimal()
+
+png("/u/project/xyang123/jshin/cerebellum_sct/Results/Armin/Plots/MS_downsample_DEG_by_cellcount.png", width = 7, height = 5, units = "in", res = 600)
+print(last_plot())
+dev.off()
+```
+
+####################################
+
+##Caden Original DEGs 
+```{r}
 ##read in Caden's results 
 allfiles <- list.files(paste0(data.dir, "/Caden_DEG/"))
 allfiles <- allfiles[-1]
@@ -146,3 +275,4 @@ DEG_df$effect <- plyr::mapvalues(DEG_df$comparison,
 
 saveRDS(DEG_df, file = "Results/ambient_RNA/DEG/DEG_results.rds")
 ```
+

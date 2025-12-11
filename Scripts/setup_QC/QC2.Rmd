@@ -6,7 +6,7 @@ date: "2024-04-22"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_sepum_sct")
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct/")
 
 library(Seurat)
 library(stringr)
@@ -28,7 +28,12 @@ library(BiocParallel)
 library(DoubletFinder)
 library(harmony)
 
+source("/u/project/xyang123/jshin/resources/scUtils/Basic_pipeline/scFunctions.R")
 ```
+
+####################################################################
+##Part 1 : Load cellbender processed raw data 
+####################################################################
 
 ```{r}
 sample.dir <- "/u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts2"
@@ -38,36 +43,28 @@ samples <- list.dirs(path = sample.dir, full.names = FALSE, recursive = FALSE)
 ```{r}
 ##load original objects
 seurat_list <- lapply(samples, function(sample){
-data_path <- paste0(sample.dir, "/", sample, "/", sample, "_filtered_seurat.h5")
-count_data <- Read10X_h5(data_path)
-cur_seurat <- CreateSeuratObject(
-counts = count_data,
-project='MS_SCT'
-)
-cur_seurat$SampleID <- sample
-return(cur_seurat)
+  data_path <- paste0(sample.dir, "/", sample, "/", sample, "_filtered_seurat.h5")
+  count_data <- Read10X_h5(data_path)
+  cur_seurat <- CreateSeuratObject(
+    counts = count_data,
+    project='MS_SCT'
+    )
+  cur_seurat$SampleID <- sample
+  return(cur_seurat)
 })
-saveRDS(seurat_list, "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list.Rds")
+saveRDS(seurat_list, "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PreFilter/seurat_list_cellbender.Rds")
 ```
+
+####################################################################
+##Part 2 : Run DoubletFinder
+####################################################################
 
 ```{r}
 ##QC:
+seurat_list <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PreFilter/seurat_list_cellbender.Rds")
 
-seurat_list <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list.Rds")
-
-seurat_list_noempty <- for(i in 1:length(seurat_list)) {
-  sample <- seurat_list[[i]]
-  # (1). Identify total RNA count for each cell
-  cell_count <- sample$nCount_RNA
-  # (2). Define the second least RNA count as the lower bound
-  l_cell_count <- sort(cell_count)[2]
-  # (3). Detect the empty droplets
-  e_cell_count <- emptyDrops(sample@assays$RNA@counts, lower = l_cell_count,BPPARAM=MulticoreParam())
-  sample_noempty <- sample[,which(e_cell_count$FDR <= 0.01)]
-  seurat_list_noempty[[i]] <- sample_noempty
-}
-
-seurat_list <- for(i in 1:length(seurat_list)) {
+seurat_list_df <- lapply(seq_along(seurat_list), function(i) {
+  print(i)
   sample <- seurat_list[[i]]
   # (1) Pre-process sample
   sample <- NormalizeData(sample)
@@ -78,7 +75,7 @@ seurat_list <- for(i in 1:length(seurat_list)) {
   # (2). pK Identification (no ground-truth)
   sweep.res.list <- paramSweep(sample, PCs = 1:30, sct = FALSE)
   sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
-  pdf(file = paste0("Plots/QC/doublet/", unique(sample$SampleID), ".pdf"),width=3,height=5)
+  png(file = paste0("Plots/QC/doubletfinder/", unique(sample$SampleID), ".png"),width=3,height=5,units="in",res=600)
   bcmvn_sample <- find.pK(sweep.stats)
   dev.off()
   mpK <-as.numeric(as.vector(bcmvn_sample$pK[which.max(bcmvn_sample$BCmetric)]))
@@ -86,121 +83,897 @@ seurat_list <- for(i in 1:length(seurat_list)) {
   DoubletRate = ncol(sample)*8*1e-6 # ~1000 cells, and a multiplet rate of ~0.8% according to 10XGenomics
   nExp_poi <- round(DoubletRate*ncol(sample))
   sample <- doubletFinder(sample, PCs = 1:30, pN = 0.25, pK = mpK, nExp = nExp_poi, reuse.pANN = FALSE, sct = F)
-  # (4). Remove doublets
+  # (4). Add doubletfinder metadata
   table(sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)])
   sample$doubletfinder<-sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)]
-  seurat_list_df[[i]] <- sample
-}
-saveRDS(seurat_list_df, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_df.Rds")
+  
+  return(sample)
+})
+
+saveRDS(seurat_list_df, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PreFilter/seurat_list_cellbender_df.Rds")
 ```
 
+####################################################################
+##Part 3 : Add metadata 
+####################################################################
+
 ```{r}
-seuratObject <- merge(x = seurat_list_df[[1]], y = seurat_list_df[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
+seuratObject <- merge(x = seurat_list_df[[1]], y = seurat_list_df[2:length(seurat_list_df)], merge.data=TRUE, add.cell.ids = samples)
 
 seuratObject@meta.data[, grepl("pANN", colnames(seuratObject@meta.data))] <- NULL
 seuratObject@meta.data[, grepl("DF", colnames(seuratObject@meta.data))] <- NULL
 
 ##add metadata
-load(file = "Saves/metadata.Rda")
+load(file = "Data/metadata/metadata.Rda")
 sample_metadata <- seuratObject@meta.data
 sample_metadata <- sample_metadata %>%
-tibble::rownames_to_column(var = "cell") %>%
-left_join(., original_metadata, by = c("SampleID" = "orig.ident")) %>%
-left_join(., technical_metadata, by = c("SampleID" = "Sample_ID"))
-sample_metadata <- sample_metadata %>%
-dplyr::select(-Genotype.y) %>%
-dplyr::rename(Genotype = Genotype.x)
+  tibble::rownames_to_column(var = "cell") %>%
+  left_join(., original_metadata, by = c("SampleID" = "orig.ident")) %>%
+  left_join(., technical_metadata, by = c("SampleID" = "Sample_ID"))
+  sample_metadata <- sample_metadata %>%
+  dplyr::select(-Genotype.y) %>%
+  dplyr::rename(Genotype = Genotype.x)
 rownames(sample_metadata) <- sample_metadata$cell
 sample_metadata <- sample_metadata[, -1]
 for (meta in names(sample_metadata)) {
-seuratObject[[meta]] <- sample_metadata[[meta]]
+  seuratObject[[meta]] <- sample_metadata[[meta]]
 }
 
-saveRDS(seuratObject, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
+##remap metadata
+seuratObject$Genotype_original <- seuratObject$Genotype
+
+metadata <- seuratObject@meta.data
+metadata[metadata$SampleID == "TriSeptum-2", "Genotype"] <- "XXYF"
+metadata[metadata$SampleID == "TriSeptum-5", "Genotype"] <- "XXF"
+metadata[metadata$SampleID == "TriSeptum-12", "Genotype"] <- "XYM"
+metadata[metadata$SampleID == "TriSeptum-24", "Genotype"] <- "XYM"
+
+if(identical(row.names(seuratObject@meta.data), row.names(metadata))) {seuratObject@meta.data <- metadata}
+
+saveRDS(seuratObject, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PreFilter/seurat_merged_cellbender_df.Rds")
+```
+
+####################################################################
+##Part 4 : Filtering 
+####################################################################
+```{r}
+seuratObject = getCellQuality(seuratObject = seuratObject,
+                              feature_patterns=list("percent.mito"="^mt-",
+                                                    "percent.ribo"=c("^Rps","^Rpl"),
+                                                    "percent.pred"=c("^Gm1","^Gm2","^Gm3","^Gm4","^Gm5","^Gm6","^Gm7","^Gm8","^Gm9"),
+                                                    "percent.Hb"=c("^Hba-","^Hbb-","^Hbq")))
+cellQualityPlot(seuratObject=seuratObject,
+                fileName="Plots/QC/ViolinPlots/MS_cellbender_PreFilter.pdf",
+                featuresPlot=c("nFeature_RNA","nCount_RNA","percent.mito",
+                               "percent.ribo","percent.pred","percent.Hb"),
+                identPlot = "SampleID",
+                H=9,W=20,
+                pointSize=0)
+
+filtered_sample = subset(x = seuratObject, 
+                         subset = nFeature_RNA > 200 & 
+                           nFeature_RNA < 7500 & 
+                           nCount_RNA > 500 &
+                           nCount_RNA < 35000 &
+                           percent.mito < .03 & 
+                           percent.pred < .10 & 
+                           percent.Hb < 0.05)
+
+# redo cell quality plot to see QC after filtering
+cellQualityPlot(seuratObject=filtered_sample,
+                fileName=paste0("Plots/QC/ViolinPlots/MS_cellbender_PostFilter.pdf"),
+                H=9,W=20,
+                featuresPlot=c("nFeature_RNA","nCount_RNA","percent.mito",
+                               "percent.ribo","percent.pred","percent.Hb"),
+                identPlot = "SampleID",
+                pointSize=0)
+
+```
+
+####################################################################
+##Part 5 : Preliminary Clustering 
+####################################################################
+
+```{r}
+filtered_sample <- NormalizeData(filtered_sample, normalization.method = "LogNormalize", scale.factor = 10000)
+filtered_sample <- FindVariableFeatures(filtered_sample, selection.method = "vst", nfeatures = 2000)
+filtered_sample <- ScaleData(filtered_sample, features = rownames(filtered_sample))
+filtered_sample <- RunPCA(filtered_sample, features = VariableFeatures(object = filtered_sample))
+filtered_sample <- FindNeighbors(filtered_sample, dims = 1:10)
+filtered_sample <- RunUMAP(filtered_sample, dims = 1:10)
+filtered_sample <- FindClusters(filtered_sample, resolution = c(0.5, 0.8, 1.0))
+
+saveRDS(filtered_sample, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_merged_cellbender_df.Rds")
 ```
 
 ```{r}
-#check original object 
+##visualization 
+load(file = "Data/metadata/metadata.Rda")
+seuratObject <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_merged_cellbender_df.Rds")
 
-## integrate with standard workflow by sequencing date
-original <- readRDS("Saves/Caden/For_Figures.rds")
-sample_metadata <- original@meta.data
+metadata <- seuratObject@meta.data
+technical_metadata <- technical_metadata %>% group_by(Genotype) %>% mutate(id = row_number()) %>% ungroup() %>% dplyr::select(Sample_ID, id)
+metadata <- metadata %>%
+  rownames_to_column(var = "cellID") %>%
+  left_join(., technical_metadata, by = c("SampleID" = "Sample_ID"))
+rownames(metadata) <- metadata$cellID 
+metadata$cellID <- NULL
 
-sample_metadata <- sample_metadata %>%
-left_join(., technical_metadata, by = c("orig.ident" = "Sample_ID"))
-for (meta in names(sample_metadata)) {
-original[[meta]] <- sample_metadata[[meta]]
-}
+##Add Sample2 and Sample_GT 
+metadata$Sample2 <- paste0(metadata$Genotype, metadata$id)
+metadata$Sample_GT <- paste(metadata$SampleID, metadata$Genotype, sep = "_")
+metadata$Genotype <- factor(metadata$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+sample2_order <- metadata$Sample2[order(metadata$Genotype, metadata$id)]
+metadata$Sample2 <- factor(metadata$Sample2, levels = unique(sample2_order))
+samplegt_order <- metadata$Sample_GT[order(metadata$Sample2)]
+metadata$Sample_GT <- factor(metadata$Sample_GT, levels = unique(samplegt_order))
 
-DimPlot(original, group.by = c("Sequencing_Date", "Library_Prep"))
-DimPlot(original, group.by = c("orig.ident"))
-DimPlot(original, group.by = c("Genotype", "Gonad", "SexChrom"))
-DimPlot(original, group.by = c("cell.type"))
+if(identical(row.names(seuratObject@meta.data), row.names(metadata))) {seuratObject@meta.data <- metadata}
+
+seurat_sample_list <- SplitObject(seuratObject, split.by = "Sample_GT")
+seurat_sample_list <- seurat_sample_list[levels(seuratObject$Sample_GT)]
+umap_list <- lapply(seq_along(seurat_sample_list), function(i) {
+  sample <- seurat_sample_list[[i]]
+  plot <- DimPlot(sample, group.by = "seurat_clusters", label = TRUE) + ggtitle(as.character(names(seurat_sample_list[i])))
+  return(plot)
+})
+
+png("Plots/QC/UMAP_preintegration/sample_umap.png", height = 30, width = 40, units = "in", res = 600)
+ggarrange(plotlist = umap_list, ncol = 6, nrow = 4)
+dev.off()
+
+metadata <- seuratObject@meta.data
+metadata$Sequencing_Date <- factor(seuratObject$Sequencing_Date, levels = unique(seuratObject$Sequencing_Date)[order(as.Date(unique(seuratObject$Sequencing_Date)))])
+sample_sd_order <- metadata$Sample_GT[order(metadata$Sequencing_Date)]
+
+seurat_sample_list <- seurat_sample_list[unique(sample_sd_order)]
+umap_list <- lapply(seq_along(seurat_sample_list), function(i) {
+  sample <- seurat_sample_list[[i]]
+  sample_name <- as.character(names(seurat_sample_list[i]))
+  plot <- DimPlot(sample, group.by = "seurat_clusters", label = TRUE) + ggtitle(paste(sample_name, unique(sample$Sequencing_Date), sep = "_"))
+  return(plot)
+})
+
+png("Plots/QC/UMAP_preintegration/sample_sd_umap.png", height = 30, width = 40, units = "in", res = 600)
+ggarrange(plotlist = umap_list, ncol = 6, nrow = 4)
+dev.off()
+```
+
+####################################################################
+##Part 6 : Integration  
+####################################################################
+
+```{r}
+seuratObject <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_merged_cellbender_df.Rds")
 ```
 
 ```{r}
-seuratObject <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
-seurat_list <- SplitObject(seuratObject, split.by = "SampleID")
-seurat_list <- lapply(X = seurat_list,
+##Integration by LP -- not enough 
+seurat_LP_list <- SplitObject(seuratObject, split.by = "Library_Prep")
+
+seurat_LP_list <- lapply(X = seurat_LP_list,
   FUN = SCTransform,
   vst.flavor = "v2",
   method = "glmGamPoi",
   return.only.var.genes = FALSE,
   conserve.memory = TRUE)
-var.features <- SelectIntegrationFeatures(object.list = seurat_list, nfeatures = 3000)
+var.features <- SelectIntegrationFeatures(object.list = seurat_LP_list, nfeatures = 3000)
 
-seuratObject.sct <- merge(x = seurat_list[[1]], y = seurat_list[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
-VariableFeatures(seuratObject.sct) <- var.features
-seuratObject.sct <- RunPCA(seuratObject.sct, verbose = TRUE)
-seuratObject.sct <- RunHarmony(seuratObject.sct, assay.use="SCT", group.by.vars = "SampleID")
-seuratObject.sct <- RunUMAP(seuratObject.sct, reduction = "harmony", dims = 1:30)
-seuratObject.sct <- FindNeighbors(seuratObject.sct, reduction = "harmony", dims = 1:30)
-seuratObject.sct <- FindClusters(seuratObject.sct, reduction = "harmony", resolution = 0.4)
-save(seurat_list, seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_merged_integrated_SampleID.Rds")
-
-######################################################
-
-seuratObject <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
-seurat_list <- SplitObject(seuratObject, split.by = "Sequencing_Date")
-seurat_list <- lapply(X = seurat_list,
-  FUN = SCTransform,
-  vst.flavor = "v2",
-  method = "glmGamPoi",
-  return.only.var.genes = FALSE,
-  conserve.memory = TRUE)
-var.features <- SelectIntegrationFeatures(object.list = seurat_list, nfeatures = 3000)
-
-seuratObject.sct <- merge(x = seurat_list[[1]], y = seurat_list[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
-VariableFeatures(seuratObject.sct) <- var.features
-seuratObject.sct <- RunPCA(seuratObject.sct, verbose = TRUE)
-seuratObject.sct <- RunHarmony(seuratObject.sct, assay.use="SCT", group.by.vars = "Sequencing_Date")
-seuratObject.sct <- RunUMAP(seuratObject.sct, reduction = "harmony", dims = 1:30)
-seuratObject.sct <- FindNeighbors(seuratObject.sct, reduction = "harmony", dims = 1:30)
-seuratObject.sct <- FindClusters(seuratObject.sct, reduction = "harmony", resolution = 0.4)
-save(seurat_list, seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_merged_integrated_SD.Rds")
-
-######################################################
-
-seuratObject <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_merged_df.Rds")
-seurat_list <- SplitObject(seuratObject, split.by = "Library_prep")
-seurat_list <- lapply(X = seurat_list,
-  FUN = SCTransform,
-  vst.flavor = "v2",
-  method = "glmGamPoi",
-  return.only.var.genes = FALSE,
-  conserve.memory = TRUE)
-var.features <- SelectIntegrationFeatures(object.list = seurat_list, nfeatures = 3000)
-
-seuratObject.sct <- merge(x = seurat_list[[1]], y = seurat_list[2:length(seurat_list)], merge.data=TRUE, add.cell.ids = samples)
+seuratObject.sct <- merge(x = seurat_LP_list[[1]], y = seurat_LP_list[2:length(seurat_LP_list)], merge.data=TRUE)
 VariableFeatures(seuratObject.sct) <- var.features
 seuratObject.sct <- RunPCA(seuratObject.sct, verbose = TRUE)
 seuratObject.sct <- RunHarmony(seuratObject.sct, assay.use="SCT", group.by.vars = "Library_Prep")
 seuratObject.sct <- RunUMAP(seuratObject.sct, reduction = "harmony", dims = 1:30)
 seuratObject.sct <- FindNeighbors(seuratObject.sct, reduction = "harmony", dims = 1:30)
 seuratObject.sct <- FindClusters(seuratObject.sct, reduction = "harmony", resolution = 0.4)
-save(seurat_list, seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/seurat_list_merged_integrated_LP.Rds")
+
+##set metadata
+seuratObject.sct$Sample2 <- factor(seuratObject.sct$Sample2, levels = levels(seuratObject$Sample2))
+seuratObject.sct$Sample_GT <- factor(seuratObject.sct$Sample_GT, levels = levels(seuratObject$Sample_GT))
+############################################################
+seuratObject.sct$seurat_clusters <- factor(seuratObject.sct$seurat_clusters, levels = mixedsort(unique(seuratObject.sct$seurat_clusters)))
+seurat_sample_list <- SplitObject(seuratObject.sct, split.by = "Sample_GT")
+seurat_sample_list <- seurat_sample_list[levels(seuratObject.sct$Sample_GT)]
+umap_list <- lapply(seq_along(seurat_sample_list), function(i) {
+  sample <- seurat_sample_list[[i]]
+  plot <- DimPlot(sample, group.by = "seurat_clusters", label = TRUE) + ggtitle(as.character(names(seurat_sample_list[i])))
+  return(plot)
+})
+
+png("Plots/QC/complete_SCT_dataset/UMAP_integration/harmony_LP_sample_umap.png", height = 30, width = 40, units = "in", res = 600)
+ggarrange(plotlist = umap_list, ncol = 6, nrow = 4)
+dev.off()
+
+metadata <- seuratObject.sct@meta.data
+metadata$Sequencing_Date <- factor(seuratObject.sct$Sequencing_Date, levels = unique(seuratObject.sct$Sequencing_Date)[order(as.Date(unique(seuratObject.sct$Sequencing_Date)))])
+sample_sd_order <- metadata$Sample_GT[order(metadata$Sequencing_Date)]
+
+seurat_sample_list <- seurat_sample_list[unique(sample_sd_order)]
+umap_list <- lapply(seq_along(seurat_sample_list), function(i) {
+  sample <- seurat_sample_list[[i]]
+  sample_name <- as.character(names(seurat_sample_list[i]))
+  plot <- DimPlot(sample, group.by = "seurat_clusters", label = TRUE) + ggtitle(paste(sample_name, unique(sample$Sequencing_Date), sep = "_"))
+  return(plot)
+})
+
+png("Plots/QC/complete_SCT_dataset/UMAP_integration/harmony_LP_sample_sd_umap.png", height = 30, width = 40, units = "in", res = 600)
+ggarrange(plotlist = umap_list, ncol = 6, nrow = 4)
+dev.off()
+############################################################
+saveRDS(seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_LP_cellbender_df.Rds")
+```
+
+```{r}
+##Integration by sample -- use these results 
+seurat_sample_list <- SplitObject(seuratObject, split.by = "SampleID")
+
+seurat_sample_list <- lapply(X = seurat_sample_list,
+  FUN = SCTransform,
+  vst.flavor = "v2",
+  method = "glmGamPoi",
+  return.only.var.genes = FALSE,
+  conserve.memory = TRUE)
+var.features <- SelectIntegrationFeatures(object.list = seurat_sample_list, nfeatures = 3000)
+
+seuratObject.sct <- merge(x = seurat_sample_list[[1]], y = seurat_sample_list[2:length(seurat_sample_list)], merge.data=TRUE)
+VariableFeatures(seuratObject.sct) <- var.features
+seuratObject.sct <- RunPCA(seuratObject.sct, verbose = TRUE)
+seuratObject.sct <- RunHarmony(seuratObject.sct, assay.use="SCT", group.by.vars = "SampleID")
+seuratObject.sct <- RunUMAP(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindNeighbors(seuratObject.sct, reduction = "harmony", dims = 1:30)
+seuratObject.sct <- FindClusters(seuratObject.sct, reduction = "harmony", resolution = c(0.5, 0.8, 1.0))
+
+##set metadata
+seuratObject.sct$Sample2 <- factor(seuratObject.sct$Sample2, levels = levels(seuratObject$Sample2))
+seuratObject.sct$Sample_GT <- factor(seuratObject.sct$Sample_GT, levels = levels(seuratObject$Sample_GT))
+
+############################################################
+seuratObject.sct$seurat_clusters <- factor(seuratObject.sct$seurat_clusters, levels = mixedsort(unique(seuratObject.sct$seurat_clusters)))
+seurat_sample_list <- SplitObject(seuratObject.sct, split.by = "Sample_GT")
+seurat_sample_list <- seurat_sample_list[levels(seuratObject.sct$Sample_GT)]
+umap_list <- lapply(seq_along(seurat_sample_list), function(i) {
+  sample <- seurat_sample_list[[i]]
+  plot <- DimPlot(sample, group.by = "seurat_clusters", label = TRUE) + ggtitle(as.character(names(seurat_sample_list[i])))
+  return(plot)
+})
+
+png("Plots/QC/complete_SCT_dataset/UMAP_integration/harmony_sampleid_sample_umap.png", height = 30, width = 40, units = "in", res = 600)
+ggarrange(plotlist = umap_list, ncol = 6, nrow = 4)
+dev.off()
+
+metadata <- seuratObject.sct@meta.data
+metadata$Sequencing_Date <- factor(seuratObject.sct$Sequencing_Date, levels = unique(seuratObject.sct$Sequencing_Date)[order(as.Date(unique(seuratObject.sct$Sequencing_Date)))])
+sample_sd_order <- metadata$Sample_GT[order(metadata$Sequencing_Date)]
+
+seurat_sample_list <- seurat_sample_list[unique(sample_sd_order)]
+umap_list <- lapply(seq_along(seurat_sample_list), function(i) {
+  sample <- seurat_sample_list[[i]]
+  sample_name <- as.character(names(seurat_sample_list[i]))
+  plot <- DimPlot(sample, group.by = "seurat_clusters", label = TRUE) + ggtitle(paste(sample_name, unique(sample$Sequencing_Date), sep = "_"))
+  return(plot)
+})
+
+png("Plots/QC/complete_SCT_dataset/UMAP_integration/harmony_sampleid_sample_sd_umap.png", height = 30, width = 40, units = "in", res = 600)
+ggarrange(plotlist = umap_list, ncol = 6, nrow = 4)
+dev.off()
+
+DimPlot(seuratObject.sct, group.by = c("Sequencing_Date", "Library_Prep", "doubletfinder"))
+png("Plots/QC/complete_SCT_dataset/UMAP_integration/harmony_sampleid_umap_techvars.png", height = 7, width = 21, units = "in", res = 600)
+print(last_plot())
+dev.off()
+############################################################
+saveRDS(seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_sampleid_cellbender_df.Rds")
+```
+
+####################################################################
+##Part 7 : Prep for MapMyCells -- use seurat_to_scanpy.R script
+##Part 7.5 : Run MapMyCells
+####################################################################
+
+####################################################################
+##Part 8 : Process MapMyCells results
+####################################################################
+```{r}
+seuratObject.sct <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_sampleid_cellbender_df.Rds")
+
+##Load MapMyCells results
+mapping <- read.csv(Sys.glob("Results/MapMyCells/MS_harmony_sampleid_SCT_Anndata_MapMyCells_10xWholeMouseBrain_HierarchicalMapping/*.csv"), comment.char="#")
+
+data.frame(Cell_counts = sort(table(mapping$class_name), decreasing = T)) 
+data.frame(Cell_counts = sort(table(mapping$subclass_name), decreasing = T)) 
+
+cellcounts <- table(mapping$class_name) %>% as.data.frame()
+subcellcounts <- table(mapping$subclass_name) %>% as.data.frame()
+
+#Assign rare classes and subclasses as "other"
+mapping$class_new <- mapping$class_name
+mapping$class_new[mapping$class_name %in% cellcounts[cellcounts$Freq < 100, "Var1"]] <- "Other"
+mapping$subclass_new <- mapping$subclass_name
+mapping$subclass_new[mapping$subclass_name %in% subcellcounts[subcellcounts$Freq < 100, "Var1"]] <- "Other"
+
+#Simplify class metadata -- neuronal vs non-neuronal
+mapping$neuronal <- "Neuronal"
+mapping[grepl("NN", mapping$subclass_new), "neuronal"] <- "Non-neuronal"
+
+#Simplify by Neuron NT type 
+mapping$NT <- mapping$neuronal
+mapping[grepl("Gaba", mapping$subclass_new), "NT"] <- "GABA"
+mapping[grepl("Glut", mapping$subclass_new), "NT"] <- "Glut"
+#mapping[grepl("Gaba-Glut", mapping$subclass_new), "NT"] <- "GABA-Glut"
+#mapping[grepl("Glyc", mapping$subclass_new), "NT"] <- "Glyc-GABA"
+#mapping[grepl("Chol", mapping$subclass_new), "NT"] <- "Chol"
+mapping[grepl("Gaba-Chol", mapping$subclass_new), "NT"] <- "GABA-Chol"
+#mapping[grepl("Dopa", mapping$subclass_new), "NT"] <- "Dopa"
+#mapping[grepl("Dopa-Gaba", mapping$subclass_new), "NT"] <- "Dopa-GABA"
+#mapping[grepl("Sero", mapping$subclass_new), "NT"] <- "Glut-Sero"
+#mapping[grepl("Hist", mapping$subclass_new), "NT"] <- "Hist-GABA"
+mapping[grepl("Inh", mapping$subclass_new), "NT"] <- "Inh_IMN"
+mapping[grepl("Neuronal", mapping$NT), "NT"] <- "Misc_NT" ##classify the rest as misc 
+
+#Simplify by broad class 
+mapping$class_simplify <- mapping$NT
+mapping[mapping$NT == "Non-neuronal", "class_simplify"] <- mapping[mapping$NT == "Non-neuronal", "class_new"]
+mapping$class_simplify <- plyr::mapvalues(mapping$class_simplify,
+                                          from = c("30 Astro-Epen", "31 OPC-Oligo", "33 Vascular", "34 Immune"),
+                                          to = c("Astro-Epen", "OPC-Oligo", "Vascular", "Immune")
+                                          )
+#mapping[mapping$class_new == "Other", "class_simplify"] <- "Other"
+
+#Simplify by subclass
+mapping$subclass_simplify <- mapping$NT
+mapping[mapping$NT == "Non-neuronal", "subclass_simplify"] <- mapping[mapping$NT == "Non-neuronal", "subclass_new"]
+mapping$subclass_simplify <- plyr::mapvalues(mapping$subclass_simplify,
+                                             from = c("318 Astro-NT NN", "319 Astro-TE NN", "323 Ependymal NN", 
+                                                      "326 OPC NN", "327 Oligo NN", "330 VLMC NN", "331 Peri NN", "333 Endo NN", "334 Microglia NN"),
+                                             to = c("Astro-NT", "Astro-TE", "Ependymal", "OPC", "Oligo", "VLMC", "Pericyte", 
+                                                    "Endothelial", "Microglia"))
+#mapping[mapping$subclass_new == "Other", "subclass_simplify"] <- "Other"
+
+#Put row.names as data colnames and the order to match the data
+rownames(mapping) <- mapping$cell_id
+mapping <- mapping[rownames(seuratObject.sct@meta.data),]
+
+#Add new metadata columns from mapping 
+seuratObject.sct <- AddMetaData(seuratObject.sct,
+                      metadata = mapping,
+                      col.name = colnames(mapping))
+```
+
+```{r}
+##visualize MapMyCells
+DimPlot(seuratObject.sct, group.by = c("class_simplify", "subclass_simplify", "doubletfinder"))
+
+Idents(seuratObject.sct) <- "subclass_simplify"
+scCustomize::Cluster_Highlight_Plot(seuratObject.sct, cluster_name = "Microglia", pt.size = 0.05)
 
 ```
 
+####################################################################
+##Part 8.5 : Run DoubletFinder
+####################################################################
+
+```{r}
+seurat_list <- SplitObject(seuratObject.sct, split.by = "SampleID")
+
+seurat_list_df <- lapply(seq_along(seurat_list), function(i) {
+  print(i)
+  sample <- seurat_list[[i]]
+  DefaultAssay(sample) <- "RNA"
+  # (1) Pre-process sample
+  sample <- NormalizeData(sample)
+  sample <- FindVariableFeatures(sample, selection.method = "vst", nfeatures = 2000)
+  sample <- ScaleData(sample)
+  sample <- RunPCA(sample)
+  sample <- RunUMAP(sample, dims = 1:30)
+  # (2). pK Identification (no ground-truth)
+  sweep.res.list <- paramSweep(sample, PCs = 1:30, sct = FALSE)
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  png(file = paste0("Plots/QC/post_doubletfinder/", unique(sample$SampleID), ".png"),width=3,height=5,units="in",res=600)
+  bcmvn_sample <- find.pK(sweep.stats)
+  dev.off()
+  mpK <-as.numeric(as.vector(bcmvn_sample$pK[which.max(bcmvn_sample$BCmetric)]))
+  # (3). Run DoubletFinder
+  DoubletRate = ncol(sample)*8*1e-6 # ~1000 cells, and a multiplet rate of ~0.8% according to 10XGenomics
+  nExp_poi <- round(DoubletRate*ncol(sample))
+  sample <- doubletFinder(sample, PCs = 1:30, pN = 0.25, pK = mpK, nExp = nExp_poi, reuse.pANN = FALSE, sct = F)
+  # (4). Add doubletfinder metadata
+  table(sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)])
+  sample$doubletfinder<-sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)]
+  
+  return(sample)
+})
+
+saveRDS(seurat_list_df, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/seurat_list_cellbender_postdf.Rds")
+```
+
+####################################################################
+##Part 9 : Annotate doublet clusters
+####################################################################
+```{r}
+seurat <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_sampleid_cellbender_doubletcluster.Rds")
+
+samples <- c()
+for(i in 1:length(seurat_list_df)) {
+  sample <- unique(seurat_list_df[[i]]$SampleID)
+  samples <- c(samples, sample)
+}
+for(i in 1:length(seurat_list_df)) {
+  new_cellnames <- gsub(".*_", "", colnames(seurat_list_df[[i]]))
+  seurat_list_df[[i]] <- Seurat::RenameCells(seurat_list_df[[i]], new.names = new_cellnames)
+}
+
+seuratObject <- merge(x = seurat_list_df[[1]], y = seurat_list_df[2:length(seurat_list_df)], merge.data=TRUE, add.cell.ids = samples)
+seuratObject@reductions <- seurat@reductions
+
+saveRDS(seuratObject, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/seurat_merged_cellbender_postdf.Rds")
+```
+
+```{r}
+DimPlot(seuratObject.sct, group.by = c("SCT_snn_res.1", "doubletfinder"), label = TRUE)
+seuratObject.sct$doubletcluster <- "FALSE"
+
+##subcluster specific clusters 
+seurat_subset <- subset(seuratObject.sct, SCT_snn_res.1 %in% c("20"))
+DefaultAssay(seurat_subset) <- "RNA"
+seurat_subset <- FindVariableFeatures(seurat_subset)
+seurat_subset <- ScaleData(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- RunPCA(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- FindNeighbors(seurat_subset, dims = 1:50)
+seurat_subset <- RunUMAP(seurat_subset, dims = 1:50)
+seurat_subset <- FindClusters(seurat_subset, resolution = c(0.03))
+plot1 <- DimPlot(seurat_subset, group.by = c("doubletfinder", "seurat_clusters"))
+plot2 <- DotPlot(seurat_subset, features = c("Hexb", "Tmem119", "C1qa", "Trem2", "Cx3cr1"))
+ggsave(plot = plot1 + plot2, filename = "Plots/QC/doubletcluster/cluster20_subset.png", units = "in", height = 3, width = 12)
+seurat_subset$doubletcluster <- ifelse(seurat_subset$RNA_snn_res.0.03 %in% c("1"), "TRUE", "FALSE")
+seuratObject.sct@meta.data[rownames(seuratObject.sct@meta.data) %in% WhichCells(seurat_subset), "doubletcluster"] <- seurat_subset$doubletcluster
+
+DimPlot(seuratObject.sct, group.by = c("doubletcluster", "class_simplify"))
+
+seurat_subset <- subset(seuratObject.sct, SCT_snn_res.1 %in% c("9"))
+DefaultAssay(seurat_subset) <- "RNA"
+seurat_subset <- FindVariableFeatures(seurat_subset)
+seurat_subset <- ScaleData(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- RunPCA(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- FindNeighbors(seurat_subset, dims = 1:50)
+seurat_subset <- RunUMAP(seurat_subset, dims = 1:50)
+seurat_subset <- FindClusters(seurat_subset, resolution = c(0.05))
+plot1 <- DimPlot(seurat_subset, group.by = c("doubletfinder", "seurat_clusters"))
+ggsave(plot = plot1, filename = "Plots/QC/doubletcluster/cluster9_subset.png", units = "in", height = 3, width = 6)
+seurat_subset$doubletcluster <- ifelse(seurat_subset$RNA_snn_res.0.05 %in% c("1", "2"), "TRUE", "FALSE")
+seuratObject.sct@meta.data[rownames(seuratObject.sct@meta.data) %in% WhichCells(seurat_subset), "doubletcluster"] <- seurat_subset$doubletcluster
+
+DimPlot(seuratObject.sct, group.by = c("doubletcluster", "class_simplify"))
+
+seurat_subset <- subset(seuratObject.sct, SCT_snn_res.1 %in% c("18", "7", "13"))
+DefaultAssay(seurat_subset) <- "RNA"
+seurat_subset <- FindVariableFeatures(seurat_subset)
+seurat_subset <- ScaleData(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- RunPCA(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- FindNeighbors(seurat_subset, dims = 1:50)
+seurat_subset <- RunUMAP(seurat_subset, dims = 1:50)
+seurat_subset <- FindClusters(seurat_subset, resolution = c(0.05))
+plot1 <- DimPlot(seurat_subset, group.by = c("doubletfinder", "seurat_clusters"))
+ggsave(plot = plot1, filename = "Plots/QC/doubletcluster/cluster18_7_13_subset.png", units = "in", height = 3, width = 6)
+seurat_subset$doubletcluster <- ifelse(seurat_subset$RNA_snn_res.0.05 %in% c("1", "2"), "TRUE", "FALSE")
+seuratObject.sct@meta.data[rownames(seuratObject.sct@meta.data) %in% WhichCells(seurat_subset), "doubletcluster"] <- seurat_subset$doubletcluster
+
+DimPlot(seuratObject.sct, group.by = c("doubletcluster", "class_simplify"))
+
+seurat_subset <- subset(seuratObject.sct, SCT_snn_res.1 %in% c("2", "21", "38", "37", "35", "39"))
+DefaultAssay(seurat_subset) <- "RNA"
+seurat_subset <- FindVariableFeatures(seurat_subset)
+seurat_subset <- ScaleData(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- RunPCA(seurat_subset, features = VariableFeatures(object = seurat_subset))
+seurat_subset <- FindNeighbors(seurat_subset, dims = 1:50)
+seurat_subset <- RunUMAP(seurat_subset, dims = 1:50)
+seurat_subset <- FindClusters(seurat_subset, resolution = c(0.03))
+plot1 <- DimPlot(seurat_subset, group.by = c("doubletfinder", "seurat_clusters"))
+ggsave(plot = plot1, filename = "Plots/QC/doubletcluster/clusteroligo_subset.png", units = "in", height = 3, width = 6)
+seurat_subset$doubletcluster <- ifelse(seurat_subset$RNA_snn_res.0.05 %in% c("1", "2"), "TRUE", "FALSE")
+seuratObject.sct@meta.data[rownames(seuratObject.sct@meta.data) %in% WhichCells(seurat_subset), "doubletcluster"] <- seurat_subset$doubletcluster
+
+DimPlot(seuratObject.sct, group.by = c("SampleID"))
+
+saveRDS(seuratObject.sct, file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_sampleid_cellbender_doubletcluster.Rds")
+```
+
+####################################################################
+##Part 10 : Create final saved object
+####################################################################
+```{r}
+seuratObject.sct <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_sampleid_cellbender_doubletcluster.Rds")
+```
+
+```{r}
+DimPlot(seuratObject.sct, group.by = c("doubletfinder", "doubletcluster"))
+
+seuratObject_filtered <- subset(seuratObject.sct, doubletcluster == "FALSE")
+
+DimPlot(seuratObject_filtered, group.by = c("subclass_simplify", "SCT_snn_res.1"), label = TRUE)
+table(seuratObject_filtered$SCT_snn_res.1, seuratObject_filtered$subclass_simplify)
+
+Idents(seuratObject_filtered) <- "SCT_snn_res.1"
+scCustomize::Cluster_Highlight_Plot(seuratObject_filtered, cluster_name = "25", pt.size = 0.01)
+
+metadata <- seuratObject_filtered@meta.data
+metadata$neuronal <- ifelse(metadata$SCT_snn_res.1 %in% c("2","21","37","35","39","20","33","9","36","25","34","27","18","7","13","36"),
+                            "Non-neuronal","Neuronal")
+metadata$celltype <- "NA"
+metadata$celltype <- ifelse(metadata$SCT_snn_res.1 %in% c("0","28","10","29","24","16","19","8","1","6","22","15","4","14"), "GABA",
+                            ifelse(metadata$SCT_snn_res.1 %in% c("23","30","5","26","17","31"), "Glut",
+                                   ifelse(metadata$SCT_snn_res.1 %in% c("27"), "Inh_IMN",
+                                          ifelse(metadata$SCT_snn_res.1 %in% c("2","21","35","39","33","37"), "Oligo",
+                                                 ifelse(metadata$SCT_snn_res.1 %in% c("20"), "Microglia",
+                                                        ifelse(metadata$SCT_snn_res.1 %in% c("9"), "OPC",
+                                                               ifelse(metadata$SCT_snn_res.1 %in% c("25"), "Vascular", 
+                                                                      ifelse(metadata$SCT_snn_res.1 %in% c("34"), "Ependymal",
+                                                                             ifelse(metadata$SCT_snn_res.1 %in% c("18","7","13"), "Astrocyte",
+                                                                                    metadata$subclass_simplify)))))))))
+seuratObject_filtered$celltype <- metadata$celltype
+seuratObject_filtered$neuronal <- metadata$neuronal
+seuratObject_filtered$celltype <- ifelse(seuratObject_filtered$celltype %in% c("Astro-TE", "Astro-NT"), "Astrocyte", seuratObject_filtered$celltype)
+seuratObject_filtered$celltype <- ifelse(seuratObject_filtered$celltype %in% c("Pericyte", "VLMC", "Endothelial"), "Vascular", seuratObject_filtered$celltype)
+
+DimPlot(seuratObject_filtered, group.by = c("class_simplify", "celltype"))
+                         
+##fix metadata 
+metadata <- seuratObject_filtered@meta.data
+metadata$Gonad <- plyr::mapvalues(metadata$Genotype, 
+                                  from = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"), 
+                                  to = c("Male", "Female", "Male", "Female", "Male", "Female", "Male", "Female")) 
+metadata$SexChrom <- plyr::mapvalues(metadata$Genotype, 
+                                  from = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"), 
+                                  to = c("XY", "XY", "XX", "XX", "XYY", "XYY", "XXY", "XXY")) 
+metadata$Trisomy <- plyr::mapvalues(metadata$Genotype, 
+                                  from = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"), 
+                                  to = c("Non-Trisomy", "Non-Trisomy", "Non-Trisomy", "Non-Trisomy", "Trisomy", "Trisomy", "Trisomy", "Trisomy")) 
+
+seuratObject_filtered@meta.data <- metadata 
+
+saveRDS(seuratObject_filtered, file = "/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+```
+
+```{r}
+##compare pre and post QC seurat objects
+
+seuratObject_prefilter <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PreFilter/seurat_merged_cellbender_df.Rds")
+seuratObject.sct <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_sampleid_cellbender_doubletcluster.Rds")
+seuratObject_filtered <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+seuratObject_prefilter$SampleID <- factor(seuratObject_prefilter$SampleID, levels = rev(gtools::mixedsort(unique(seuratObject_prefilter$SampleID))))
+
+p1 <- VlnPlot(seuratObject_prefilter, features = c("nFeature_RNA", "nCount_RNA", "percent.mito", "percent.ribo"), pt.size = 0, group.by = "SampleID", ncol = 4)
+p2 <- VlnPlot(seuratObject_filtered, features = c("nFeature_RNA", "nCount_RNA", "percent.mito", "percent.ribo"), pt.size = 0, group.by = "SampleID", ncol = 4)
+
+png("Plots/Final_Figures/QC/prefilter.png", width = 23, height = 5, units = "in", res = 600)
+print(p1)
+dev.off()
+
+png("Plots/Final_Figures/QC/postfilter.png", width = 23, height = 5, units = "in", res = 600)
+print(p2)
+dev.off()
+
+##compare doublets before and after 
+table(seuratObject.sct$doubletcluster) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(DoubletCluster = "Var1", 
+                CellCount = "Freq") %>% 
+  ggplot(., aes(x = DoubletCluster, y = CellCount)) + 
+  geom_bar(stat = "identity")
 
 
+
+```
+
+```{r}
+##create final sample metadata file
+##save sample-wise info: 
+metadata <- seuratObject_filtered@meta.data %>% dplyr::select(SampleID, Genotype, Gonad, SexChrom, Trisomy, Sequencing_Date) %>% distinct()
+sample_gt_mapping <- openxlsx::read.xlsx("~/scratch/medial_septum_sct/Data/sample_genotype_mapping.xlsx") %>% dplyr::select(SampleID, Sample2)
+sample_order <- rev(gtools::mixedsort(sample_gt_mapping$SampleID))
+bod_info <- openxlsx::read.xlsx("~/scratch/medial_septum_sct/Data/SCT_perfusion_list_updated_Juliana_110725_FIXED.xlsx", detectDates = TRUE) %>% dplyr::select(ID, Parent, DOB, Sex, Genotype)
+technical_metadata <- openxlsx::read.xlsx("~/scratch/medial_septum_sct/Data/technical_metadata.xlsx", sheet = 2, detectDates = TRUE) %>% dplyr::select(mouse, ID, genotype, sex, date)
+
+sample_counts <- table(seuratObject_filtered$Sample_Name, seuratObject_filtered$SampleID) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(Sample_Name = "Var1", SampleID = "Var2", Total_Cell_Count = "Freq") %>% 
+  dplyr::filter(Total_Cell_Count > 0)
+
+technical_metadata <- technical_metadata %>% 
+  left_join(bod_info, by = c("ID", "genotype" = "Genotype", "sex" = "Sex")) %>% 
+  dplyr::mutate(mouse = paste0("TriSeptum-", mouse))
+
+sample_metadata_complete <- sample_counts %>% 
+  left_join(sample_gt_mapping, by = "SampleID") %>% 
+  left_join(technical_metadata, by = c("Sample_Name" = "mouse")) %>% 
+  dplyr::select(-genotype, -sex) %>% 
+  dplyr::rename(Sac_Date = "date") %>% 
+  dplyr::mutate(Age = Sac_Date - DOB, 
+                Sample2 = gsub("M", "T", Sample2), 
+                Sample2 = gsub("F", "O", Sample2)) %>% 
+  dplyr::mutate(
+    Genotype = str_remove(Sample2, "\\d+$"),
+    Gonad = str_extract(Sample2, "[OT](?=\\d+$)"), 
+    Sex_Chromosome = str_remove(Sample2, "[OT]\\d+$")) %>% 
+  dplyr::select(SampleID, ID, Sample_Name, Sample2, Parent, DOB, Sac_Date, Age, Genotype, Sex_Chromosome, Gonad, Total_Cell_Count) %>% 
+  dplyr::rename(mouseID = "ID", 
+                Original_Sample_Name = "Sample_Name", 
+                Genotype_Replicate = "Sample2")
+write.csv(sample_metadata_complete, file = "Plots/Final_Figures/complete_sample_metadata.csv", row.names = FALSE)
+
+##make dataframe of cell counts
+celltype_counts <- table(seuratObject_filtered$SampleID, seuratObject_filtered$celltype) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(SampleID = "Var1", 
+                Celltype = "Var2", 
+                Cell_Count = "Freq")
+
+celltype_counts <- celltype_counts %>% 
+  left_join(sample_metadata_complete %>% dplyr::select(!Total_Cell_Count), 
+            by = "SampleID") %>% 
+  dplyr::select(SampleID, mouseID, Original_Sample_Name, Genotype_Replicate, Parent, DOB, Sac_Date, Age, Genotype, Sex_Chromosome, Gonad, Celltype, Cell_Count)
+
+#write.csv(celltype_counts, file = "Plots/Final_Figures/complete_sample_celltype_counts.csv")
+
+##make dataframe of metacell counts
+metacell_seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/supercell_seurat_harmony_sampleid_filtered_annotated.Rds")
+
+metacell_counts <- table(metacell_seurat$SampleID, metacell_seurat$celltype) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(SampleID = "Var1", 
+                Celltype = "Var2", 
+                Metacell_Count = "Freq") %>% 
+  dplyr::mutate(SampleID = gsub("TriSeptum", "TriSeptum-", SampleID))
+
+allcell_counts <- metacell_counts %>% 
+  left_join(celltype_counts, by = c("SampleID", "Celltype")) %>% 
+  dplyr::select(SampleID, mouseID, Original_Sample_Name, Genotype_Replicate, Parent, DOB, Sac_Date, Age, Genotype, Sex_Chromosome, Gonad, Celltype, Cell_Count, Metacell_Count)
+
+write.csv(allcell_counts, file = "Plots/Final_Figures/complete_sample_allcell_counts.csv", row.names = FALSE)
+
+```
+
+```{r}
+##PCA on samples -- redo 
+library(edgeR)
+library(scuttle)
+library(Mus.musculus)
+
+summed_seurat <- AggregateExpression(seuratObject_filtered,
+                              return.seurat = TRUE,
+                              group.by = c("SampleID"),
+                              verbose = TRUE,
+                              assays = "RNA")
+summed_seurat$SampleID <- colnames(summed_seurat)
+
+##add metadata to pseudobulk count object 
+metadata <- seuratObject_filtered@meta.data %>% dplyr::select(SampleID, Sample_GT, Genotype, Gonad, SexChrom, Trisomy)
+rownames(metadata) <- NULL
+metadata <- unique(metadata)
+rownames(metadata) <- metadata$SampleID 
+
+for (meta in names(metadata)) {
+  column <- metadata[, meta]
+  summed_seurat[[meta]] <- plyr::mapvalues(
+    x = summed_seurat$SampleID,
+    from = rownames(metadata),
+    to = column %>% unlist(use.names = FALSE))
+}
+
+summed_seurat <- FindVariableFeatures(summed_seurat)
+summed_seurat <- ScaleData(summed_seurat, features = VariableFeatures(object = summed_seurat))
+summed_seurat <- RunPCA(summed_seurat, features = VariableFeatures(object = summed_seurat), npcs = 23)
+DimPlot(summed_seurat, reduction = "pca", group.by = c("Genotype", "Gonad", "SexChrom", "Trisomy"))
+png("Plots/Validation/remap_GT_PCA.png", width = 12, height = 8, units = "in", res = 600)
+par(mfrow=c(2,2))
+print(last_plot())
+dev.off()
+
+
+##PCA on sample by celltype 
+summed_seurat <- AggregateExpression(seuratObject_filtered,
+                              return.seurat = TRUE,
+                              group.by = c("SampleID", "celltype"),
+                              verbose = TRUE,
+                              assays = "SCT")
+
+##add metadata to pseudobulk count object 
+metadata <- seuratObject_filtered@meta.data %>% dplyr::select(SampleID, Sample_GT, Genotype, Gonad, SexChrom, Trisomy)
+rownames(metadata) <- NULL
+metadata <- unique(metadata)
+rownames(metadata) <- metadata$SampleID 
+
+for (meta in names(metadata)) {
+  column <- metadata[, meta]
+  summed_seurat[[meta]] <- plyr::mapvalues(
+    x = summed_seurat$orig.ident,
+    from = rownames(metadata),
+    to = column %>% unlist(use.names = FALSE))
+}
+summed_seurat$celltype <- str_split_fixed(colnames(summed_seurat), pattern = "_", n=2)[,2]
+summed_list <- SplitObject(summed_seurat, split.by = "celltype")
+lapply(seq_along(summed_list), function(i) {
+  
+  summed_sample <- summed_list[[i]]
+  celltype <- names(summed_list[i])
+  dge0 <- DGEList(summed_sample@assays$RNA@counts, samples = summed_sample@meta.data)
+  
+  ##count filtering 
+  keep.exprs <- filterByExpr(dge0, group = dge0$samples$Genotype)
+  dge <- dge0[keep.exprs, keep.lib.sizes = FALSE]
+  dge <- calcNormFactors(dge)
+  
+  ##gene annotation
+  geneid <- rownames(dge)
+  genes <- select(Mus.musculus, keys=geneid, columns=c("SYMBOL", "TXCHROM"),
+                   keytype = "SYMBOL")
+  genes <- genes[!duplicated(genes$SYMBOL),]
+  dge$genes <- genes
+  
+  ##MD5 plots 
+  lcpm <- edgeR::cpm(dge0, log=TRUE)
+  group <- dge$samples$Genotype
+  gonad <- dge$samples$Gonad
+  sexchrom <- dge$samples$SexChrom
+  
+  col.group <- dge$samples$Genotype
+  levels(col.group) <-  brewer.pal(nlevels(col.group), "Set2")
+  col.group <- as.character(col.group)
+  col.gonad <- dge$samples$Gonad
+  levels(col.gonad) <-  brewer.pal(nlevels(col.gonad), "Set1")
+  col.gonad <- as.character(col.gonad)
+  col.sexchrom <- dge$samples$SexChrom
+  levels(col.sexchrom) <-  brewer.pal(nlevels(col.sexchrom), "Dark2")
+  col.sexchrom <- as.character(col.sexchrom)
+  
+  png(paste0("Plots/Validation/remap_", celltype, ".png"), width = 12, height = 8, units = "in", res = 600)
+  par(mfrow=c(2,3))
+  
+  plotMDS(lcpm, labels=group, col=col.group, dim = c(1,2))
+  title(main="A. Genotype")
+  plotMDS(lcpm, labels=gonad, col=col.gonad, dim=c(1,2))
+  title(main="B. Gonad")
+  plotMDS(lcpm, labels=sexchrom, col=col.sexchrom, dim=c(1,2))
+  title(main="c. SexChrom")
+  
+  plotMDS(lcpm, labels=group, col=col.group, dim = c(3,4))
+  title(main="A. Genotype")
+  plotMDS(lcpm, labels=gonad, col=col.gonad, dim=c(3,4))
+  title(main="B. Gonad")
+  plotMDS(lcpm, labels=sexchrom, col=col.sexchrom, dim=c(3,4))
+  title(main="c. SexChrom")
+  
+  dev.off()
+})
+```
+
+```{r}
+library(stringr)
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+Idents(object = seurat) <- "Sample2"
+sample.object <- AverageExpression(object = seurat, return.seurat = TRUE)
+
+sample.object <- FindVariableFeatures(sample.object, selection.method = "vst", nfeatures = 2000)
+sample.object <- ScaleData(sample.object, features = VariableFeatures(object = sample.object))
+sample.object <- RunPCA(sample.object, features = VariableFeatures(object = sample.object), npcs = 20)
+
+sample.object$orig.ident <- rownames(sample.object@meta.data)
+sample.object$Genotype <- substr(sample.object$orig.ident, 1, nchar(sample.object$orig.ident) - 1)
+
+
+DimPlot(sample.object, reduction = "pca", group.by = "Genotype", pt.size = 5)
+
+```
+
+####################################################################
+##Part 11 : Test DEG 
+####################################################################
+
+```{r}
+##Read postDF object and assign cell types 
+seuratObject <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/seurat_merged_cellbender_postdf.Rds")
+
+seurat <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+#seuratObject.sct <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/PostFilter/MS_cellbender_complete_analysis/seurat_harmony_sampleid_cellbender_doubletcluster.Rds")
+
+seuratObject$celltype <- seurat$cell
+
+```
+
+```{r}
+##test DEG
+library(limma)
+library(tidytext)
+
+plot_list <- list()
+seurat_subset <- subset(seuratObject, doubletfinder == "Singlet")
+
+##Edit metadata 
+seurat_subset$Xdose <- plyr::mapvalues(seurat_subset$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% as.character %>% as.numeric()
+seurat_subset$Ydose <- plyr::mapvalues(seurat_subset$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% as.character %>% as.numeric()
+seurat_subset$base_SexChrom <- plyr::mapvalues(seurat_subset$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c("XX", "XY", "XY", "XY")) %>% factor(levels = c("XX", "XY"))
+
+seurat_subset$Gonad <- factor(seurat_subset$Gonad, levels = c("Female", "Male"))
+seurat_subset$SexChrom <- factor(seurat_subset$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+seurat_subset$Genotype <- factor(seurat_subset$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+seurat_subset$Sequencing_Date <- factor(seurat_subset$Sequencing_Date) %>% gsub("-", "_", .)
+
+sample_metadata <- seurat_subset@meta.data %>% dplyr::select(SampleID, Sample_GT, Genotype, Gonad, SexChrom, Sequencing_Date)
+rownames(sample_metadata) <- NULL
+sample_metadata <- sample_metadata %>% unique()
+rownames(sample_metadata) <- sample_metadata$Sample
+
+seurat_subset_list <- SplitObject(seurat_subset, split.by = "cell_type")
+
+resultlist_complete <- list()
+DEG_results <- list()
+for(j in seq_along(seurat_subset_list)) {
+  
+  currentcell <- names(seurat_subset_list[j])
+  currentsubset <- seurat_subset_list[[j]]
+  gene_counts <- currentsubset[["RNA"]]@counts
+  gene_data <- currentsubset[["RNA"]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts >= 1) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+  
+  design <- model.matrix(~Sequencing_Date + Gonad + base_SexChrom + Xdose + Ydose, data = currentsubset@meta.data)
+  
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_complete[["Male_vs_Female"]] <- topTable(fit, n = Inf, coef = "GonadMale", adjust.method = "BH", confint = TRUE)
+  resultlist_complete[["XY_vs_XX"]] <- topTable(fit, n = Inf, coef = "base_SexChromXY", adjust.method = "BH", confint = TRUE)
+  resultlist_complete[["Xdose"]] <- topTable(fit, n = Inf, coef = "Xdose", adjust.method = "BH", confint = TRUE)
+  resultlist_complete[["Ydose"]] <- topTable(fit, n = Inf, coef = "Ydose", adjust.method = "BH", confint = TRUE)
+  
+  for(k in 1:length(resultlist_complete)) {
+ 
+    currentframe <- resultlist_complete[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_complete[k])
+    currentframe$comparison <- currentcomparison
+    currentframe$celltype <- currentcell
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+    currentmodel <- "Complete"
+
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe }
+}
+
+DEG_df <- do.call("rbind", unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$effect <- plyr::mapvalues(DEG_df$comparison, 
+                                 from = c("Male_vs_Female", "XY_vs_XX", "Xdose", "Ydose"),
+                                 to = c("Gonad", "SexChrom", "Xdose", "Ydose"))
+
+DEG_df %>% 
+dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+ dplyr::mutate(effect = factor(effect, levels = c("Gonad", "SexChrom", "Xdose", "Ydose")),
+              sign = ifelse(logFC > 0, "Up", "Down")) %>%
+{table(.$celltype, .$effect)} %>%
+as.data.frame() %>%
+ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "identity") +
+  facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+  scale_x_reordered() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+      text = element_text(size = 25)) +
+  labs(x = NULL) +
+  guides(fill = guide_legend(title = "Cell Type"))
+ #ggtitle(sample_to_remove)
+
+
+saveRDS(plot_list, file = "~/scratch/cerebellum_sct/Data/Derived/QC/subset_test_plots.rds")
+
+png("Plots/QCPlots/Purkinje_DEG_test/cellcyle_regression_deg.png", width = 16, height = 16, units = "in", res = 600)
+ggarrange(plotlist = plot_list, nrow = 2, ncol = 1)
+dev.off()
+```

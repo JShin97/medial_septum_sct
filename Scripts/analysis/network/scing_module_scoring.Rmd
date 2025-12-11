@@ -1,0 +1,1163 @@
+---
+title: "SCING_scoring.Rmd"
+output: html_document
+date: "2024-07-08"
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(dplyr)
+library(hdWGCNA)
+library(WGCNA)
+library(stringr)
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+library(Seurat)
+library(ComplexHeatmap)
+library(AUCell)
+library(gtools)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(RColorBrewer)
+library(circlize)
+```
+
+```{r}
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+seurat$samples <- seurat$SampleID %>% factor()
+
+celltype_list <- SplitObject(seurat, split.by = "celltype")
+celltypes <- names(celltype_list)
+module_size <- "50"
+
+#celltypes <- c("Neuron", "Astrocyte", "Microglia", "Myelinating_Oligo", "OPC", "Endothelial", "Ependymal")
+celltypes <- c("Astrocyte", "Ependymal", "GABA", "GABA-Chol", "Glut", "Inh_IMN", "Microglia", "Oligo", "OPC", "Vascular")
+```
+
+################################################
+hdWGCNA -- calculate module eigengenes (hMEs)
+################################################
+
+```{r} 
+for(i in seq_along(celltype_list)) {
+  
+  ## set up hdWGCNA object 
+  celltype <- celltypes[i]
+  wgcna_name <- "scing"
+  seurat_obj <- SetupForWGCNA(
+    celltype_list[[celltype]], 
+    gene_select = "fraction",
+    fraction = 0.05,
+    wgcna_name = wgcna_name
+  )
+  
+  ## load modules 
+  scing_mods <- read.csv(paste0("/u/scratch/j/jshin/medial_septum_sct/Data/Derived/network/SCING_complete/gene_memberships/", celltype, ".gene_membership.", module_size, ".csv.gz"), row.names = 1)
+  scing_mods <- scing_mods[rownames(scing_mods) %in% rownames(seurat_obj),,F]
+  colnames(scing_mods) <- "module"
+  #scing_mods$module <- factor(scing_mods$module)
+  #scing_mods$module <- factor(paste0('all_M',scing_mods$module))
+  scing_mods$gene_name <- rownames(scing_mods)
+  scing_mods <- scing_mods[,c('gene_name','module')]
+  
+  modules <- table(scing_mods$module) %>% as.data.frame()
+  colnames(modules) <- c("module", "size")
+  modules_to_keep <- modules %>% dplyr::filter(size >= 50) %>% dplyr::select(module) %>% unlist(use.names = FALSE) %>% as.character()
+  
+  scing_mods <- scing_mods[scing_mods$module %in% modules_to_keep, ]
+  scing_mods$module <- factor(scing_mods$module)
+  
+  ## make sure all scing network genes are in wgcna object
+  seurat_obj@misc$scing$wgcna_genes <- rownames(scing_mods)
+
+  ## set scing modules 
+  seurat_obj <- SetModules(seurat_obj, scing_mods)
+  
+  ## compute MEs 
+  sample_col <- 'SampleID'
+  seurat_obj <- ScaleData(seurat_obj, features = VariableFeatures(seurat_obj))
+  seurat_obj <- ModuleEigengenes(
+    seurat_obj,
+    group.by.vars = sample_col
+  )
+
+  saveRDS(seurat_obj, file = paste0("/u/scratch/j/jshin/medial_septum_sct/Data/Derived/network/SCING_complete/WGCNA_ME/", celltype, "_", module_size, ".RDS"))
+  
+}
+
+
+```
+
+################################################
+AUCell -- calculate AUCell score
+################################################
+
+```{r}
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  scing_mods <- read.csv(paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/SCING/gene_memberships/", celltype, ".gene_membership.50.csv.gz"), row.names = 1)
+  
+  colnames(scing_mods) <- "module"
+  scing_mods$module <- paste0('M', scing_mods$module)
+  scing_mods$module <- factor(scing_mods$module, levels = mixedsort(unique(scing_mods$module)))
+  scing_mods$gene_name <- rownames(scing_mods)
+  scing_mods <- scing_mods[,c('gene_name','module')]
+  
+  allmodules <- levels(scing_mods$module)
+  geneSets <- list() 
+  for(j in 1:length(allmodules)) {
+    currentmodule <- allmodules[j]
+    scing_subset <- scing_mods %>% filter(module == currentmodule)
+    geneSets[[currentmodule]] <- scing_subset$gene_name
+  }
+  
+  exprMatrix <- celltype_list[[celltype]]@assays$RNA@counts
+  exprMatrix <- as(exprMatrix, "dgCMatrix")
+  
+  cells_AUC <- AUCell_run(exprMatrix, geneSets)
+  #cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TRUE) 
+  
+  saveRDS(cells_AUC, file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/AUCell_scores/", celltype, "_", module_size, ".RDS"))
+}
+```
+
+################################################
+Calculate trait-association correlation (Approach 1) 
+################################################
+
+```{r}
+##Approach 1 : take average hME/AUCell of all cells 
+
+as_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  metadata <- celltype_list[[celltype]]@meta.data %>% dplyr::select(orig.ident, Genotype, cell.type, Gonad, SexChrom, Trisomy) %>% unique()
+  scing_mods <- read.csv(paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/SCING/gene_memberships/", celltype, ".gene_membership.50.csv.gz"), row.names = 1)
+  colnames(scing_mods) <- "module"
+  scing_mods$module <- paste0('M', scing_mods$module)
+  scing_mods$module <- factor(scing_mods$module, levels = mixedsort(unique(scing_mods$module)))
+  scing_mods$gene_name <- rownames(scing_mods)
+  scing_mods <- scing_mods[,c('gene_name','module')]
+  module_info <- scing_mods %>% 
+    group_by(module) %>%
+    summarise(gene_count = n()) %>% 
+    ungroup() %>% 
+    mutate(exclude = ifelse(gene_count < 20, TRUE, FALSE)) ##exclude modules with less than 20 genes
+
+  ##Load and process hdWGCNA module eigengenes
+  seurat_obj <- readRDS(file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/WGCNA_ME/", celltype, "_", module_size, ".RDS"))
+  hMEs <- seurat_obj@misc$scing$hMEs
+  hMEs$cellID <- rownames(hMEs)
+  hMEs$SampleID <- str_split_fixed(hMEs$cellID, "_", 2)[, 1]
+  
+  hMEs_average <- hMEs %>%
+    group_by(SampleID) %>%
+    dplyr::summarise(across(starts_with("all_M"), mean, na.rm = TRUE)) %>%
+    pivot_longer(cols = !SampleID, names_to = "module", values_to = "hME") %>%
+    mutate(module = gsub("all_", "", module))
+  
+  ##Load and process AUCell scores 
+  cells_auc <- readRDS(file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/AUCell_scores/", celltype, "_", module_size, ".RDS"))
+  
+  AUCells <- getAUC(cells_auc) %>% t() %>% as.data.frame()
+  AUCells$cellID <- rownames(AUCells)
+  AUCells$SampleID <- str_split_fixed(AUCells$cellID, "_", 2)[, 1]
+  
+  AUCells_average <- AUCells %>%
+    group_by(SampleID) %>%
+    dplyr::summarise(across(starts_with("M"), mean, na.rm = TRUE)) %>%
+    pivot_longer(cols = !SampleID, names_to = "module", values_to = "AUCell_score")
+  
+  ##Create dataframe with both module scores  
+  as_test <- hMEs_average %>% left_join(AUCells_average, by = c("SampleID", "module")) %>% left_join(metadata, by = c("SampleID" = "orig.ident"))
+  #as_test$module <- factor(as_test$module, levels = mixedsort(unique(as_test$module)))
+  modules_to_keep <- module_info %>% filter(exclude == "FALSE") %>% select(module) %>% unlist(use.names = FALSE)
+  as_test <- as_test %>% filter(module %in% modules_to_keep)
+  
+  ##Edit metadata for lm testing 
+  as_test$Gonad <- factor(as_test$Gonad, levels = c("Male", "Female"))
+  as_test$base_SexChrom <- plyr::mapvalues(as_test$SexChrom,
+                                           from = c("XY", "XX", "XYY", "XXY"),
+                                           to = c("XY", "XX", "XY", "XY"))
+  as_test$addX <- plyr::mapvalues(as_test$SexChrom, 
+                                  from = c("XY", "XX", "XYY", "XXY"),
+                                  to = c(0, 0, 0, 1))
+  as_test$addY <- plyr::mapvalues(as_test$SexChrom, 
+                                  from = c("XY", "XX", "XYY", "XXY"),
+                                  to = c(0, 0, 1, 0))
+  as_test$Trisomy <- plyr::mapvalues(as_test$SexChrom, 
+                                  from = c("XY", "XX", "XYY", "XXY"),
+                                  to = c(0, 0, 1, 1))
+  as_test$GenotypeaddX <- plyr::mapvalues(as_test$Genotype,
+                                         from = c("XYM", "XYF", "XXYM", "XXYF"),
+                                         to = c("XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF"))
+  as_test$GenotypeaddY <- plyr::mapvalues(as_test$Genotype,
+                                         from = c("XXM", "XXF", "XXYM", "XXYF", "XYM", "XYF", "XYYM", "XYYF"),
+                                         to = c("XXM", "XXF", "XXM", "XXF", "XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF", "XXM", "XXF"))
+  as_test$addY1 <- plyr::mapvalues(as_test$SexChrom,
+                                         from = c("XX", "XXY", "XY", "XYY"),
+                                         to = c(0, 1, 0, 0)) %>% as.numeric()
+  as_test$addY2 <- plyr::mapvalues(as_test$SexChrom,
+                                         from = c("XX", "XXY", "XY", "XYY"),
+                                         to = c(0, 0, 0, 1)) %>% as.numeric()
+  
+  as_list[[celltype]] <- as_test
+}
+
+saveRDS(as_list, file = "Results/network/association_input_df/average_hme/as_list_all_modules.RDS")
+#saveRDS(as_list, file = "Results/network/association_input_df/as_list_filtered_modules.RDS")
+```
+
+```{r}
+##Multivariate testing -- separate models   
+
+as_list <- readRDS("Results/network/association_input_df/average_hme/as_list_all_modules.RDS")
+#as_list <- readRDS("Results/network/association_input_df/as_list_filtered_modules.RDS")
+
+##FCG model 
+hME_result_list <- list()
+aucell_result_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  as_test <- as_list[[celltype]]
+  
+  as_test$module <- factor(as_test$module, levels = mixedsort(unique(as_test$module)))
+
+  for(j in 1:nlevels(as_test$module)) {
+    
+    module_to_test <- levels(as_test$module)[j]
+    as_module <- as_test %>% filter(module == module_to_test & Trisomy == 0)
+    
+    ##test hME: 
+    model1 <- lm(hME ~ Gonad + SexChrom + Gonad:SexChrom, data = as_module)
+    results1 <- summary(model1)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results1 <- results1[, -3, drop = FALSE] ##remove intercept term
+    hME_result_list[[celltype]][[module_to_test]] <- results1
+    
+    ##test AUCell score: 
+    model2 <- lm(AUCell_score ~ Gonad + SexChrom + Gonad:SexChrom, data = as_module)
+    results2 <- summary(model2)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results2 <- results2[, -3, drop = FALSE] ##remove intercept term
+    aucell_result_list[[celltype]][[module_to_test]] <- results2
+  }
+  
+  hME_results <- do.call("rbind", hME_result_list[[celltype]])
+  hME_coef <- hME_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(hME_coef) <- hME_coef$module_id
+  hME_coef <- hME_coef[, -c(1:2)]
+  
+  hME_pval <- hME_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(hME_pval) <- hME_pval$module_id
+  hME_pval <- hME_pval[, -c(1:2)]
+  #hME_pval <- apply(hME_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  aucell_results <- do.call("rbind", aucell_result_list[[celltype]])
+  aucell_coef <- aucell_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(aucell_coef) <- aucell_coef$module_id
+  aucell_coef <- aucell_coef[, -c(1:2)]
+  
+  aucell_pval <- aucell_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(aucell_pval) <- aucell_pval$module_id
+  aucell_pval <- aucell_pval[, -c(1:2)] 
+  #aucell_pval <- apply(aucell_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  write.table(hME_coef, file = paste("Results/network/lm_associations/all_modules/FCGmodel/", celltype, "_", module_size, "_hME_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(hME_pval, file = paste("Results/network/lm_associations/all_modules/FCGmodel/", celltype, "_", module_size, "_hME_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  
+  write.table(aucell_coef, file = paste("Results/network/lm_associations/all_modules/FCGmodel/", celltype, "_", module_size, "_aucell_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(aucell_pval, file = paste("Results/network/lm_associations/all_modules/FCGmodel/", celltype, "_", module_size, "_aucell_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+}
+
+####################################################
+## additional X model 
+hME_result_list <- list()
+aucell_result_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  as_test <- as_list[[celltype]]
+  
+  as_test$module <- factor(as_test$module, levels = mixedsort(unique(as_test$module)))
+
+  for(j in 1:nlevels(as_test$module)) {
+    
+    module_to_test <- levels(as_test$module)[j]
+    as_module <- as_test %>% filter(module == module_to_test & SexChrom %in% c("XY", "XXY"))
+    
+    ##test hME: 
+    model1 <- lm(hME ~ GenotypeaddX + addX, data = as_module)
+    results1 <- summary(model1)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results1 <- results1[, -3, drop = FALSE] ##remove intercept term
+    hME_result_list[[celltype]][[module_to_test]] <- results1
+    
+    ##test AUCell score: 
+    model2 <- lm(AUCell_score ~ GenotypeaddX + addX, data = as_module)
+    results2 <- summary(model2)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results2 <- results2[, -3, drop = FALSE] ##remove intercept term
+    aucell_result_list[[celltype]][[module_to_test]] <- results2
+  }
+  
+  hME_results <- do.call("rbind", hME_result_list[[celltype]])
+  hME_coef <- hME_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(hME_coef) <- hME_coef$module_id
+  hME_coef <- hME_coef[, -c(1:2)]
+  
+  hME_pval <- hME_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(hME_pval) <- hME_pval$module_id
+  hME_pval <- hME_pval[, -c(1:2)]
+  #hME_pval <- apply(hME_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  aucell_results <- do.call("rbind", aucell_result_list[[celltype]])
+  aucell_coef <- aucell_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(aucell_coef) <- aucell_coef$module_id
+  aucell_coef <- aucell_coef[, -c(1:2)]
+  
+  aucell_pval <- aucell_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(aucell_pval) <- aucell_pval$module_id
+  aucell_pval <- aucell_pval[, -c(1:2)] 
+  #aucell_pval <- apply(aucell_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  write.table(hME_coef, file = paste("Results/network/lm_associations/all_modules/addXmodel/", celltype, "_", module_size, "_hME_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(hME_pval, file = paste("Results/network/lm_associations/all_modules/addXmodel/", celltype, "_", module_size, "_hME_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  
+  write.table(aucell_coef, file = paste("Results/network/lm_associations/all_modules/addXmodel/", celltype, "_", module_size, "_aucell_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(aucell_pval, file = paste("Results/network/lm_associations/all_modules/addXmodel/", celltype, "_", module_size, "_aucell_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+}
+
+####################################################
+## additional Y1 model 
+hME_result_list <- list()
+aucell_result_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  as_test <- as_list[[celltype]]
+  
+  as_test$module <- factor(as_test$module, levels = mixedsort(unique(as_test$module)))
+
+  for(j in 1:nlevels(as_test$module)) {
+    
+    module_to_test <- levels(as_test$module)[j]
+    as_module <- as_test %>% filter(module == module_to_test & SexChrom %in% c("XX", "XXY"))
+    
+    ##test hME: 
+    model1 <- lm(hME ~ GenotypeaddY + addY1, data = as_module)
+    results1 <- summary(model1)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results1 <- results1[, -3, drop = FALSE] ##remove intercept term
+    hME_result_list[[celltype]][[module_to_test]] <- results1
+    
+    ##test AUCell score: 
+    model2 <- lm(AUCell_score ~ GenotypeaddY + addY1, data = as_module)
+    results2 <- summary(model2)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results2 <- results2[, -3, drop = FALSE] ##remove intercept term
+    aucell_result_list[[celltype]][[module_to_test]] <- results2
+  }
+  
+  hME_results <- do.call("rbind", hME_result_list[[celltype]])
+  hME_coef <- hME_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(hME_coef) <- hME_coef$module_id
+  hME_coef <- hME_coef[, -c(1:2)]
+  
+  hME_pval <- hME_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(hME_pval) <- hME_pval$module_id
+  hME_pval <- hME_pval[, -c(1:2)]
+  #hME_pval <- apply(hME_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  aucell_results <- do.call("rbind", aucell_result_list[[celltype]])
+  aucell_coef <- aucell_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(aucell_coef) <- aucell_coef$module_id
+  aucell_coef <- aucell_coef[, -c(1:2)]
+  
+  aucell_pval <- aucell_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(aucell_pval) <- aucell_pval$module_id
+  aucell_pval <- aucell_pval[, -c(1:2)] 
+  #aucell_pval <- apply(aucell_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  write.table(hME_coef, file = paste("Results/network/lm_associations/all_modules/addY1model/", celltype, "_", module_size, "_hME_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(hME_pval, file = paste("Results/network/lm_associations/all_modules/addY1model", celltype, "_", module_size, "_hME_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  
+  write.table(aucell_coef, file = paste("Results/network/lm_associations/all_modules/addY1model/", celltype, "_", module_size, "_aucell_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(aucell_pval, file = paste("Results/network/lm_associations/all_modules/addY1model/", celltype, "_", module_size, "_aucell_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+}
+
+####################################################
+## additional Y2 model 
+hME_result_list <- list()
+aucell_result_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  as_test <- as_list[[celltype]]
+  
+  as_test$module <- factor(as_test$module, levels = mixedsort(unique(as_test$module)))
+
+  for(j in 1:nlevels(as_test$module)) {
+    
+    module_to_test <- levels(as_test$module)[j]
+    as_module <- as_test %>% filter(module == module_to_test & SexChrom %in% c("XY", "XYY"))
+    
+    ##test hME: 
+    model1 <- lm(hME ~ GenotypeaddY + addY2, data = as_module)
+    results1 <- summary(model1)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results1 <- results1[, -3, drop = FALSE] ##remove intercept term
+    hME_result_list[[celltype]][[module_to_test]] <- results1
+    
+    ##test AUCell score: 
+    model2 <- lm(AUCell_score ~ GenotypeaddY + addY2, data = as_module)
+    results2 <- summary(model2)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results2 <- results2[, -3, drop = FALSE] ##remove intercept term
+    aucell_result_list[[celltype]][[module_to_test]] <- results2
+  }
+  
+  hME_results <- do.call("rbind", hME_result_list[[celltype]])
+  hME_coef <- hME_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(hME_coef) <- hME_coef$module_id
+  hME_coef <- hME_coef[, -c(1:2)]
+  
+  hME_pval <- hME_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(hME_pval) <- hME_pval$module_id
+  hME_pval <- hME_pval[, -c(1:2)]
+  #hME_pval <- apply(hME_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  aucell_results <- do.call("rbind", aucell_result_list[[celltype]])
+  aucell_coef <- aucell_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(aucell_coef) <- aucell_coef$module_id
+  aucell_coef <- aucell_coef[, -c(1:2)]
+  
+  aucell_pval <- aucell_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(aucell_pval) <- aucell_pval$module_id
+  aucell_pval <- aucell_pval[, -c(1:2)] 
+  #aucell_pval <- apply(aucell_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  write.table(hME_coef, file = paste("Results/network/lm_associations/all_modules/addY2model/", celltype, "_", module_size, "_hME_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(hME_pval, file = paste("Results/network/lm_associations/all_modules/addY2model/", celltype, "_", module_size, "_hME_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  
+  write.table(aucell_coef, file = paste("Results/network/lm_associations/all_modules/addY2model/", celltype, "_", module_size, "_aucell_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(aucell_pval, file = paste("Results/network/lm_associations/all_modules/addY2model/", celltype, "_", module_size, "_aucell_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+}
+```
+
+```{r}
+##Multivariate testing -- complete dataset  
+
+as_list <- readRDS("Results/network/association_input_df/as_list_all_modules.RDS")
+#as_list <- readRDS("Results/network/association_input_df/as_list_filtered_modules.RDS")
+
+hME_result_list <- list()
+aucell_result_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  as_test <- as_list[[celltype]]
+  
+  as_test$module <- factor(as_test$module, levels = mixedsort(unique(as_test$module)))
+
+  for(j in 1:nlevels(as_test$module)) {
+    
+    module_to_test <- levels(as_test$module)[j]
+    as_module <- as_test %>% filter(module == module_to_test)
+    
+    ##test hME: 
+    model1 <- lm(hME ~ Gonad + base_SexChrom + addX + addY, data = as_module)
+    results1 <- summary(model1)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results1 <- results1[, -3, drop = FALSE] ##remove intercept term
+    hME_result_list[[celltype]][[module_to_test]] <- results1
+    
+    ##test AUCell score: 
+    model2 <- lm(AUCell_score ~ Gonad + base_SexChrom + addX + addY, data = as_module)
+    results2 <- summary(model2)$coefficients %>% as.data.frame() %>% dplyr::rename(pVal = `Pr(>|t|)`) %>% dplyr::select(Estimate, pVal) %>% 
+      t() %>% as.data.frame() %>% rownames_to_column(var = "value") %>% dplyr::mutate(module_id = module_to_test) %>% dplyr::relocate(module_id)
+    results2 <- results2[, -3, drop = FALSE] ##remove intercept term
+    aucell_result_list[[celltype]][[module_to_test]] <- results2
+  }
+  
+  hME_results <- do.call("rbind", hME_result_list[[celltype]])
+  hME_coef <- hME_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(hME_coef) <- hME_coef$module_id
+  hME_coef <- hME_coef[, -c(1:2)]
+  
+  hME_pval <- hME_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(hME_pval) <- hME_pval$module_id
+  hME_pval <- hME_pval[, -c(1:2)]
+  #hME_pval <- apply(hME_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  aucell_results <- do.call("rbind", aucell_result_list[[celltype]])
+  aucell_coef <- aucell_results %>% as.data.frame() %>% filter(value == "Estimate")
+  rownames(aucell_coef) <- aucell_coef$module_id
+  aucell_coef <- aucell_coef[, -c(1:2)]
+  
+  aucell_pval <- aucell_results %>% as.data.frame() %>% filter(value == "pVal")
+  rownames(aucell_pval) <- aucell_pval$module_id
+  aucell_pval <- aucell_pval[, -c(1:2)] 
+  #aucell_pval <- apply(aucell_pval, 2, p.adjust, method = "BH", n = nrow(hME_pval))
+  
+  write.table(hME_coef, file = paste("Results/network/lm_associations/all_modules/completemodel/", celltype, "_", module_size, "_hME_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(hME_pval, file = paste("Results/network/lm_associations/all_modules/completemodel/", celltype, "_", module_size, "_hME_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  
+  write.table(aucell_coef, file = paste("Results/network/lm_associations/all_modules/completemodel/", celltype, "_", module_size, "_aucell_coef.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+  write.table(aucell_pval, file = paste("Results/network/lm_associations/all_modules/completemodel/", celltype, "_", module_size, "_aucell_pval.txt", sep = ""), sep = "\t", col.names = TRUE, row.names = TRUE)
+}
+```
+
+################################################
+Calculate trait-association correlation (Approach 2) 
+################################################
+
+```{r}
+##Approach 2 : construct metacells and compute hME correlation (wilcoxon) 
+
+##Part 1 : create metacells and compute hME's 
+create_seurat_modexp <- function(mod_exp, seurat_obj, pca_embed=NULL){
+  # make sure cells in mod_exp and seurat object overlap
+  if(sum(rownames(mod_exp)%in%Cells(seurat_obj))==0){stop("Cell names have 0 match")}
+  # create new seurat object
+  mod_obj <- CreateSeuratObject(counts=t(mod_exp),data=t(mod_exp))
+  mod_obj[['RNA']]@scale.data <- as.matrix(mod_obj[['RNA']]@counts)
+  mod_obj <- FindVariableFeatures(mod_obj)
+  if(!is.null(pca_embed)){
+    mod_obj[['pca']] <- CreateDimReducObject(embeddings = as.matrix(pca_embed),assay=DefaultAssay(seurat_obj)) 
+  }
+  # add umap 
+  mod_obj[['umap']] <- subset(seurat_obj, cells = Cells(mod_obj))[['umap']]
+  
+  mod_obj@meta.data <- merge(mod_obj@meta.data, subset(seurat_obj, cells = Cells(mod_obj))@meta.data, by=0)
+  rownames(mod_obj@meta.data) <- mod_obj@meta.data$Row.names
+  mod_obj@meta.data <- mod_obj@meta.data[,-1]
+  return(mod_obj)
+}
+
+meta_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  
+  ##Load and process hdWGCNA module eigengenes
+  seurat_hME <- readRDS(file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/WGCNA_ME/", celltype, "_", module_size, ".RDS"))
+  hMEs <- seurat_hME@misc$scing$hMEs
+  colnames(hMEs) <- gsub("all_", "", colnames(hMEs))
+  #seurat_hME@meta.data <- seurat_hME@meta.data %>% dplyr::select(Genotype, cell.type, Gonad, SexChrom, Trisomy)
+
+  seurat_mod <- create_seurat_modexp(hMEs, seurat_obj = seurat)
+
+  seurat_mod <- SetupForWGCNA(
+    seurat_mod,
+    features = rownames(seurat_mod@assays$RNA@counts),
+    wgcna_name = "SCING" # the name of the hdWGCNA experiment
+    )
+  
+  seurat_mod <- MetacellsByGroups(
+    seurat_obj = seurat_mod,
+    group.by = c("data.sampleName"), # specify the columns in seurat_obj@meta.data to group by
+    reduction = 'umap', # select the dimensionality reduction to perform KNN on
+    k = 25, # nearest-neighbors parameter
+    max_shared = 10, # maximum number of shared cells between two metacells
+    ident.group = 'data.sampleName', # set the Idents of the metacell seurat object
+    assay = "RNA",
+    min_cells = 10
+    )
+  
+  seurat_mod <- NormalizeMetacells(seurat_mod)
+  metacells <- GetMetacellObject(seurat_mod)
+  
+  meta_list[[celltype]] <- metacells@assays$RNA@counts
+  saveRDS(seurat_mod, file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/WGCNA_ME_metacells/", celltype, "_", module_size, ".RDS"))
+  
+}
+saveRDS(meta_list, file = "Results/network/association_input_df/metacell_hme/metacell_list.RDS")
+
+
+##Part 2 : create association input file 
+meta_list <- readRDS(file = "Results/network/association_input_df/metacell_hme/metacell_list.RDS")
+
+as_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  metacells <- meta_list[[celltype]]
+  modules <- rownames(metacells)
+  
+  seurat_mod <- readRDS(file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/WGCNA_ME_metacells/", celltype, "_", module_size, ".RDS"))
+  
+  module <- modules[j]
+  metacells <- metacells %>% as.matrix() %>% t() %>% as.data.frame() %>% 
+    rownames_to_column(var = "metacell_id") %>%
+    pivot_longer(cols = !metacell_id, names_to = "module", values_to = "hME")
+  metacells$data.sampleName <- str_split_fixed(metacells$metacell_id, pattern = "_", n = 2)[, 1]
+  
+  metadata <- seurat_mod@meta.data %>% dplyr::select(Genotype, Gonad, SexChrom, Trisomy, data.sampleName) %>% unique()
+  
+  metacells_all <- merge(metacells, metadata)
+  metacells_all$celltype <- celltype
+  
+  as_list[[celltype]] <- metacells_all
+}
+
+saveRDS(as_list, file = "Results/network/association_input_df/metacell_hme/as_list_all_modules.RDS")
+```
+
+```{r}
+##Calculate metacell hME - trait correlation (wilcoxon) 
+as_list <- readRDS("Results/network/association_input_df/metacell_hme/as_list_all_modules.RDS")
+
+##exclude ependymal cells - not enough cells in samples other than 1 
+stat_list <- list()
+for(i in 1:(length(celltypes)-1)) {
+  
+  celltype <- celltypes[i]
+  as_df <- as_list[[celltype]]
+  #as_df$module <- factor(as_df$module, levels = mixedsort(unique(as_df$module)))
+  modules <- mixedsort(unique(as_df$module))
+  
+  ##initialize metadata
+  # as_df$Gonad <- factor(as_df$Gonad, levels = c("Male", "Female"))
+  # as_df$SexChrom <- factor(as_df$SexChrom, levels = c("XY", "XX"))
+  as_df$addX <- plyr::mapvalues(as_df$SexChrom,
+                                from = c("XY", "XX", "XYY", "XXY"),
+                                to = c(0, 0, 0, 1)) %>% as.numeric()
+  as_df$addY1 <- plyr::mapvalues(as_df$SexChrom,
+                                from = c("XY", "XX", "XYY", "XXY"),
+                                to = c(0, 0, 0, 1)) %>% as.numeric()
+  as_df$addY2 <- plyr::mapvalues(as_df$SexChrom,
+                                from = c("XY", "XX", "XYY", "XXY"),
+                                to = c(0, 0, 1, 0)) %>% as.numeric()
+  
+  for(j in 1:length(modules)) {
+    
+    test_module <- modules[j] 
+    module_df <- as_df %>% dplyr::filter(module == test_module)
+    
+    ##Normative difference
+    test_df <- module_df %>% dplyr::filter(Genotype %in% c("XYM", "XXF"))
+
+    stat.test <- test_df %>% 
+      wilcox_test(hME ~ Genotype) %>%
+      add_significance() %>%
+      mutate(module = test_module, cell = celltype, effect = "Normative")
+    
+    stat_list[["Normative"]][[celltype]][[test_module]] <- stat.test
+    
+    ##Gonad difference
+    test_df <- module_df
+    
+    stat.test <- test_df %>% 
+      wilcox_test(hME ~ Gonad) %>%
+      add_significance() %>%
+      mutate(module = test_module, cell = celltype, effect = "Gonad")
+    
+    stat_list[["Gonad"]][[celltype]][[test_module]] <- stat.test
+    
+    ##SexChrom difference
+    test_df <- module_df %>% dplyr::filter(SexChrom %in% c("XY", "XX"))
+
+    stat.test <- test_df %>% 
+      wilcox_test(hME ~ SexChrom) %>%
+      add_significance() %>%
+      mutate(module = test_module, cell = celltype, effect = "SexChrom")
+    
+    stat_list[["SexChrom"]][[celltype]][[test_module]] <- stat.test
+    
+    ##addX difference
+    test_df <- module_df %>% dplyr::filter(SexChrom %in% c("XY", "XXY"))
+
+    stat.test <- test_df %>% 
+      wilcox_test(hME ~ addX) %>%
+      add_significance() %>%
+      mutate(module = test_module, cell = celltype, effect = "addX")
+    
+    stat_list[["addX"]][[celltype]][[test_module]] <- stat.test
+    
+    ##addY1 difference
+    test_df <- module_df %>% dplyr::filter(SexChrom %in% c("XX", "XXY"))
+
+    stat.test <- test_df %>% 
+      wilcox_test(hME ~ addY1) %>%
+      add_significance() %>%
+      mutate(module = test_module, cell = celltype, effect = "addY1")
+    
+    stat_list[["addY1"]][[celltype]][[test_module]] <- stat.test
+    
+    ##addY2 difference
+    test_df <- module_df %>% dplyr::filter(SexChrom %in% c("XY", "XYY"))
+
+    stat.test <- test_df %>% 
+      wilcox_test(hME ~ addY2) %>%
+      add_significance() %>%
+      mutate(module = test_module, cell = celltype, effect = "addY2")
+    
+    stat_list[["addY2"]][[celltype]][[test_module]] <- stat.test
+    
+  }
+}
+stat_df <- do.call(c, unlist(stat_list, recursive=FALSE)) %>% bind_rows()
+#stat_df <-do.call("rbind", unlist(stat_list, recursive=FALSE)) %>% bind_rows()
+saveRDS(stat_df, file = "Results/network/metacell_hme/stat_df.RDS")
+```
+
+```{r}
+stat_df <- readRDS(file = "Results/network/metacell_hme/stat_df.RDS")
+source("/u/project/xyang123/jshin/resources/R_scripts/association_heatmap_code.R")
+
+##Visualize
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  cell_df <- stat_df %>% dplyr::filter(cell == celltype) %>% dplyr::select(module, p, effect) %>%
+    pivot_wider(names_from = effect, values_from = p)
+  cell_df2 <- stat_df %>% dplyr::filter(cell == celltype) %>% dplyr::select(module, p.signif, effect) %>%
+    pivot_wider(names_from = effect, values_from = p.signif)
+  
+  m <- cell_df %>% column_to_rownames(var = "module") %>% as.matrix()
+  m2 <- -log10(m)
+  min_value <- min(m2, na.rm = TRUE) %>% floor()
+  max_value <- max(m2, na.rm = TRUE) %>% ceiling()   
+  marker_col_fun <- colorRamp2(c(min_value,((min_value + max_value)/2),max_value),c(set1blue, pastel1grey, set1red))
+  print_heatmap(m2, marker_col_fun, make_pval_fun(m))
+  marker_col_fun <- colorRamp2(c(0,0.5,1),c(set1red, pastel1grey, set1blue))
+  print_heatmap(m, marker_col_fun, make_pval_fun(m))
+
+}
+
+```
+
+################################################
+Calculate trait-association correlation (Approach 3) 
+################################################
+
+```{r}
+## Approach 3 : use hdWGCNA built-in function 
+coef_list <- list()
+pval_list <- list()
+fdr_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  seurat_obj <- readRDS(file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/SCING_2/WGCNA_ME/", celltype, "_", module_size, ".RDS"))
+  
+  # initialize metadata 
+  seurat_obj$addX <- plyr::mapvalues(seurat_obj$SexChrom, 
+                                     from = c("XY", "XX", "XYY", "XXY"),
+                                     to = c(0, 0, 0, 1)) %>% as.numeric()
+  seurat_obj$addY1 <- plyr::mapvalues(seurat_obj$SexChrom, 
+                                     from = c("XY", "XX", "XYY", "XXY"),
+                                     to = c(0, 0, 0, 1)) %>% as.numeric()
+  seurat_obj$addY2 <- plyr::mapvalues(seurat_obj$SexChrom, 
+                                     from = c("XY", "XX", "XYY", "XXY"),
+                                     to = c(0, 0, 1, 0)) %>% as.numeric()
+  
+  # test Counts model
+  # seurat_obj <- ModuleTraitCorrelation(
+  #   seurat_obj,
+  #   traits = c('nCount_RNA', 'nFeature_RNA'),
+  #   group.by = "cell.type"
+  # )
+  # mt_cor <- GetModuleTraitCorrelation(seurat_obj)
+  # coef_list[[celltype]][["Counts"]] <- mt_cor$cor[[celltype]]
+  # pval_list[[celltype]][["Counts"]] <- mt_cor$pval[[celltype]]
+  # fdr_list[[celltype]][["Counts"]] <- mt_cor$fdr[[celltype]]
+  
+  # test Normative model 
+  seurat_subset <- subset(seurat_obj, Genotype %in% c("XYM", "XXF"))
+  seurat_subset$Genotype <- factor(seurat_subset$Genotype, levels = c("XYM", "XXF"))
+  subset_cells <- colnames(seurat_subset@assays$RNA@counts)
+  ME_subset <- seurat_subset@misc$scing$MEs
+  ME_subset <- ME_subset[rownames(ME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$MEs <- ME_subset
+  hME_subset <- seurat_subset@misc$scing$hMEs
+  hME_subset <- hME_subset[rownames(hME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$hMEs <- hME_subset
+  
+  seurat_subset <- ModuleTraitCorrelation(
+    seurat_subset,
+    traits = c('Genotype'),
+    group.by = "cell.type2"
+  )
+  mt_cor <- GetModuleTraitCorrelation(seurat_subset)
+  coef_list[[celltype]][["Normative"]] <- mt_cor$cor[[celltype]]
+  pval_list[[celltype]][["Normative"]] <- mt_cor$pval[[celltype]]
+  fdr_list[[celltype]][["Normative"]] <- mt_cor$fdr[[celltype]]
+  
+  # test FCG model
+  seurat_subset <- subset(seurat_obj, Trisomy == "Non-Trisomy")
+  seurat_subset$Gonad <- factor(seurat_subset$Gonad, levels = c("Male", "Female"))
+  seurat_subset$SexChrom <- factor(seurat_subset$SexChrom, levels = c("XY", "XX"))
+  subset_cells <- colnames(seurat_subset@assays$RNA@counts)
+  ME_subset <- seurat_subset@misc$scing$MEs
+  ME_subset <- ME_subset[rownames(ME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$MEs <- ME_subset
+  hME_subset <- seurat_subset@misc$scing$hMEs
+  hME_subset <- hME_subset[rownames(hME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$hMEs <- hME_subset
+  
+  seurat_subset <- ModuleTraitCorrelation(
+    seurat_subset,
+    traits = c('Gonad', 'SexChrom'),
+    group.by = "cell.type2"
+  )
+  mt_cor <- GetModuleTraitCorrelation(seurat_subset)
+  coef_list[[celltype]][["FCG"]] <- mt_cor$cor[[celltype]]
+  pval_list[[celltype]][["FCG"]] <- mt_cor$pval[[celltype]]
+  fdr_list[[celltype]][["FCG"]] <- mt_cor$fdr[[celltype]]
+  
+  # test addX model
+  seurat_subset <- subset(seurat_obj, SexChrom %in% c("XY", "XXY"))
+  seurat_subset$Gonad <- factor(seurat_subset$Gonad, levels = c("Male", "Female"))
+  seurat_subset$SexChrom <- factor(seurat_subset$SexChrom, levels = c("XY", "XXY"))
+  subset_cells <- colnames(seurat_subset@assays$RNA@counts)
+  ME_subset <- seurat_subset@misc$scing$MEs
+  ME_subset <- ME_subset[rownames(ME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$MEs <- ME_subset
+  hME_subset <- seurat_subset@misc$scing$hMEs
+  hME_subset <- hME_subset[rownames(hME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$hMEs <- hME_subset
+  
+  seurat_subset <- ModuleTraitCorrelation(
+    seurat_subset,
+    traits = c('addX'),
+    group.by = "cell.type2"
+  )
+  mt_cor <- GetModuleTraitCorrelation(seurat_subset)
+  
+  for(i in 1:2) {
+    x <- mt_cor[[i]][[celltype]] %>% as.data.frame() %>% t()
+    rownames(x) <- "addX"
+    mt_cor[[i]][[celltype]] <- x
+  }
+  
+  coef_list[[celltype]][["addX"]] <- mt_cor$cor[[celltype]] 
+  pval_list[[celltype]][["addX"]] <- mt_cor$pval[[celltype]] 
+  fdr_list[[celltype]][["addX"]] <- mt_cor$fdr[[celltype]]
+  
+  # test addY1 model
+  seurat_subset <- subset(seurat_obj, SexChrom %in% c("XX", "XXY"))
+  seurat_subset$Gonad <- factor(seurat_subset$Gonad, levels = c("Male", "Female"))
+  seurat_subset$SexChrom <- factor(seurat_subset$SexChrom, levels = c("XX", "XXY"))
+  subset_cells <- colnames(seurat_subset@assays$RNA@counts)
+  ME_subset <- seurat_subset@misc$scing$MEs
+  ME_subset <- ME_subset[rownames(ME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$MEs <- ME_subset
+  hME_subset <- seurat_subset@misc$scing$hMEs
+  hME_subset <- hME_subset[rownames(hME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$hMEs <- hME_subset
+  
+  seurat_subset <- ModuleTraitCorrelation(
+    seurat_subset,
+    traits = c('addY1'),
+    group.by = "cell.type2"
+  )
+  mt_cor <- GetModuleTraitCorrelation(seurat_subset)
+  
+  for(i in 1:2) {
+    x <- mt_cor[[i]][[celltype]] %>% as.data.frame() %>% t()
+    rownames(x) <- "addY1"
+    mt_cor[[i]][[celltype]] <- x
+  }
+  
+  coef_list[[celltype]][["addY1"]] <- mt_cor$cor[[celltype]] %>% as.data.frame()
+  pval_list[[celltype]][["addY1"]] <- mt_cor$pval[[celltype]] %>% as.data.frame()
+  fdr_list[[celltype]][["addY1"]] <- mt_cor$fdr[[celltype]] %>% as.data.frame()
+  
+  # test addY2 model
+  seurat_subset <- subset(seurat_obj, SexChrom %in% c("XY", "XYY"))
+  seurat_subset$Gonad <- factor(seurat_subset$Gonad, levels = c("Male", "Female"))
+  seurat_subset$SexChrom <- factor(seurat_subset$SexChrom, levels = c("XY", "XYY"))
+  subset_cells <- colnames(seurat_subset@assays$RNA@counts)
+  ME_subset <- seurat_subset@misc$scing$MEs
+  ME_subset <- ME_subset[rownames(ME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$MEs <- ME_subset
+  hME_subset <- seurat_subset@misc$scing$hMEs
+  hME_subset <- hME_subset[rownames(hME_subset) %in% subset_cells, ]
+  seurat_subset@misc$scing$hMEs <- hME_subset
+  
+  seurat_subset <- ModuleTraitCorrelation(
+    seurat_subset,
+    traits = c('addY2'),
+    group.by = "cell.type2"
+  )
+  mt_cor <- GetModuleTraitCorrelation(seurat_subset)
+  
+  for(i in 1:2) {
+    x <- mt_cor[[i]][[celltype]] %>% as.data.frame() %>% t()
+    rownames(x) <- "addY2"
+    mt_cor[[i]][[celltype]] <- x
+  }
+   
+  coef_list[[celltype]][["addY2"]] <- mt_cor$cor[[celltype]] 
+  pval_list[[celltype]][["addY2"]] <- mt_cor$pval[[celltype]] 
+  fdr_list[[celltype]][["addY2"]] <- mt_cor$fdr[[celltype]] 
+  
+  coef_list[[celltype]] <- do.call("rbind", coef_list[[celltype]])
+  pval_list[[celltype]] <- do.call("rbind", pval_list[[celltype]])
+  fdr_list[[celltype]] <- do.call("rbind", fdr_list[[celltype]])
+}
+
+save(coef_list, pval_list, fdr_list, file = "Results/celltype2_analysis/network/hdwgcna_associations/coef_pval_fdr_list.RDA")
+```
+
+```{r}
+load("Results/celltype2_analysis/network/hdwgcna_associations/coef_pval_fdr_list.RDA")
+
+source("/u/project/xyang123/jshin/resources/R_scripts/association_heatmap_code.R")
+marker_col_fun <- colorRamp2(c(-1,0,1),c(set1blue, pastel1grey, set1red))
+
+save_heatmap_long(t(coef_list[["Astrocyte"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["Astrocyte"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "Astrocyte", "_", module_size, "_hME_heatmap_pval.png"), height = 25, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["Ependymal"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["Ependymal"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "Ependymal", "_", module_size, "_hME_heatmap_pval.png"), height = 25, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["GABA"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["GABA"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "GABA", "_", module_size, "_hME_heatmap_pval.png"), height = 15, fontsize = 10, width = 7)
+
+save_heatmap_long(t(coef_list[["GABA-Chol"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["GABA-Chol"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "GABA-Chol", "_", module_size, "_hME_heatmap_pval.png"), height = 25, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["Glut"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["Glut"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "Glut", "_", module_size, "_hME_heatmap_pval.png"), height = 15, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["Inh_IMN"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["Inh_IMN"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "Inh_IMN", "_", module_size, "_hME_heatmap_pval.png"), height = 30, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["Microglia"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["Microglia"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "Microglia", "_", module_size, "_hME_heatmap_pval.png"), height = 25, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["Oligo"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["Oligo"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "Oligo", "_", module_size, "_hME_heatmap_pval.png"), height = 20, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["OPC"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["OPC"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "OPC", "_", module_size, "_hME_heatmap_pval.png"), height = 20, fontsize = 10, width = 10)
+
+save_heatmap_long(t(coef_list[["Vascular"]]), marker_col_fun, make_pval_fun_long(t(fdr_list[["Vascular"]])), paste0("Plots/Network/Association_heatmaps/celltype2_analysis/", "Vascular", "_", module_size, "_hME_heatmap_pval.png"), height = 25, fontsize = 10, width = 10)
+
+```
+
+################################################
+Visualize trait-association correlation 
+################################################
+
+```{r}
+##Plot all heatmaps -- separate models 
+source("/u/project/xyang123/jshin/resources/R_scripts/association_heatmap_code.R")
+
+for(i in 1:length(celltypes)) {
+
+  celltype <- celltypes[i]
+  
+  ##FCG
+  fcg_coef_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/FCGmodel/", celltype, "_", module_size, "_hME_coef.txt", sep = ""))
+  fcg_pval_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/FCGmodel/", celltype, "_", module_size, "_hME_pval.txt", sep = ""))
+
+  ##addX 
+  addx_coef_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/addXmodel/", celltype, "_", module_size, "_hME_coef.txt", sep = ""))
+  addx_pval_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/addXmodel/", celltype, "_", module_size, "_hME_pval.txt", sep = ""))
+  
+  ##addY1
+  addy1_coef_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/addY1model/", celltype, "_", module_size, "_hME_coef.txt", sep = ""))
+  addy1_pval_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/addY1model/", celltype, "_", module_size, "_hME_pval.txt", sep = ""))
+  
+  ##addY2
+  addy2_coef_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/addY2model/", celltype, "_", module_size, "_hME_coef.txt", sep = ""))
+  addy2_pval_df <- read.delim(file = paste("Results/network/lm_associations/filtered_modules/addY2model/", celltype, "_", module_size, "_hME_pval.txt", sep = ""))
+  
+  ##merge into single df 
+  coef_df <- cbind(fcg_coef_df, addx_coef_df, addy1_coef_df, addy2_coef_df)
+  pval_df <- cbind(fcg_pval_df, addx_pval_df, addy1_pval_df, addy2_pval_df)
+  colnames(coef_df) <- c("Gonad", "SexChrom", "Gonad:SexChrom", "GenotypeaddX", "addX", "GenotypeaddY", "addY1", "GenotypeaddY2", "addY2")
+  colnames(pval_df) <- c("Gonad", "SexChrom", "Gonad:SexChrom", "GenotypeaddX", "addX", "GenotypeaddY", "addY1", "GenotypeaddY2", "addY2")
+  
+  coef_df <- coef_df %>% select(Gonad, SexChrom, `Gonad:SexChrom`, addX, addY1, addY2)
+  pval_df <- pval_df %>% select(Gonad, SexChrom, `Gonad:SexChrom`, addX, addY1, addY2)
+  
+  # Flatten the values of the columns into a single vector
+  values <- unlist(coef_df)
+  # Calculate the minimum value
+  min_value <- min(values, na.rm = TRUE) %>% floor()
+  # Calculate the maximum value
+  max_value <- max(values, na.rm = TRUE) %>% ceiling() 
+  marker_col_fun <- colorRamp2(c(min_value,0,max_value),c(set1blue, pastel1grey, set1red))
+  
+  save_heatmap(coef_df, marker_col_fun, make_pval_fun(pval_df), paste0("Plots/Network/Association_heatmaps/filtered_modules/separatemodel/", celltype, "_", module_size, "_hME_heatmap_pval.png"), height = 35, width = 20, heatmap_width = 10, fontsize = 20, return = T)
+  
+  # png(filename = paste0("Plots/Network/association_heatmap_completemodel/", celltype, "_", module_size, "_heatmap_pval.png"), height = 35, width = 20, units = "in", res = 600)
+  # print(plot1 + plot2) 
+  # dev.off()
+}
+
+```
+
+```{r}
+##Plot all heatmaps -- complete model 
+source("/u/project/xyang123/jshin/resources/R_scripts/association_heatmap_code.R")
+
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  model <- "complete"
+  
+  coef_df <- read.delim(file = paste("Results/network/lm_associations/all_modules/completemodel/", celltype, "_", module_size, "_hME_coef.txt", sep = ""))
+  pval_df <- read.delim(file = paste("Results/network/lm_associations/all_modules/completemodel/", celltype, "_", module_size, "_hME_pval.txt", sep = ""))
+  #colnames(coef_df) <- c("Gonad", "SexChrom", "addX", "addY")
+  #colnames(pval_df) <- c("Gonad", "SexChrom", "addX", "addY")
+  
+  # Flatten the values of the columns into a single vector
+  values <- unlist(coef_df)
+  # Calculate the minimum value
+  min_value <- min(values, na.rm = TRUE) %>% floor()
+  # Calculate the maximum value
+  max_value <- max(values, na.rm = TRUE) %>% ceiling() 
+  marker_col_fun <- colorRamp2(c(min_value,0,max_value),c(set1blue, pastel1grey, set1red))
+  
+  save_heatmap(coef_df, marker_col_fun, make_pval_fun(pval_df), paste0("Plots/Network/Association_heatmaps/all_modules/completemodel/", celltype, "_", module_size, "_hME_heatmap_pval.png"), height = 35, width = 20, heatmap_width = 10, fontsize = 20, return = T)
+  
+  # coef_df <- read.delim(file = paste("Results/network/lm_associations_completemodel/", celltype, "_", module_size, "_aucell_coef.txt", sep = ""))
+  # pval_df <- read.delim(file = paste("Results/network/lm_associations_completemodel/", celltype, "_", module_size, "_aucell_pval.txt", sep = ""))
+  # colnames(coef_df) <- c("Gonad", "SexChrom", "addX", "addY")
+  # colnames(pval_df) <- c("Gonad", "SexChrom", "addX", "addY")
+  # 
+  # values <- unlist(coef_df)
+  # min_value <- min(values, na.rm = TRUE) %>% floor()
+  # max_value <- max(values, na.rm = TRUE) %>% ceiling() 
+  # marker_col_fun <- colorRamp2(c(min_value,0,max_value),c(set1blue, pastel1grey, set1red))
+  # 
+  # plot2 <- save_heatmap(coef_df, marker_col_fun, make_pval_fun(pval_df), paste0("Plots/Network/association_heatmap_completemodel/", celltype, "_", module_size, "_aucell_heatmap_pval.png"), height = 35, width = 20, heatmap_width = 10, fontsize = 20, return = T)
+  # 
+  # png(filename = paste0("Plots/Network/association_heatmap_completemodel/", celltype, "_", module_size, "_heatmap_pval.png"), height = 35, width = 20, units = "in", res = 600)
+  # print(plot1 + plot2) 
+  # dev.off()
+}
+
+```
+
+```{r}
+##draw individual plots 
+source("/u/project/xyang123/jshin/resources/R_scripts/association_heatmap_code.R")
+
+marker_col_fun <- colorRamp2(c(-1,0,1),c(set1blue, pastel1grey, set1red))
+coef_df <- read.delim("Results/network/lm_associations/hME_coef.txt")
+colnames(coef_df) <- c("Gonad", "base_SexChrom", "addX", "addY")
+pval_df <- read.delim("Results/network/lm_associations/hME_pval.txt")
+colnames(pval_df) <- c("Gonad", "base_SexChrom", "addX", "addY")
+
+save_heatmap(coef_df, marker_col_fun, make_pval_fun(pval_df), "Plots/Network/Heatmap/hME_heatmap_pval.png", height = 25, width = 20, heatmap_width = 10, fontsize = 20, return = F)
+save_heatmap(coef_df, marker_col_fun, coef_text_fun(coef_df), "Plots/Network/Heatmap/hME_heatmap_coef.png", height = 25, width = 20, heatmap_width = 10, fontsize = 20, return = F)
+
+marker_col_fun <- colorRamp2(c(-0.05,0,0.05),c(set1blue, pastel1grey, set1red))
+coef_df <- read.delim("Results/network/lm_associations/AUCell_coef.txt")
+colnames(coef_df) <- c("Gonad", "base_SexChrom", "addX", "addY")
+pval_df <- read.delim("Results/network/lm_associations/AUCell_pval.txt")
+colnames(pval_df) <- c("Gonad", "base_SexChrom", "addX", "addY")
+
+save_heatmap(coef_df, marker_col_fun, make_pval_fun(pval_df), "Plots/Network/Heatmap/AUCell_heatmap_pval.png", height = 25, width = 20, heatmap_width = 10, fontsize = 20, return = F)
+save_heatmap(coef_df, marker_col_fun, coef_text_fun(coef_df), "Plots/Network/Heatmap/AUCell_heatmap_coef.png", height = 25, width = 20, heatmap_width = 10, fontsize = 20, return = F)
+```
+
+################################################
+Pathway enrichment on modules
+################################################
+```{r}
+source("/u/project/xyang123/jshin/resources/R_scripts/pathway_enrichment_clusterprofiler.R")
+load("Results/celltype2_analysis/network/hdwgcna_associations/coef_pval_fdr_list.RDA")
+
+##significant modules only 
+for(i in 5:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  print(celltype)
+  
+  fdr_df <- fdr_list[[celltype]] %>% as.data.frame() %>% rownames_to_column(var = "effect") %>%
+    pivot_longer(cols = !effect, names_to = "module", values_to = "fdr") %>%
+    dplyr::filter(fdr < 0.05)
+  sig_modules <- fdr_df %>% select(module) %>% unlist(use.names = FALSE) %>% unique() %>% mixedsort()
+  
+  pathway_list <- list()
+  for(j in 1:length(sig_modules)) {
+  
+    module <- sig_modules[j]
+    print(module)
+    scing_mods <- read.csv(paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/SCING_2/gene_memberships/", celltype, ".gene_membership.50.csv.gz"), row.names = 1)
+    scing_mods <- scing_mods %>% dplyr::filter(cluster_membership == module)
+    module_genes <- rownames(scing_mods)
+    
+    pathway_results <- pathway_enrichment(gene_vector = module_genes,
+                                       species = "Mm",
+                                       pathway_pval_threshold = 0.05,
+                                       pathway_enriched_min_genes_count = 5, 
+                                       GOBP = TRUE,
+                                       KEGG = TRUE,
+                                       simplify = TRUE)
+    
+    if(nrow(pathway_results[["GO:BP"]]) != 0) {
+      
+      gobp_df <- pathway_results[["GO:BP"]]
+      if(nrow(gobp_df) == 0) {next}
+      gobp_df$module <- module
+      gobp_df$celltype <- celltype
+      pathway_list[["GO:BP"]][[paste("M", module, sep = "_")]] <- gobp_df
+      
+    } 
+    
+    if(nrow(pathway_results[["KEGG"]]) != 0) {
+      
+      kegg_df <- pathway_results[["KEGG"]]
+      if(nrow(kegg_df) == 0) {next}
+      kegg_df$module <- module
+      kegg_df$celltype <- celltype
+      pathway_list[["KEGG"]][[paste("M", module, sep = "_")]] <- kegg_df
+    
+    }
+    
+    if(nrow(pathway_results[["GO:BP"]]) == 0 & nrow(pathway_results[["KEGG"]]) == 0) {next}
+      
+  }
+saveRDS(pathway_list, paste0("Results/celltype2_analysis/network/module_pathways/", celltype, ".RDS"))
+}
+```
+
+```{r}
+plot_list <- list()
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  pathway_list <- readRDS(paste0("Results/celltype2_analysis/network/module_pathways/", celltype, ".RDS"))
+  
+  gobp <- pathway_list[["GO:BP"]]
+  gobp <- gobp[sapply(gobp, function(df) nrow(df) >= 5)]
+  gobp <- do.call("rbind", gobp)
+  gobp <- gobp %>% dplyr::filter(p.adjust < 0.05) %>% dplyr::group_by(module) %>% slice_max(n = 5, order_by = FoldEnrichment)
+  gobp$FDR <- -log10(gobp$p.adjust)
+  
+  gobp$Description <- factor(gobp$Description, levels = unique(gobp$Description))
+  gobp$module <- factor(gobp$module, levels = unique(mixedsort(gobp$module)))
+  min <- min(gobp$FoldEnrichment) %>% floor()
+  max <- max(gobp$FoldEnrichment) %>% ceiling()
+
+  
+  plot <- ggplot(gobp, aes(y = Description, x = celltype)) +
+          geom_tile(fill = "white") + xlab("") + ylab("") +
+          geom_point(aes(size = FDR, colour = FoldEnrichment)) +
+          facet_wrap(~module, scales = "free_y", ncol = 2) +
+          scale_color_gradient(low = "white", high = "darkred") +
+          scale_size(range = c(3, 12)) +
+          scale_fill_discrete(drop=FALSE) +
+          scale_x_discrete(drop=FALSE) +
+          theme_bw() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                text = element_text(size = 20), 
+                panel.spacing = unit(2, "lines")) +
+          guides(colour = guide_legend(title = "Median logFC"),
+                                       size = guide_legend(title = "-log10(FDR)"))
+  
+  plot_list[[celltype]] <- plot
+}
+
+png(filename = "Plots/Network/Module_pathways/celltype2_analysis/GABA_pathways.png", width = 20, height = 40, units = "in", res = 600)
+print(plot_list[["GABA"]])
+dev.off()
+
+
+```

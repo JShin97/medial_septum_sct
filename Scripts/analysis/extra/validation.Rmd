@@ -6,7 +6,7 @@ date: "2023-12-08"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/u/project/xyang123/julianas/medial_septum_sct")
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
 knitr::opts_chunk$set(warning=FALSE, message=FALSE)
 
 library(tidyverse)
@@ -26,28 +26,45 @@ library(scran)
 library(scater)
 library(AnnotationHub)
 library(DESeq2)
+library(openxlsx)
 ```
 
 ```{r}
-seurat <- readRDS( "~/scratch/medial_septum_sct/Saves/For_Figures.rds") %>% DietSeurat(counts = TRUE)
-#sce <- as.SingleCellExperiment(seurat)
+seurat <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+#seurat <- readRDS(file = "/u/scratch/j/jshin/cerebellum_sct/Saves/PostFilter/cellbender_clustered.RDS")
+#seurat <- readRDS(file = "/u/project/xyang123/ligaoyan/HypothalamusSexDiff/Data/Datawithmetainfo/Allcelltypes.rds")
+
+sample_gt_mapping <- openxlsx::read.xlsx("~/scratch/medial_septum_sct/Data/sample_genotype_mapping.xlsx") 
+##fix Genotype metadata 
+seurat_metadata <- seurat@meta.data %>% 
+  as.data.frame() %>% 
+  dplyr::select(SampleID, Genotype, Gonad, SexChrom, Trisomy) %>% 
+  rownames_to_column(var = "cellID") %>% 
+  left_join(sample_gt_mapping, by = c("SampleID", "Genotype")) %>% 
+  column_to_rownames(var  = "cellID")
+seurat@meta.data <- seurat_metadata
+seurat$Sample2 <- gsub("M", "T", seurat$Sample2)
+seurat$Sample2 <- gsub("F", "O", seurat$Sample2)
+seurat$Sample2_original <- gsub("M", "T", seurat$Sample2_original)
+seurat$Sample2_original <- gsub("F", "O", seurat$Sample2_original)
+  
+sce <- as.SingleCellExperiment(seurat)
 
 #For full models: 
-sce <- subset(seurat, cell.type != c("Unknown")) %>% 
-  as.SingleCellExperiment()
+#sce <- seurat %>% as.SingleCellExperiment()
 #sce$Gonad <- factor(sce$Gonad, levels = c("Male", "Female"))
 #sce$SexChrom <- factor(sce$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
 
 #aggregate across samples
-samples_to_exclude <- c("XY-TriSeptum-24", "XY-TriSeptum-12", "XY-TriSeptum-2")
-columnstoUse <- c("data.sampleName", "Genotype", "cell.type", "Gonad", "SexChrom", "Trisomy")
-colData(sce) <- colData(sce) %>% data.frame() %>% dplyr::select(all_of(columnstoUse)) %>% DataFrame
-sce <- sce[, !sce$data.sampleName %in% samples_to_exclude]
+# samples_to_exclude <- c("XY-TriSeptum-24", "XY-TriSeptum-12", "XY-TriSeptum-2")
+# columnstoUse <- c("data.sampleName", "Genotype", "cell.type", "Gonad", "SexChrom", "Trisomy")
+# colData(sce) <- colData(sce) %>% data.frame() %>% dplyr::select(all_of(columnstoUse)) %>% DataFrame
+# sce <- sce[, !sce$data.sampleName %in% samples_to_exclude]
 
-sce.aggregate <- aggregateAcrossCells(sce, id = DataFrame(sce$data.sampleName))
-sce.aggregate.celltype <- aggregateAcrossCells(sce, 
-                                               id = DataFrame(label = sce$cell.type, 
-                                                              sample = sce$data.sampleName))
+sce.aggregate <- aggregateAcrossCells(sce, id = DataFrame(sce$Sample2))
+# sce.aggregate.celltype <- aggregateAcrossCells(sce, 
+#                                                id = DataFrame(label = sce$celltype, 
+#                                                               sample = sce$Sample2))
 ```
 
 #Genotype validation 
@@ -65,42 +82,119 @@ rowData(sce.aggregate)$chromosome <- chromosome
 sce.aggregate <- sce.aggregate[!is.na(rowData(sce.aggregate)$chromosome), ]
 
 #aggregate counts 
-sry_counts <- as.numeric(counts(sce.aggregate["Sry", ]))
-x_counts <- colSums(counts(sce.aggregate[rowData(sce.aggregate)$chromosome == "X", ]))
+#sry_counts <- as.numeric(counts(sce.aggregate["Sry", ]))
+#x_counts <- colSums(counts(sce.aggregate[rowData(sce.aggregate)$chromosome == "X", ]))
 xist_counts <- as.numeric(counts(sce.aggregate["Xist", ]))
-y_counts <- colSums(counts(sce.aggregate[rowData(sce.aggregate)$chromosome == "Y", ]))
+#y_counts <- colSums(counts(sce.aggregate[rowData(sce.aggregate)$chromosome == "Y", ]))
+uty_counts <- as.numeric(counts(sce.aggregate["Uty", ]))
 total_counts <- colSums(counts(sce.aggregate))
 
-ovary_counts <- as.numeric(counts(sce.aggregate["Npm2", ]))
-testis_counts <- as.numeric(counts(sce.aggregate["Adamts2", ]))
+# ovary_counts <- as.numeric(counts(sce.aggregate["Npm2", ]))
+# testis_counts <- as.numeric(counts(sce.aggregate["Adamts2", ]))
 
 sexing_results <- data.frame(
-  Sample = sce.aggregate$data.sampleName,
+  Sample = sce.aggregate$Sample2,
+  Sample_original = sce.aggregate$Sample2_original, 
   Genotype = sce.aggregate$Genotype,
+  Genotype_original = sce.aggregate$Genotype_original,
   TotalCounts = total_counts,
-  XCounts = x_counts,
-  YCounts = y_counts,
+  #XCounts = x_counts,
+  #YCounts = y_counts,
   XistCounts = xist_counts,
-  SryCounts = sry_counts,
-  OvaryCounts = ovary_counts,
-  TestisCounts = testis_counts
+  UtyCounts = uty_counts
+  #SryCounts = sry_counts
 )
 
 sexing_df <- sexing_results %>%
-  pivot_longer(-c(Sample, Genotype, TotalCounts)) %>%
+  pivot_longer(-c(Sample, Sample_original, Genotype, Genotype_original, TotalCounts)) %>%
   mutate(fraction = value / TotalCounts) %>%
   dplyr::select(-c(TotalCounts, value)) %>%
-  pivot_wider(values_from = fraction, names_from = name) %>%
-  dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")))
+  pivot_wider(values_from = fraction, names_from = name)
+  #dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")))
 sample_order <- sexing_df$Sample[order(sexing_df$Genotype)]
 sexing_df <- sexing_df %>% dplyr::mutate(Sample = factor(Sample, levels = sample_order))
+sample_order <- sexing_df$Sample_original[order(sexing_df$Genotype_original)]
+sexing_df <- sexing_df %>% dplyr::mutate(Sample_original = factor(Sample_original, levels = sample_order))
+sexing_df$Genotype <- gsub("F", "O", sexing_df$Genotype)
+sexing_df$Genotype <- gsub("M", "T", sexing_df$Genotype)
+sexing_df$Genotype_original <- gsub("F", "O", sexing_df$Genotype_original)
+sexing_df$Genotype_original <- gsub("M", "T", sexing_df$Genotype_original)
 
-log_df <- sexing_results %>%
-  dplyr::select(Sample, Genotype, XistCounts, SryCounts) %>% 
-  mutate(XistLog = log2(XistCounts)) %>%
-  dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")))
-log_df <- log_df %>% dplyr::mutate(Sample = factor(Sample, levels = sample_order))
+# log_df <- sexing_results %>%
+#   dplyr::select(Sample, Genotype, XistCounts, SryCounts) %>% 
+#   mutate(XistLog = log2(XistCounts))
+#   #dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")))
+# log_df <- log_df %>% dplyr::mutate(Sample = factor(Sample, levels = sample_order))
+```
 
+```{r}
+plot1 <- sexing_df %>%
+  ggplot(aes(x = XistCounts, y = Sample_original, fill = Genotype_original)) + geom_bar(position = "dodge", stat = "identity") +
+    theme_bw() +
+    xlab("Fraction Xist / Total") +
+    ylab("Sample") +
+    theme(axis.text.y = element_text(size = 15), 
+          axis.text.x = element_text(size = 10), 
+          legend.text = element_text(size = 13), 
+          legend.title = element_text(size = 15), 
+          axis.title.y = element_text(size = 17), 
+          axis.title.x = element_text(size = 17), 
+          plot.title = element_text(size = 20), 
+          legend.position = "none") + 
+  ggtitle("Fraction Xist Count by Sample") 
+
+plot2 <- sexing_df %>%
+  ggplot(aes(x = UtyCounts, y = Sample_original, fill = Genotype_original)) + geom_bar(position = "dodge", stat = "identity") +
+    theme_bw() +
+    xlab("Fraction Uty / Total") +
+    ylab("Sample") + 
+    theme(axis.text.y = element_text(size = 15), 
+          axis.text.x = element_text(size = 10), 
+          legend.text = element_text(size = 13), 
+          legend.title = element_text(size = 15), 
+          axis.title.y = element_text(size = 17), 
+          axis.title.x = element_text(size = 17), 
+          plot.title = element_text(size = 20), 
+          legend.position = "right") +
+  ggtitle("Fraction Uty Count by Sample")
+
+plot3 <- sexing_df %>%
+  ggplot(aes(x = XistCounts, y = Sample, fill = Genotype)) + geom_bar(position = "dodge", stat = "identity") +
+    theme_bw() +
+    xlab("Fraction Xist / Total") +
+    ylab("Sample") +
+    theme(axis.text.y = element_text(size = 15), 
+        axis.text.x = element_text(size = 10), 
+        legend.text = element_text(size = 13), 
+        legend.title = element_text(size = 15), 
+        axis.title.y = element_text(size = 17), 
+        axis.title.x = element_text(size = 17), 
+        plot.title = element_text(size = 20), 
+          legend.position = "none") +
+  ggtitle("Fraction Xist Count by Sample")
+
+plot4 <- sexing_df %>%
+  ggplot(aes(x = UtyCounts, y = Sample, fill = Genotype)) + geom_bar(position = "dodge", stat = "identity") +
+    theme_bw() +
+    xlab("Fraction Uty / Total") +
+    ylab("Sample") +
+    theme(axis.text.y = element_text(size = 15), 
+        axis.text.x = element_text(size = 10), 
+        legend.text = element_text(size = 13), 
+        legend.title = element_text(size = 15), 
+        axis.title.y = element_text(size = 17), 
+        axis.title.x = element_text(size = 17), 
+        plot.title = element_text(size = 20), 
+          legend.position = "right") +
+  ggtitle("Fraction Uty Count by Sample")
+
+pdf("Plots/Final_Figures/Validation/Xist_Uty_barplot_Sample2_legend.pdf", width = 16, height = 12)
+ggarrange(plotlist = list(plot1, plot2, plot3, plot4), nrow = 2, ncol = 2)
+dev.off()
+```
+
+
+```{r}
 sexing_df %>%
   ggplot(aes(x = XistCounts, SryCounts, col = Genotype)) + geom_jitter(width = 0.00001, height = 0.000001, size = 3) +
     theme_bw() +
@@ -152,11 +246,13 @@ sexing_df %>%
 ggsave(filename = "Plots/Validation/Y_barplot.pdf", plot = last_plot(), width = 7, height = 5)
 
 sexing_df %>%
-  ggplot(aes(x = OvaryCounts, y = Sample, fill = Genotype)) + geom_bar(position = "dodge", stat = "identity") +
+  ggplot(aes(x = UtyCounts, y = Sample, fill = Genotype)) + geom_bar(position = "dodge", stat = "identity") +
     theme_bw() +
-    xlab("Fraction Ovary / Total") +
+    xlab("Fraction Uty / Total") +
     ylab("Sample") +
-  ggtitle("Fraction Ovary Count by Sample")
+  ggtitle("Fraction Uty Count by Sample")
+ggsave(filename = "Plots/Validation/Uty_barplot.pdf", plot = last_plot(), width = 7, height = 5)
+
 
 sexing_df %>%
   ggplot(aes(x = TestisCounts, y = Sample, fill = Genotype)) + geom_bar(position = "dodge", stat = "identity") +
@@ -164,6 +260,35 @@ sexing_df %>%
     xlab("Fraction Testis / Total") +
     ylab("Sample") +
   ggtitle("Fraction Testis Count by Sample")
+
+gene_annotation <- readRDS("Data/Derived/gene_annotation.Rds")
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+escape_genes <- gene_annotation %>% dplyr::filter(Escapee == "Escapee")
+
+
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+seurat_gt_list <- SplitObject(seurat, split.by = "Genotype")
+plotlist <- lapply(seurat_gt_list, function(x, n) {
+  plot <- VlnPlot(x, features = c("Xist", "Ddx3x"), pt.size = 0, group.by = "sample2", ncol = 2)
+  return(plot)
+})
+png("Plots/Validation/MS_escape_vlnplot.png", height = 50, width = 10, units = "in", res = 600)
+ggarrange(plotlist = plotlist, ncol = 1, nrow = 8)
+dev.off()
+
+seurat$sample2 <- factor(seurat$sample2, levels = c("XY-TriSeptum-6_XXYF", "XY-TriSeptum-5_XXYF", "XY-TriSeptum-16_XXYF",
+                                                    "XY-TriSeptum-24_XXYM", "XY-TriSeptum-17_XXYM", "XY-TriSeptum-12_XXYM",
+                                                    "XY-TriSeptum-4_XYYF", "XY-TriSeptum-3_XYYF", "XY-TriSeptum-14_XYYF",
+                                                    "XY-TriSeptum-20_XYYM", "XY-TriSeptum-18_XYYM", "XY-TriSeptum-10_XYYM",
+                                                    "XY-TriSeptum-23_XXF", "XY-TriSeptum-13_XXF", "XY-TriSeptum-11_XXF",
+                                                    "XY-TriSeptum-9_XXM", "XY-TriSeptum-21_XXM", "XY-TriSeptum-19_XXM",
+                                                    "XY-TriSeptum-7_XYF", "XY-TriSeptum-22_XYF", "XY-TriSeptum-2_XYF",
+                                                    "XY-TriSeptum-8_XYM", "XY-TriSeptum-15_XYM", "XY-TriSeptum-1_XYM"))
+VlnPlot(seurat, features = escape_genes$mgi_symbol, pt.size = 0, group.by = "sample2", ncol = 5)
+ggsave(filename = "Plots/Validation/MS_escape_vlnplot.png", plot = last_plot(), height = 15, width = 28)
+
+VlnPlot(seurat, features = c("Xist", "Uty"), ncol = 2, pt.size = 0, group.by = "sample2")
+ggsave(filename = "Plots/Validation/MS_xist_uty_vlnplot.png", plot = last_plot(), height = 5, width = 15)
 
 ```
 
@@ -201,8 +326,8 @@ for (gene in xinactivation_genes){
     YCounts = y_counts,
     XistCounts = xist_counts,
     SryCounts = sry_counts,
-    OvaryCounts = ovary_counts,
-    TestisCounts = testis_counts,
+    # OvaryCounts = ovary_counts,
+    # TestisCounts = testis_counts,
     XInactivationTotalCounts = xinactivation_summed_counts,
     XInactivationCounts = xinactivation_counts
     )
@@ -211,8 +336,8 @@ for (gene in xinactivation_genes){
     pivot_longer(-c(Sample, Genotype, TotalCounts)) %>%
     mutate(fraction = value / TotalCounts) %>%
     dplyr::select(-c(TotalCounts, value)) %>%
-    pivot_wider(values_from = fraction, names_from = name) %>%
-    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")))
+    pivot_wider(values_from = fraction, names_from = name)
+    #dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")))
   sample_order <- sexing_df$Sample[order(sexing_df$Genotype)]
   sexing_df <- sexing_df %>% dplyr::mutate(Sample = factor(Sample, levels = sample_order))
   
@@ -232,7 +357,7 @@ plot_list[["total"]] <- sexing_df %>%
     ylab("Sample") +
   ggtitle("X-inactivation Escape Genes Total Counts / Total by Sample")
 
-pdf("Plots/Validation/Escape_barplots.pdf", width = 30, height = 15)
+pdf("Plots/Validation/hypothalamus_Escape_barplots.pdf", width = 30, height = 15)
 print(ggarrange(plotlist = plot_list, nrow = 3, ncol = 5, widths = c(0.05, 0.05, 0.05)))
 dev.off()
 ```

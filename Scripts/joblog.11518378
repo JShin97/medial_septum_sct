@@ -1,0 +1,6 @@
+Job 11518378 started on:  n1214
+Job 11518378 started on:  Wed Nov 26 17:12:14 PST 2025
+ 
+rclone sync -L /u/home/j/jshin/scratch/medial_septum_sct/GEOSubmission ftp_ncbi:uploads/julianaeshin@gmail.com_ktMpOOAU
+/work/UGE/8.6.4/n1214/job_scripts/11518378: line 35: rclone: command not found
+rm: cannot remove ‘filesizeover15g.txt’: No such file or directory

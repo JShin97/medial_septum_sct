@@ -1,0 +1,4 @@
+Job 11518965 started on:  n1213
+Job 11518965 started on:  Wed Nov 26 18:47:16 PST 2025
+ 
+rclone sync -L /u/home/j/jshin/scratch/medial_septum_sct/GEOSubmission ftp_ncbi:uploads/julianaeshin@gmail.com_ktMpOOAU

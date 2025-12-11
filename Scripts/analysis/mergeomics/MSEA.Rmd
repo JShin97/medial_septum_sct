@@ -1,0 +1,928 @@
+---
+title: "MSEA"
+output: html_document
+date: "2024-06-24"
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+# library(limma)
+# library(edgeR)
+# library(data.table)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(Seurat)
+library(biomaRt)
+library(ComplexHeatmap)
+library(ggpubr)
+library(RColorBrewer)
+
+source("/u/project/xyang123/jshin/medial_septum_sct/Scripts/analysis/extra/color_palette.R")
+
+```
+
+####################################
+## Part 1 : MSEA input prep
+####################################
+
+```{r}
+
+# Conversion to human genes 
+mouse_human_genes = read.csv("http://www.informatics.jax.org/downloads/reports/HOM_MouseHumanSequence.rpt", sep="\t")
+
+convert_mouse_to_human <- function(gene_list){
+
+  output = list()
+
+  for(gene in gene_list){
+    class_key = (mouse_human_genes %>% dplyr::filter(Symbol == gene & Common.Organism.Name=="mouse, laboratory"))[['DB.Class.Key']]
+    if(!identical(class_key, integer(0)) ){
+      human_genes = (mouse_human_genes %>% dplyr::filter(DB.Class.Key == class_key & Common.Organism.Name=="human"))[,"Symbol"]
+      output[[gene]] <- data.frame(rep(gene, length(human_genes)), human_genes)
+      colnames(output[[gene]]) <- c("mouse_gene", "human_gene")
+    }
+  }
+  return (output)
+}
+```
+
+```{r}
+##prepare modfile 
+#load(file = "Results/complete_analysis/DEG_processed/DEG_SD_original/DEG_df_RNA_SD.rda")
+load(file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell/DEG_df_RNA_SD.rda")
+
+DEG_df <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1)
+#DEG_df <- DEG_df %>% filter(adj.P.Val < 0.05 & logFC > 0.1)
+#DEG_df <- DEG_df %>% filter(adj.P.Val < 0.05 & logFC < -0.1)
+#DEG_df <- DEG_df %>% filter(comparison1_adjP < 0.05 & (comparison2_adjP < 0.05 | is.na(comparison2_adjP)) & abs(comb_log2FC) > 0.1)
+
+gene_annotation <- readRDS("Gene_annotation/gene_annotation.Rds")
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+gene_universe <- read.table("Gene_annotation/gene_universe.txt") %>% unlist(use.names = FALSE)
+
+DEG_df <- left_join(DEG_df, gene_annotation2, by = c("gene"="mgi_symbol"))
+DEG_df$chromosome_name <- factor(DEG_df$chromosome_name, levels = c((1:19),"X","Y","MT"))
+
+mouse_genes <- unique(DEG_df$gene)
+orthologs <- convert_mouse_to_human(mouse_genes)
+ortholog_df <- do.call("rbind", orthologs)
+
+MSEA_input <- DEG_df %>% 
+  mutate(module = paste(effect, cell_type, sep = "_")) %>%
+  left_join(ortholog_df, by = c("gene" = "mouse_gene")) %>%
+  group_by(module) %>%
+  dplyr::arrange(adj.P.Val, .by_group = TRUE) %>%
+  slice_head(n = 1000) %>%
+  dplyr::select(module, human_gene)
+colnames(MSEA_input) <- c("MODULE", "GENE")
+MSEA_input <- MSEA_input[!is.na(MSEA_input$GENE), ]
+
+write.table(MSEA_input, file = "Results/complete_analysis/MSEA/DEG_SD_metacell/input_files/modfile_logfc_abs0.1_top1000.txt", sep = "\t", quote = FALSE)
+```
+
+```{r}
+##Neuronal gene sets 
+
+gene_annotation <- readRDS("Gene_annotation/gene_annotation.Rds")
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+gene_universe <- read.table("Gene_annotation/gene_universe.txt") %>% unlist(use.names = FALSE)
+
+DEG_df <- left_join(DEG_df, gene_annotation2, by = c("gene"="mgi_symbol"))
+DEG_df$chromosome_name <- factor(DEG_df$chromosome_name, levels = c((1:19),"X","Y","MT"))
+
+mouse_genes <- unique(DEG_df$gene)
+orthologs <- convert_mouse_to_human(mouse_genes)
+ortholog_df <- do.call("rbind", orthologs)
+
+MSEA_input <- DEG_df %>% 
+  mutate(module = paste(effect, cell_type, sep = "_")) %>%
+  left_join(ortholog_df, by = c("gene" = "mouse_gene")) %>%
+  group_by(module) %>%
+  dplyr::arrange(adj.P.Val, .by_group = TRUE) %>%
+  slice_head(n = 500) %>%
+  dplyr::select(module, human_gene)
+colnames(MSEA_input) <- c("MODULE", "GENE")
+MSEA_input <- MSEA_input[!is.na(MSEA_input$GENE), ]
+
+neuronal_MSEA_input <- MSEA_input[grepl("GABA|Glut|Chol", MSEA_input$MODULE), ]
+
+write.table(neuronal_MSEA_input, file = "Results/complete_analysis/MSEA/DEG_SD/input_files/modfile_neuron_top500.txt", sep = "\t", quote = FALSE)
+```
+
+####################################
+## Part 2 : MSEA test run 
+####################################
+
+```{r}
+##Run MSEA (test, submit to cluster for official run)
+source("~/project-xyang123/resources/mergeomics/Mergeomics_ZS_2020.r")
+
+gwas_dir <- "/u/project/xyang123/jshin/resources/GWAS_genesets/"
+gwas_sets <- list.dirs(gwas_dir, full.names = FALSE, recursive = FALSE)
+mapping <- c("50.50") ##dist50 only
+
+for(i in 3:4) {
+
+  trait <- gwas_sets[i]
+
+  for(j in 2:length(input_files)) {
+
+    current_input <- input_files[j]
+    current_input_label <- current_input %>% gsub("modfile_", "", .) %>% gsub(".txt", "", .)
+
+    try({job.ssea <- list()
+    job.ssea$label <- paste(gsub(".dist50", "", trait), mapping, sep = "_")
+    job.ssea$folder <- paste0("Results/complete_analysis/MSEA/DEG_SD/dist50/", current_input_label)
+    job.ssea$genfile <- paste0(gwas_dir, "/", trait, "/", mapping, ".g.txt")
+    job.ssea$locfile <- paste0(gwas_dir, "/", trait, "/", mapping, ".l.txt")
+    job.ssea$modfile <- paste0("Results/complete_analysis/MSEA/DEG_SD/input_files/", current_input)
+    #job.ssea$inffile <- "../resources/genesets/kbr.info.txt"
+    job.ssea$permtype <- "gene" # for EWAS, set this to "marker"
+    job.ssea$nperm <- 5000
+    job.ssea$maxgenes <- 1000
+    job.ssea$maxoverlap <- 0.33 # for EWAS, set this to 1
+    job.ssea$trim <- 0.002 # default is 0.002, set to 0 for no trimming, users can try increasing to 0.005 to dampen inflation further
+    job.ssea <- ssea.start(job.ssea)
+    job.ssea <- ssea.prepare(job.ssea)
+    job.ssea <- ssea.control(job.ssea)
+    job.ssea <- ssea.analyze(job.ssea)
+    job.ssea <- ssea.finish(job.ssea)
+    }, silent = TRUE)
+  }
+}
+```
+
+####################################
+## Old visualizations
+####################################
+
+```{r}
+##visualize MSEA output (top 50 and top 20) -- old datasets 
+
+#data_dir <- "Results/MSEA/dist50/msea_abslogfc0.1/"
+#data_dir <- "Results/MSEA/dist50/msea_logfc0.1/"
+data_dir <- "Results/MSEA/dist50/msea_logfcneg0.1/"
+
+alltraits <- list.files(data_dir, full.names = FALSE, recursive = FALSE, pattern = "50.20.pvalues.txt")
+traits <- gsub("_50.20.pvalues.txt", "", alltraits)
+
+result_list_5050 <- list()
+result_list_5020 <- list()
+for(i in 1:length(traits)) {
+  
+  trait <- traits[i]
+  file1 <- read.delim(paste0(data_dir, trait, "_50.50.pvalues.txt"))
+  file2 <- read.delim(paste0(data_dir, trait, "_50.20.pvalues.txt"))
+  
+  files <- list(file1, file2)
+  files <- lapply(files, function(x) {
+    x <- x[, c(1,3)]
+    #x[2] <- -log10(x[2])
+    colnames(x) <- c("MODULE", as.character(trait))
+    return(x)
+  })
+  
+  result_list_5050[[i]] <- files[[1]]
+  result_list_5020[[i]] <- files[[2]]
+}
+
+results <- list(result_list_5050, result_list_5020)
+plot_list <- list()
+for(i in 1:length(results)) {
+  
+  list <- results[[i]]
+  
+  result_merged <- Reduce(function(x, y) merge(x, y, by = "MODULE"), list)
+  rownames(result_merged) <- result_merged$MODULE
+  result_merged$MODULE <- NULL
+  result_merged <- as.matrix(result_merged) %>% t()
+  result_merged <- result_merged[, !colnames(result_merged) %in% c("_ctrlA", "_ctrlB")]
+  #result_merged <- -log10(result_merged)
+  #result_merged[!is.finite(result_merged)] <- 0
+
+  plot <- Heatmap(result_merged, name = "-log10(pvalue)", col = c("red", "white"), cell_fun = function(j, i, x, y, w, h, fill) {
+    if(result_merged[i, j] < 0.001) {
+        grid.text("***", x, y)
+    } else if(result_merged[i, j] < 0.01) {
+        grid.text("**", x, y)
+    } else if(result_merged[i, j] < 0.05) {
+        grid.text("*", x, y)
+    }
+    })
+  
+  plot_list[[i]] <- plot
+}
+plot <- plot_list[[1]] + plot_list[[2]]
+
+pdf("Plots/DEG_v2/Heatmap/MSEA_logfcneg0.1.pdf", width = 30, height = 15)
+print(plot)
+dev.off()
+```
+
+```{r}
+##plot single heatmap - old and new results merged 
+
+##old results 
+trait_dir <- "Results/MSEA/dist50/msea_logfcneg0.1/"
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE, pattern = "50.50.pvalues.txt")
+traits1 <- gsub("_50.50.pvalues.txt", "", alltraits)
+data_dir1 <- "Results/MSEA/dist50/"
+mapping1 <- "50.50"
+
+##new results 
+trait_dir <- "Results/MSEA/dist50_new/msea_logfcneg0.1/"
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE, pattern = "top50.ld50.pvalues.txt")
+traits2 <- gsub("_top50.ld50.pvalues.txt", "", alltraits)
+data_dir2 <- "Results/MSEA/dist50_new/"
+mapping2 <- "top50.ld50"
+
+cutoffs <- c("abslogfc0.1", "logfc0.1", "logfcneg0.1")
+
+plot_list <- list()
+for(cutoff in cutoffs) {
+  print(cutoff)
+  
+  result_list1 <- list()
+  for(i in 1:length(traits1)) {
+    
+    trait <- traits1[i]
+    
+    trait_result <- read.delim(paste0(data_dir1, "msea_", cutoff, "/", trait, "_", mapping1, ".pvalues.txt"))
+    trait_result <- trait_result[, c(1,3)]
+    colnames(trait_result) <- c("MODULE", as.character(trait))
+    result_list1[[trait]] <- trait_result
+  }
+  
+  result_list2 <- list()
+  for(i in 1:length(traits2)) {
+    
+    trait <- traits2[i]
+    
+    trait_result <- read.delim(paste0(data_dir2, "msea_", cutoff, "/", trait, "_", mapping2, ".pvalues.txt"))
+    trait_result <- trait_result[, c(1,3)]
+    colnames(trait_result) <- c("MODULE", as.character(trait))
+    result_list2[[trait]] <- trait_result
+  }
+  
+  results <- c(result_list1, result_list2)
+  result_merged <- Reduce(function(x,y) merge(x, y, by = "MODULE"), results)
+  rownames(result_merged) <- result_merged$MODULE
+  result_merged$MODULE <- NULL
+  result_merged <- as.matrix(result_merged) %>% t()
+  result_merged <- result_merged[, !colnames(result_merged) %in% c("_ctrlA", "_ctrlB")]
+  result_merged <- -log10(result_merged)
+  result_merged[!is.finite(result_merged)] <- 0
+  
+  ##create annotations 
+  # Split column names to get cell type and effect
+  split_columns <- strsplit(colnames(result_merged), "_")
+  cell_types <- sapply(split_columns, `[`, 2)
+  effects <- sapply(split_columns, `[`, 1)
+  
+  # Create color maps for cell types and effects
+  cell_type_colors <- setNames(brewer.pal(length(unique(cell_types)), "Set2"), unique(cell_types))
+  effect_colors <- setNames(brewer.pal(length(unique(effects)), "Set1"), unique(effects))
+  
+  # Create annotations for cell type and effect
+  cell_type_annotation <- HeatmapAnnotation(
+    CellType = cell_types,
+    col = list(CellType = cell_type_colors),
+    which = "column"
+  )
+  
+  effect_annotation <- HeatmapAnnotation(
+    Effect = effects,
+    col = list(Effect = effect_colors),
+    which = "column"
+  )
+  
+  
+  ##create heatmap 
+  plot <- Heatmap(result_merged, name = "-log10(pvalue)", col = c("white", "red"), column_title = paste0("MSEA results ", cutoff), 
+                  top_annotation = c(cell_type_annotation, effect_annotation), 
+                  cluster_columns = FALSE,
+                  cluster_rows = FALSE,
+                  show_column_names = TRUE,
+                  show_row_names = TRUE,
+                  cell_fun = function(j, i, x, y, w, h, fill) {
+                    if(result_merged[i, j] > 4) {
+                        grid.text("***", x, y)
+                    } else if(result_merged[i, j] > 3) {
+                        grid.text("**", x, y)
+                    } else if(result_merged[i, j] > 1) {
+                        grid.text("*", x, y)
+                    }
+                    })
+  
+  plot_list[[cutoff]] <- plot
+}
+
+for(i in 1:3) {
+  pdf(paste0("Plots/DEG_v2/Heatmap/MSEA_dist50_combined_", i, ".pdf"), width = 20, height = 20)
+  print(plot_list[[i]])
+  dev.off()
+}
+
+plot <- plot_list[[1]] + plot_list[[2]] + plot_list[[3]]
+pdf("Plots/DEG_v2/Heatmap/MSEA_dist50_combined_allcutoffs.pdf", width = 40, height = 20)
+print(plot)
+dev.off()
+```
+
+```{r}
+##visualize MSEA output -- all versions top 50 
+
+##old results 
+trait_dir <- "Results/MSEA/dist50/msea_logfcneg0.1/"
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE, pattern = "50.50.pvalues.txt")
+traits <- gsub("_50.50.pvalues.txt", "", alltraits)
+data_dir <- "Results/MSEA/dist50/"
+mapping <- "50.50"
+
+##new results 
+trait_dir <- "Results/MSEA/dist50_new/msea_logfcneg0.1/"
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE, pattern = "top50.ld50.pvalues.txt")
+traits <- gsub("_top50.ld50.pvalues.txt", "", alltraits)
+data_dir <- "Results/MSEA/dist50_new/"
+mapping <- "top50.ld50"
+
+##plot logfc > 0.1 results 
+result_list1 <- list()
+for(i in 1:length(traits)) {
+  
+  trait <- traits[i]
+  
+  trait_result <- read.delim(paste0(data_dir, "msea_logfc0.1/", trait, "_", mapping, ".pvalues.txt"))
+  trait_result <- trait_result[, c(1,3)]
+  colnames(trait_result) <- c("MODULE", as.character(trait))
+  result_list1[[trait]] <- trait_result
+}
+
+##plot logfc < -0.1 results 
+result_list2 <- list()
+for(i in 1:length(traits)) {
+  
+  trait <- traits[i]
+  
+  trait_result <- read.delim(paste0(data_dir, "msea_logfcneg0.1/", trait, "_", mapping, ".pvalues.txt"))
+  trait_result <- trait_result[, c(1,3)]
+  colnames(trait_result) <- c("MODULE", as.character(trait))
+  result_list2[[trait]] <- trait_result
+}
+
+##plot abs logfc < 0.1 results 
+result_list3 <- list()
+for(i in 1:length(traits)) {
+  
+  trait <- traits[i]
+  
+  trait_result <- read.delim(paste0(data_dir, "msea_abslogfc0.1/", trait, "_", mapping, ".pvalues.txt"))
+  trait_result <- trait_result[, c(1,3)]
+  colnames(trait_result) <- c("MODULE", as.character(trait))
+  result_list3[[trait]] <- trait_result
+}
+
+results <- list(result_list1, result_list2, result_list3)
+plot_list <- list()
+for(i in 1:length(results)) {
+  
+  list <- results[[i]]
+  
+  result_merged <- Reduce(function(x, y) merge(x, y, by = "MODULE"), list)
+  rownames(result_merged) <- result_merged$MODULE
+  result_merged$MODULE <- NULL
+  result_merged <- as.matrix(result_merged) %>% t()
+  result_merged <- result_merged[, !colnames(result_merged) %in% c("_ctrlA", "_ctrlB")]
+  #result_merged <- -log10(result_merged)
+  #result_merged[!is.finite(result_merged)] <- 0
+  
+  plot <- Heatmap(result_merged, name = "-log10(pvalue)", col = c("red", "white"), cell_fun = function(j, i, x, y, w, h, fill) {
+    if(result_merged[i, j] < 0.001) {
+        grid.text("***", x, y)
+    } else if(result_merged[i, j] < 0.01) {
+        grid.text("**", x, y)
+    } else if(result_merged[i, j] < 0.05) {
+        grid.text("*", x, y)
+    }
+    })
+  
+  plot_list[[i]] <- plot
+}
+
+plot <- plot_list[[1]] + plot_list[[2]] + plot_list[[3]]
+
+pdf("Plots/DEG_v2/Heatmap/MSEA_dist50_new.pdf", width = 40, height = 10)
+print(plot)
+dev.off()
+```
+
+####################################
+## Part 3 : Visualization (logFC cutoffs)
+####################################
+
+```{r}
+##visualize final MSEA output -- all datasets  top 50 (USE THIS)
+
+##get traits  
+trait_dir <- "Results/complete_analysis/MSEA/DEG_SD_metacell/dist50/logfc_abs0.1_top1000/msea/"
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE)
+alltraits <- sapply(alltraits, function(x) sub("_[^_]*$", "", x)) %>% unique()
+
+data_dir <- "Results/complete_analysis/MSEA/DEG_SD_metacell/dist50"
+#cutoffs <- c("logfc_abs0.1", "logfc_pos0.1", "logfc_neg0.1")
+cutoff <- "logfc_abs0.1_top1000"
+
+results <- list()
+for(i in 1:length(alltraits)) {
+  
+  trait <- alltraits[i]
+  
+  trait_result <- read.delim(Sys.glob(paste0(data_dir, "/", cutoff, "/msea/", trait, "_",  "*.pvalues.txt")))
+  trait_result <- trait_result[, c(1,2)] ##2 for raw p value, 3 for FDR 
+  colnames(trait_result) <- c("MODULE", as.character(trait))
+  results[[trait]] <- trait_result
+}
+
+result_merged <- Reduce(function(x,y) merge(x, y, by = "MODULE"), results)
+rename_map <- c(
+  "Gonad:SexChrom" = "GExSCE",
+  "SexChrom"       = "SCE",
+  "Gonad"          = "GE",
+  "addX"           = "XCD",
+  "addY1"          = "YCD1",
+  "addY2"          = "YCD2", 
+  "Normative"      = "Typical")
+result_merged$MODULE <- str_replace_all(result_merged$MODULE, rename_map)
+
+#rename studies if needed and remove UKBB_CAD
+result_merged <- result_merged %>% 
+  dplyr::rename(CARDIOGRAMC4D = "Aragam_Coronary_artery_disease", 
+                Davies_MemoryPerf = "Davies_Learning", 
+                PAGE_FastingGlucoseBMIadj = "Downie_BMI_adjusted_fasted_blood_glucose", 
+                Graham_HDL = "Graham_HDL_cholesterol_measurement", 
+                Graham_LDL = "Graham_LDL_cholesterol_measurement", 
+                ILAE_GenEpilepsy = "ILAE_Epilepsy", 
+                AABCG_BreastCancer = "Jia_Breast_cancer", 
+                Levin_HeartFailure = "Levin_Heart_failure", 
+                Nagel_DepressedAffect = "Nagel_Depression", 
+                PGC_ASD_SCZ = "PGC_ASD", 
+                ReproGen_AgeAtMenopause = "ReproGen_AgeAtMenarche", 
+                Sakaue_PsoriasisVulgaris = "Sakaue_Psoriasis_vulgaris", 
+                Sakaue_SubstanceDependence = "Sakaue_Substance_Dependence", 
+                Savage_Intelligence = "Savage_Cognition", 
+                Shen_PTSD = "Shen_Anxiety", 
+                Soo_EpisodicMemory = "Soo_Memory", 
+                Wightman_AD_LateOnset = "Wightman_Late-onset_Alzheimer", 
+                Woodbury_EmotionRecognition = "Woodbury_FacialRecognition", 
+                Zhou_NicotineDependence = "Zhou_Nicotine_Dependence", 
+                GOT2D_T2D = "DIAGRAM_T2D") %>% 
+  dplyr::select(-UKBB_CAD)
+
+#calculate adjusted p-values across diseases
+p_value_columns <- result_merged[, 2:ncol(result_merged)]
+pooled_p_values <- as.vector(as.matrix(p_value_columns))
+
+# 2. Apply the Benjamini-Hochberg (BH) correction
+# The total number of tests (N) is automatically inferred by the length of the vector.
+q_values <- p.adjust(pooled_p_values, method = "BH")
+
+# 3. Reshape the resulting q-values back into the original matrix structure
+q_value_matrix <- matrix(q_values, 
+                         nrow = nrow(p_value_columns), 
+                         ncol = ncol(p_value_columns))
+
+result_merged_unadjusted <- result_merged
+result_merged[, 2:ncol(result_merged)] <- q_value_matrix
+
+write.csv(result_merged, file = "Plots/Final_Figures/SuppTables/MSEA_result_adjPval.csv", row.names = FALSE)
+
+rownames(result_merged) <- result_merged$MODULE
+result_merged$MODULE <- NULL
+result_merged <- as.matrix(result_merged) %>% t()
+result_merged <- result_merged[, !colnames(result_merged) %in% c("_ctrlA", "_ctrlB")]
+result_merged <- result_merged[, !grepl("Misc", colnames(result_merged))]
+colnames(result_merged) <- gsub("GABA-Chol", "Chol", colnames(result_merged))
+colnames(result_merged) <- gsub("Inh_IMN", "Inh-IMN", colnames(result_merged))
+
+#result_merged <- result_merged[apply(result_merged, 1, function(x) sum(x < 0.05) >= 3), ] ##for filtering traits 
+# Replace 0 values with a small number (e.g., 1e-300) and apply -log10
+result_merged <- -log10(pmax(result_merged, 1e-05))
+
+#result_merged <- -log10(result_merged)
+#result_merged[!is.finite(result_merged)] <- 5
+
+# Define the order patterns and cell types
+order_patterns <- c("Typical", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")
+#order_patterns <-  c("Typical", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")
+
+cell_types <- c("GABA", "Chol", "Glut", "Oligo", "OPC", "Astrocyte", "Ependymal", "Microglia", "Vascular", "Inh-IMN")
+
+vec <- colnames(result_merged)
+split_vec <- strsplit(vec, "_")
+# Extract the first and second variables
+#first_vars <- sapply(split_vec, `[`, 1)
+#second_vars <- sapply(split_vec, `[`, 2)
+first_vars <- sapply(split_vec, function(x) x[1])
+# first_vars <- plyr::mapvalues(first_vars_old, 
+#                               from = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2"), 
+#                               to = c("Normative", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2"))
+second_vars <- sapply(split_vec, function(x) paste(x[-1], collapse = "_"))
+
+# Convert first variables to factors for ordering
+first_vars <- factor(first_vars, levels = order_patterns)
+
+# Convert second variables to factors for ordering
+second_vars <- factor(second_vars, levels = cell_types)
+
+# Create a dataframe for sorting
+df <- data.frame(
+  Original = vec,
+  FirstVar = first_vars,
+  SecondVar = second_vars,
+  stringsAsFactors = FALSE
+)
+
+# Sort the dataframe based on FirstVar and SecondVar
+df_sorted <- df[order(df$FirstVar, df$SecondVar), ]
+
+# Extract the sorted vector
+vec_sorted <- df_sorted$Original
+df_reordered <- result_merged[, vec_sorted]
+result_merged <- df_reordered
+
+##create annotations 
+# Split column names to get cell type and effect
+split_columns <- strsplit(colnames(df_reordered), "_")
+effects <- sapply(split_columns, function(x) x[1])
+cell_types <- sapply(split_columns, function(x) paste(x[-1], collapse = "_"))
+#cell_types <- sapply(split_columns, `[`, 2)
+#effects <- sapply(split_columns, `[`, 1)
+
+# Create color maps for cell types and effects
+cell_type_colors <- cell_hex_colors[!names(cell_hex_colors) %in% c("Misc-NT")]
+#effect_colors <- effect_hex_colors
+effect_colors <- c("Typical" = "#FC8D62",
+                   "GE" = "#E78AC3",
+                   "SCE" = "#A6D854",
+                   "GExSCE" = "#FFD92F",
+                   "XCD" = "#78b4ff",
+                   "YCD1" = "#66C2A5",
+                   "YCD2" = "#b4b4ff" )
+
+colAnnotation <- HeatmapAnnotation(
+  CellType = cell_types,
+  Effect = effects,
+  col = list(
+    CellType = cell_type_colors,
+    Effect = effect_colors
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 18),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 18),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 18))
+  #show_legend = FALSE
+  )
+
+plot <- Heatmap(result_merged, name = "-log10(pvalue)", col = c("white", "red"), 
+                top_annotation = colAnnotation,
+                cluster_columns = FALSE,
+                cluster_rows = TRUE,
+                show_column_names = TRUE,
+                show_row_names = TRUE,
+                row_names_gp = grid::gpar(fontsize = 20),
+                column_names_gp = grid::gpar(fontsize = 20),
+                heatmap_legend_param = list(
+                  title_gp = grid::gpar(fontsize = 18),      # Legend title font size
+                  labels_gp = grid::gpar(fontsize = 18)    # Legend labels font size
+                ),
+                row_names_max_width = unit(100, "cm"),
+                column_names_max_height = unit(100, "cm"),
+                cell_fun = function(j, i, x, y, w, h, fill) {
+                  if(result_merged[i, j] > -log10(0.001)) {
+                      grid.text("***", x, y)
+                  } else if(result_merged[i, j] > -log10(0.01)) {
+                      grid.text("**", x, y)
+                  } else if(result_merged[i, j] > -log10(0.05)) {
+                      grid.text("*", x, y)
+                  }
+                  })
+
+plot <- draw(plot, merge_legends = TRUE, annotation_legend_side = "left", heatmap_legend_side = "left")
+
+# pdf("Plots/Final_Figures/MSEA/metacell_top1000/filteredtraits_abs0.1_clustered_FDR_FIXED.pdf", width = 23, height = 20)
+# print(plot)
+# dev.off()
+
+pdf("Plots/Final_Figures/MSEA/metacell_top1000/alltraits_abs0.1_FDR_FIXED.pdf", width = 23, height = 30)
+print(plot)
+dev.off()
+```
+
+####################################
+## Part 4 : Visualization (female/male)
+####################################
+
+```{r}
+##female and male-biased genes
+
+##get traits  
+trait_dir <- "Results/complete_analysis/MSEA/DEG_SD/dist50/logfc_abs0.1/msea/"
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE)
+alltraits <- sapply(alltraits, function(x) sub("_[^_]*$", "", x)) %>% unique()
+
+data_dir <- "Results/complete_analysis/MSEA/DEG_SD/dist50"
+cutoffs <- c("logfc_abs0.1", "logfc_pos0.1", "logfc_neg0.1")
+#cutoff <- cutoffs[-1]
+
+plot_list <- list()
+
+pos_results <- list()
+for(i in 1:length(alltraits)) {
+  
+  trait <- alltraits[i]
+  
+  trait_result <- read.delim(Sys.glob(paste0(data_dir, "/logfc_pos0.1/msea/", trait, "_",  "*.pvalues.txt")))
+  trait_result <- trait_result[, c(1,3)]
+  colnames(trait_result) <- c("MODULE", as.character(trait))
+  pos_results[[trait]] <- trait_result
+}
+neg_results <- list()
+for(i in 1:length(alltraits)) {
+  
+  trait <- alltraits[i]
+  
+  trait_result <- read.delim(Sys.glob(paste0(data_dir, "/logfc_neg0.1/msea/", trait, "_",  "*.pvalues.txt")))
+  trait_result <- trait_result[, c(1,3)]
+  colnames(trait_result) <- c("MODULE", as.character(trait))
+  neg_results[[trait]] <- trait_result
+}
+
+pos_result_merged <- Reduce(function(x,y) merge(x, y, by = "MODULE"), pos_results)
+neg_result_merged <- Reduce(function(x,y) merge(x, y, by = "MODULE"), neg_results)
+
+if (!identical(colnames(pos_result_merged), colnames(neg_result_merged))) {neg_result_merged <- neg_result_merged[, colnames(pos_result_merged)]}
+
+female_biased <- rbind(pos_result_merged[!grepl("addY1|addY2", pos_result_merged$MODULE), ], 
+                       neg_result_merged[grepl("addY1|addY2", neg_result_merged$MODULE), ])
+
+male_biased <- rbind(pos_result_merged[grepl("addY1|addY2", pos_result_merged$MODULE), ], 
+                       neg_result_merged[!grepl("addY1|addY2", neg_result_merged$MODULE), ])
+
+make_msea_plot <- function(result) {
+  
+  rownames(result) <- result$MODULE
+  result$MODULE <- NULL
+  result <- as.matrix(result) %>% t()
+  result <- result[, !colnames(result) %in% c("_ctrlA", "_ctrlB")]
+  #result <- result[apply(result, 1, function(x) sum(x < 0.05) >= 5), ] ##more stringent row filtering 
+  result <- result[, !grepl("Misc", colnames(result))] ##remove Misc_NT results 
+  
+  result <- -log10(result)
+  result[!is.finite(result)] <- 0
+  
+  # Define the order patterns and cell types
+  order_patterns <- c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")
+  cell_types <- c("GABA", "GABA-Chol", "Glut", "Oligo", "OPC", "Astrocyte", "Ependymal", "Microglia", "Vascular", "Inh_IMN", "Misc_NT")
+
+  vec <- colnames(result)
+  split_vec <- strsplit(vec, "_")
+  # Extract the first and second variables
+  first_vars <- sapply(split_vec, function(x) x[1])
+  second_vars <- sapply(split_vec, function(x) paste(x[-1], collapse = "_"))
+
+  # Convert first variables to factors for ordering
+  first_vars <- factor(first_vars, levels = order_patterns)
+  #first_vars[is.na(first_vars)] <- "Gonad:SexChrom"
+
+  # Convert second variables to factors for ordering
+  second_vars <- factor(second_vars, levels = cell_types)
+  #second_vars[is.na(second_vars)] <- "GABA-Chol"
+
+  # Create a dataframe for sorting
+  df <- data.frame(
+    Original = vec,
+    FirstVar = first_vars,
+    SecondVar = second_vars,
+    stringsAsFactors = FALSE
+  )
+
+  # Sort the dataframe based on FirstVar and SecondVar
+  df_sorted <- df[order(df$FirstVar, df$SecondVar), ]
+
+  # Extract the sorted vector
+  vec_sorted <- df_sorted$Original
+  df_reordered <- result[, vec_sorted]
+  result <- df_reordered
+  
+  ##create annotations 
+  # Split column names to get cell type and effect
+  split_columns <- strsplit(colnames(df_reordered), "_")
+  effects <- sapply(split_columns, function(x) x[1])
+  cell_types <- sapply(split_columns, function(x) paste(x[-1], collapse = "_"))
+  #cell_types <- sapply(split_columns, `[`, 2)
+  #effects <- sapply(split_columns, `[`, 1)
+
+  # Create color maps for cell types and effects
+  #cell_type_colors <- setNames(brewer.pal(length(unique(cell_types)), "Set3"), unique(cell_types))
+  # effect_colors <- setNames(brewer.pal(length(unique(effects)), "Set1"), unique(effects))
+  cell_type_colors <- cell_hex_colors 
+  effect_colors <- effect_hex_colors
+  
+  # Create annotations for cell type and effect
+  cell_type_annotation <- HeatmapAnnotation(
+    CellType = cell_types,
+    col = list(CellType = cell_type_colors),
+    which = "column"
+  )
+  
+  effect_annotation <- HeatmapAnnotation(
+    Effect = effects,
+    col = list(Effect = effect_colors),
+    which = "column"
+  )
+  
+  plot <- Heatmap(result, name = "-log10(pvalue)", col = c("white", "red"), 
+                  top_annotation = c(cell_type_annotation, effect_annotation), 
+                  cluster_columns = FALSE,
+                  cluster_rows = TRUE,
+                  show_column_names = TRUE,
+                  show_row_names = TRUE,
+                  cell_fun = function(j, i, x, y, w, h, fill) {
+                    if(result[i, j] > -log10(0.001)) {
+                        grid.text("***", x, y)
+                    } else if(result[i, j] > -log10(0.01)) {
+                        grid.text("**", x, y)
+                    } else if(result[i, j] > -log10(0.05)) {
+                        grid.text("*", x, y)
+                    }
+                    })
+  
+  return(plot) 
+}
+
+female_biased_plot <- make_msea_plot(female_biased)
+male_biased_plot <- make_msea_plot(male_biased)
+
+pdf("Plots/Final_Figures/Heatmap/alltraits_female_biased.pdf", width = 15, height = 17)
+print(female_biased_plot)
+dev.off()
+
+pdf("Plots/Final_Figures/Heatmap/alltraits_male_biased.pdf", width = 15, height = 17)
+print(male_biased_plot)
+dev.off()
+```
+####################################
+## Part 5 : Visualization (autosomal/sexlinked)
+####################################
+
+```{r}
+##visualize final MSEA output -- all datasets  top 50 (USE THIS)
+
+data_dir <- "Results/complete_analysis/MSEA/DEG_SD/dist50"
+runs <- list.dirs(data_dir, full.names = FALSE, recursive = FALSE)
+runs <- runs[c(1,5)]
+
+##get autosomal MSEA 
+trait_dir <- file.path("Results/complete_analysis/MSEA/DEG_SD/dist50", runs[1], "msea")
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE)
+alltraits <- sapply(alltraits, function(x) sub("_[^_]*$", "", x)) %>% unique()
+
+##get sexlinked MSEA 
+trait_dir <- file.path("Results/complete_analysis/MSEA/DEG_SD/dist50", runs[2], "msea")
+alltraits <- list.files(trait_dir, full.names = FALSE, recursive = FALSE)
+alltraits <- sapply(alltraits, function(x) sub("_[^_]*$", "", x)) %>% unique()
+
+##make heatmap
+results <- list()
+for(i in 1:length(alltraits)) {
+  
+  trait <- alltraits[i]
+  
+  trait_result <- read.delim(Sys.glob(paste0(data_dir, "/", runs[2], "/msea/", trait, "_",  "*.pvalues.txt")))
+  trait_result <- trait_result[, c(1,3)]
+  colnames(trait_result) <- c("MODULE", as.character(trait))
+  results[[trait]] <- trait_result
+}
+
+result_merged <- Reduce(function(x,y) merge(x, y, by = "MODULE", all = TRUE), results)
+rownames(result_merged) <- result_merged$MODULE
+result_merged$MODULE <- NULL
+result_merged <- as.matrix(result_merged) %>% t()
+result_merged <- result_merged[, !colnames(result_merged) %in% c("_ctrlA", "_ctrlB")]
+#result_merged <- result_merged[!apply(result_merged, 1, function(row) all(row > 0.05)), ] ##to filter rows
+#result_merged <- result_merged[apply(result_merged, 1, function(x) sum(x < 0.05) >= 5), ] ##more stringent row filtering 
+
+result_merged <- result_merged[, !grepl("Misc", colnames(result_merged))]
+colnames(result_merged) <- gsub("GABA-Chol", "Chol", colnames(result_merged))
+colnames(result_merged) <- gsub("Inh_IMN", "Inh-IMN", colnames(result_merged))
+
+result_merged <- -log10(result_merged)
+result_merged[!is.finite(result_merged)] <- 0
+result_merged <- result_merged %>% replace(is.na(.), 0)
+
+# Define the order patterns and cell types
+order_patterns <- c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")
+cell_types <- c("GABA", "Chol", "Glut", "Oligo", "OPC", "Astrocyte", "Ependymal", "Microglia", "Vascular", "Inh-IMN")
+
+vec <- colnames(result_merged)
+split_vec <- strsplit(vec, "_")
+# Extract the first and second variables
+#first_vars <- sapply(split_vec, `[`, 1)
+#second_vars <- sapply(split_vec, `[`, 2)
+first_vars <- sapply(split_vec, function(x) x[1])
+second_vars <- sapply(split_vec, function(x) paste(x[-1], collapse = "_"))
+
+# Convert first variables to factors for ordering
+first_vars <- factor(first_vars, levels = order_patterns)
+#first_vars[is.na(first_vars)] <- "Gonad:SexChrom"
+
+# Convert second variables to factors for ordering
+second_vars <- factor(second_vars, levels = cell_types)
+#second_vars[is.na(second_vars)] <- "GABA-Chol"
+
+# Create a dataframe for sorting
+df <- data.frame(
+  Original = vec,
+  FirstVar = first_vars,
+  SecondVar = second_vars,
+  stringsAsFactors = FALSE
+)
+
+# Sort the dataframe based on FirstVar and SecondVar
+df_sorted <- df[order(df$FirstVar, df$SecondVar), ]
+
+# Extract the sorted vector
+vec_sorted <- df_sorted$Original
+df_reordered <- result_merged[, vec_sorted]
+result_merged <- df_reordered
+
+##create annotations 
+# Split column names to get cell type and effect
+split_columns <- strsplit(colnames(df_reordered), "_")
+effects <- sapply(split_columns, function(x) x[1])
+cell_types <- sapply(split_columns, function(x) paste(x[-1], collapse = "_"))
+#cell_types <- sapply(split_columns, `[`, 2)
+#effects <- sapply(split_columns, `[`, 1)
+
+# Create color maps for cell types and effects
+cell_type_colors <- cell_hex_colors[!names(cell_hex_colors) %in% c("Misc-NT")]
+effect_colors <- effect_hex_colors
+
+
+colAnnotation <- HeatmapAnnotation(
+  CellType = cell_types,
+  Effect = effects,
+  col = list(
+    CellType = cell_type_colors,
+    Effect = effect_colors
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 18),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 18),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 18))
+  #show_legend = FALSE
+  )
+
+plot <- Heatmap(result_merged, name = "-log10(pvalue)", col = c("white", "red"), 
+                top_annotation = colAnnotation,
+                cluster_columns = FALSE,
+                cluster_rows = TRUE,
+                show_column_names = TRUE,
+                show_row_names = TRUE,
+                row_names_gp = grid::gpar(fontsize = 20),
+                column_names_gp = grid::gpar(fontsize = 20),
+                heatmap_legend_param = list(
+                  title_gp = grid::gpar(fontsize = 18),      # Legend title font size
+                  labels_gp = grid::gpar(fontsize = 18)    # Legend labels font size
+                ),
+                row_names_max_width = unit(10, "cm"),
+                column_names_max_height = unit(10, "cm"),
+                cell_fun = function(j, i, x, y, w, h, fill) {
+                  if(result_merged[i, j] > -log10(0.001)) {
+                      grid.text("***", x, y)
+                  } else if(result_merged[i, j] > -log10(0.01)) {
+                      grid.text("**", x, y)
+                  } else if(result_merged[i, j] > -log10(0.05)) {
+                      grid.text("*", x, y)
+                  }
+                  })
+
+plot <- draw(plot, merge_legends = TRUE, annotation_legend_side = "left")
+
+
+pdf("Plots/Final_Figures/MSEA/alltraits_autosomal.pdf", width = 19, height = 20)
+print(plot)
+dev.off()
+
+pdf("Plots/Final_Figures/MSEA/alltraits_sexlinked.pdf", width = 19, height = 5)
+print(plot)
+dev.off()
+```
+
+
+
+
+

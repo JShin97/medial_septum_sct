@@ -1,0 +1,266 @@
+---
+title: "DEG_MAST"
+output: html_document
+date: "2024-01-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct") 
+
+library(ggplot2)
+#library(GGally)
+#library(GSEABase)
+library(limma)
+library(reshape2)
+library(data.table)
+library(knitr)
+library(stringr)
+#library(NMF)
+library(RColorBrewer)
+library(MAST)
+library(Seurat)
+library(scuttle)
+library(muscat)
+library(magrittr)
+library(scater)
+library(rsvd)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+```
+
+```{r}
+data.dir <- "/u/scratch/j/jshin/medial_septum_sct"
+seurat <- readRDS(file.path(data.dir, "Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds"))
+```
+
+Seurat Method 
+
+```{r}
+##Load in files 
+allcells <- unique(seurat$cell.type2)
+latent_vars <- c("data.sampleName")
+
+##run MAST
+DEG_list <- list()
+for(i in 1:length(allcells)) {
+  currentcell <- allcells[i]
+  subset <- subset(seurat, cell.type2 == currentcell)
+  
+  #Normative Difference 
+  DEGs <- FindMarkers(subset, assay = "RNA", ident.1 = "XXF", ident.2 = "XYM", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  DEG_list[["Normative"]][["XXF_vs_XYMF"]][[currentcell]] <- DEGs %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "Normative", 
+                                                                                                                         comparison = "XXF_vs_XYM",
+                                                                                                                         cell_type = currentcell)
+  
+  
+  #Gonadal Difference 
+  DEGs1 <- FindMarkers(subset, assay = "RNA", ident.1 = "XYF", ident.2 = "XYM", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  DEGs2 <- FindMarkers(subset, assay = "RNA", ident.1 = "XXF", ident.2 = "XXM", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  
+  DEG_list[["Gonad"]][["XYF_vs_XYM"]][[currentcell]] <- DEGs1 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "Gonad", 
+                                                                                                                      comparison = "XYF_vs_XYM",
+                                                                                                                      cell_type = currentcell)
+  DEG_list[["Gonad"]][["XXF_vs_XXM"]][[currentcell]] <- DEGs2 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "Gonad", 
+                                                                                                                      comparison = "XXF_vs_XXM",
+                                                                                                                      cell_type = currentcell)
+  
+  #Sex chromosome Difference
+  DEGs1 <- FindMarkers(subset, assay = "RNA", ident.1 = "XXM", ident.2 = "XYM", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  DEGs2 <- FindMarkers(subset, assay = "RNA", ident.1 = "XXF", ident.2 = "XYF", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  
+  DEG_list[["SexChrom"]][["XXM_vs_XYM"]][[currentcell]] <- DEGs1 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "SexChrom", 
+                                                                                                                         comparison = "XXM_vs_XYM",
+                                                                                                                         cell_type = currentcell)
+  DEG_list[["SexChrom"]][["XXF_vs_XYF"]][[currentcell]] <- DEGs2 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "SexChrom", 
+                                                                                                                         comparison = "XXF_vs_XYF",
+                                                                                                                         cell_type = currentcell)
+  
+  #additionalX effect 
+  DEGs1 <- FindMarkers(subset, assay = "RNA", ident.1 = "XXYM", ident.2 = "XYM", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  DEGs2 <- FindMarkers(subset, assay = "RNA", ident.1 = "XXYF", ident.2 = "XYF", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  
+  DEG_list[["addX"]][["XXYM_vs_XYM"]][[currentcell]] <- DEGs1 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "addX", 
+                                                                                                                      comparison = "XXYM_vs_XYM",
+                                                                                                                      cell_type = currentcell)
+  DEG_list[["addX"]][["XXYF_vs_XYF"]][[currentcell]] <- DEGs2 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "addX", 
+                                                                                                                      comparison = "XXYF_vs_XYF",
+                                                                                                                      cell_type = currentcell)
+  
+  #additionalY effect 
+  DEGs1 <- FindMarkers(subset, assay = "RNA", ident.1 = "XYYM", ident.2 = "XYM", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  DEGs2 <- FindMarkers(subset, assay = "RNA", ident.1 = "XYYF", ident.2 = "XYF", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  
+  DEG_list[["addY2"]][["XYYM_vs_XYM"]][[currentcell]] <- DEGs1 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "addY2", 
+                                                                                                                       comparison = "XYYM_vs_XYM",
+                                                                                                                       cell_type = currentcell)
+  DEG_list[["addY2"]][["XYYF_vs_XYF"]][[currentcell]] <- DEGs2 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "addY2", 
+                                                                                                                       comparison = "XYYF_vs_XYF",
+                                                                                                                       cell_type = currentcell)
+  
+  #additionalY effect 
+  DEGs1 <- FindMarkers(subset, assay = "RNA", ident.1 = "XXYM", ident.2 = "XXM", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  DEGs2 <- FindMarkers(subset, assay = "RNA", ident.1 = "XXYF", ident.2 = "XXF", group.by = "Genotype", latent.vars = latent_vars, test.use = "MAST")
+  
+  DEG_list[["addY1"]][["XXYM_vs_XXM"]][[currentcell]] <- DEGs1 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "addY1", 
+                                                                                                                       comparison = "XXYM_vs_XXM",
+                                                                                                                       cell_type = currentcell)
+  DEG_list[["addY1"]][["XXYF_vs_XXF"]][[currentcell]] <- DEGs2 %>% tibble::rownames_to_column(var = "gene") %>% mutate(effect = "addY1", 
+                                                                                                                       comparison = "XXYF_vs_XXF",
+                                                                                                                       cell_type = currentcell)
+}
+save(DEG_list, file = "Results/DEG_v3/celltype2_MAST/MAST_pairwise.Rda")
+
+##clean dataframe 
+load(file = "Results/DEG_v3/celltype2_MAST/MAST_pairwise.Rda")
+MAST_df <- do.call(c, unlist(DEG_list, recursive=FALSE)) %>% bind_rows()
+MAST_df <- MAST_df %>%
+  # Nest to have both comparisons together for each gene
+  group_by(cell_type, effect, gene) %>%
+  dplyr::filter(n() == 2 | effect == "Normative") %>%  # Ensure gene is present in both comparisons or is in Normative comparison 
+  summarise(
+    comparison_1 = unique(comparison)[1],
+    comparison_2 = unique(comparison)[2],
+    comparison1_adjP = p_val_adj[comparison == unique(comparison)[1]],
+    comparison2_adjP = p_val_adj[comparison == unique(comparison)[2]],
+    comb_log2FC = mean(avg_log2FC),      # Calculate average logFC
+    comb_p_val = survcomp::combine.test(p_val, method = "fisher", na.rm = TRUE),   # Optionally, you can also calculate the mean adjP
+    .groups = "drop"
+    ) %>%
+  ungroup()
+DEG_df <- MAST_df
+
+save(DEG_df, file = "Results/DEG_processed/DEG_v3/DEG_df_celltype2_MAST.rda")
+```
+
+
+Initial Analysis 
+
+```{r}
+sce <- as.SingleCellExperiment(seurat)
+qc <- perCellQCMetrics(sce)
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce <- sce[, !ol]
+sce <- sce[rowSums(counts(sce) > 1) >= 10, ]
+sce <- computeLibraryFactors(sce)
+sce <- logNormCounts(sce)
+
+counts <- assay(sce, "counts")
+logcounts <- assay(sce, "logcounts")
+cdat <- colData(sce)
+fdat <- data.frame(primerid = rownames(logcounts))
+
+scaRaw <- MAST::FromMatrix(exprsArray = as.matrix(logcounts), cData = cdat, fData = fdat)
+
+set.seed(123)
+plotPCA <- function(sca_obj){
+    projection <- rsvd::rpca(t(assay(sca_obj)), retx=TRUE, k=4)$x
+    colnames(projection)=c("PC1","PC2","PC3","PC4")
+    pca <- data.table(projection,  as.data.frame(colData(sca_obj)))
+    print(ggpairs(pca, columns=c('PC1', 'PC2', 'PC3', 'libSize', 'PercentToHuman', 'nGeneOn', 'exonRate'),
+            mapping=aes(color=condition), upper=list(continuous='blank')))
+    invisible(pca)
+}
+
+#plotPCA(scaRaw)
+```
+
+https://github.com/kdzimm/PseudoreplicationPaper/blob/master/Type_1_Error/Type%201%20-%20MAST%20RE.Rmd
+https://www.bioconductor.org/packages/release/bioc/vignettes/MAST/inst/doc/MAITAnalysis.html#1_Overview
+
+
+```{r}
+sca <- scaRaw
+cdr2 <-colSums(assay(sca)>0)
+colData(sca)$ngeneson <- scale(cdr2)
+
+colData(sca)$Genotype <- factor(colData(sca)$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+colData(sca)$SexChrom <- factor(colData(sca)$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+colData(sca)$Gonad <- factor(colData(sca)$Gonad, levels = c("Male", "Female"))
+colData(sca)$Trisomy <- factor(colData(sca)$Trisomy, levels = c("Trisomy", "Non-Trisomy"))
+
+colData(sca)$Xdose_cont <- plyr::mapvalues(colData(sca)$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% as.character() %>% as.numeric()
+colData(sca)$Ydose_cont <- plyr::mapvalues(colData(sca)$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% as.character() %>% as.numeric()
+
+colData(sca)$base_SexChrom <- plyr::mapvalues(colData(sca)$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c("XX", "XY", "XY" ,"XY")) %>% factor(levels = c("XY", "XX"))
+
+colData(sca)$addX <- plyr::mapvalues(colData(sca)$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 0, 0)) %>% as.numeric()
+
+colData(sca)$addY <- plyr::mapvalues(colData(sca)$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 0, 0, 1)) %>% as.numeric()
+
+##FCG
+for(i in 1:length(allcells)) {
+  
+  currentcell <- allcells[i]
+  subset <- MAST::subset(sca, cell.type == currentcell & SexChrom %in% c("XY", "XX")) 
+  colData(subset)$Genotype <- factor(colData(subset)$Genotype, levels = c("XYM", "XYF", "XXM", "XXF"))
+  colData(subset)$SexChrom <- factor(colData(subset)$SexChrom, levels = c("XY", "XX"))
+  colData(subset)$data.sampleName <- factor(colData(subset)$data.sampleName)
+  
+  zlmCond <- MAST::zlm(~ ngeneson + Gonad + SexChrom + Gonad:SexChrom + (1 | data.sampleName),
+                                            subset, method='glmer',ebayes = F,
+                                            strictConvergence = FALSE)
+  
+  #zlmCond <- MAST::zlm(~ngeneson + Genotype + (1 | orig.ident), subset, 
+  #                   method='glmer',ebayes = F, strictConvergence = FALSE)
+  
+  
+  summaryCond <- suppressMessages(MAST::summary(zlmCond, doLRT = 'GonadFemale'))
+  
+  summaryDt <- summaryCond$datatable
+  
+  fcHurdle <- merge(summaryDt[summaryDt$contrast == 'GonadFemale' & summaryDt$component == 'logFC', c(1,7,5,6,8)],
+                    summaryDt[summaryDt$contrast == 'GonadFemale' & summaryDt$component == 'H', c(1,4)],
+                    by = 'primerid')
+  
+  fcHurdle <- stats::na.omit(as.data.frame(fcHurdle))
+  
+  ##save results 
+  
+}
+
+
+##Complete model
+for(i in 1:length(allcells)) {
+  
+  currentcell <- allcells[i]
+  subset <- MAST::subset(sca, cell.type == currentcell) 
+  
+  zlmCond <- MAST::zlm(~ ngeneson + Gonad + base_SexChrom + addX + addY + (1 | data.sampleName),
+                                            subset, method='glmer',ebayes = F,
+                                            strictConvergence = FALSE)
+  
+  # zlmCond <- MAST::zlm(~ngeneson + Genotype + (1 | orig.ident), subset,
+  #                   method='glmer',ebayes = F, strictConvergence = FALSE)
+  
+  
+  summaryCond <- suppressMessages(MAST::summary(zlmCond, doLRT = 'GonadFemale'))
+  
+  summaryDt <- summaryCond$datatable
+  
+  fcHurdle <- merge(summaryDt[summaryDt$contrast == 'GonadFemale' & summaryDt$component == 'logFC', c(1,7,5,6,8)],
+                    summaryDt[summaryDt$contrast == 'GonadFemale' & summaryDt$component == 'H', c(1,4)],
+                    by = 'primerid')
+  
+  fcHurdle <- stats::na.omit(as.data.frame(fcHurdle))
+  
+  ##saveresults 
+  
+}
+
+zlmCond <- MAST::zlm(~ ngeneson + Genotype + (1 | data.sampleName),
+                                            sca, method='glmer',ebayes = F,
+                                            strictConvergence = FALSE)
+
+zlmCond <- MAST::zlm(~ Gonad + SexChrom + Gonad:SexChrom + ngeneson + (1 | orig.ident), sca, 
+                     method='glmer',ebayes = F, strictConvergence = FALSE)
+```

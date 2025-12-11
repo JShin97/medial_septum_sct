@@ -1,0 +1,339 @@
+---
+title: "Remap_QC"
+output: html_document
+date: "2024-10-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct/")
+
+library(Seurat)
+library(stringr)
+library(readxl)
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readr)
+library(purrr)
+library(hdf5r)
+library(ggpubr)
+library(RSpectra)
+library(DropletUtils)
+library(BiocParallel)
+library(DoubletFinder)
+library(harmony)
+library(tidyverse)
+library(gtools)
+library(RColorBrewer)
+```
+
+####################################################################
+##Part 1 : Update mislabelled sample genotypes and edit metadata 
+####################################################################
+
+```{r}
+##Load original Seurat object
+seurat <- readRDS("/u/scratch/j/jshin/medial_septum_sct/Saves/original_saves/For_Figures.rds")
+```
+
+```{r}
+##Reassign genotypes 
+seurat$Genotype_original <- seurat$Genotype
+
+metadata <- seurat@meta.data
+metadata[metadata$orig.ident == "XY-TriSeptum-2", "Genotype"] <- "XXYF"
+metadata[metadata$orig.ident == "XY-TriSeptum-5", "Genotype"] <- "XXF"
+metadata[metadata$orig.ident == "XY-TriSeptum-12", "Genotype"] <- "XYM"
+metadata[metadata$orig.ident == "XY-TriSeptum-24", "Genotype"] <- "XYM"
+```
+
+```{r}
+##Add technical metadata and edit Sample names 
+load(file = "Data/Derived/metadata.Rda")
+
+metadata$orig.ident <- gsub("XY-", "", metadata$orig.ident)
+technical_metadata <- technical_metadata %>% group_by(Genotype) %>% mutate(id = row_number()) %>% ungroup() %>% dplyr::select(-Genotype)
+metadata <- metadata %>%
+  rownames_to_column(var = "cellID") %>%
+  left_join(., technical_metadata, by = c("orig.ident" = "Sample_ID"))
+rownames(metadata) <- metadata$cellID 
+metadata$cellID <- NULL
+
+##Add Sample2 and Sample_GT 
+metadata$Sample2 <- paste0(metadata$Genotype, metadata$id)
+metadata$Sample_GT <- paste(metadata$orig.ident, metadata$Genotype, sep = "_")
+metadata$Genotype <- factor(metadata$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+sample2_order <- metadata$Sample2[order(metadata$Genotype, metadata$id)]
+metadata$Sample2 <- factor(metadata$Sample2, levels = unique(sample2_order))
+samplegt_order <- metadata$Sample_GT[order(metadata$Sample2)]
+metadata$Sample_GT <- factor(metadata$Sample_GT, levels = unique(samplegt_order))
+
+metadata$Dosage <- NULL
+if(identical(row.names(seurat@meta.data), row.names(metadata))) {seurat@meta.data <- metadata}
+```
+
+```{r}
+saveRDS(seurat, file = "/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_seurat.rds")
+```
+
+####################################################################
+##Part 1b : Assess mitochondrial cutoffs -- reassess later
+####################################################################
+```{r}
+library(scuttle)
+library(SingleCellExperiment)
+
+sce <- as.SingleCellExperiment(seurat)
+sce <- addPerCellQC(sce, subsets=list(Mt=grep("^mt-", rownames(sce))))
+summary(sce$subsets_Mt_percent == 0)
+
+stats <- quickPerCellQC(colData(sce), sub.fields="subsets_Mt_percent")
+colSums(as.matrix(stats))
+
+stats$high_subsets_Mt_percent <- isOutlier(sce$subsets_Mt_percent, 
+    type="higher", min.diff=0.1)
+stats$discard <- Reduce("|", stats[,colnames(stats)!="discard"])
+colSums(as.matrix(stats))
+
+library(scater)
+plotColData(sce, x="Sample_GT", y="subsets_Mt_percent",
+    colour_by=I(stats$high_subsets_Mt_percent))
+```
+
+
+####################################################################
+##Part 2a : Convert seurat into h5ad file 
+####################################################################
+####################################################################
+##Part 2b : Prep h5ad file for MapMyCells in Jupyter NB 
+####################################################################
+
+
+####################################################################
+##Part 3 : Re-cluster and process MapMyCells results 
+####################################################################
+```{r}
+##Re-cluster seurat object
+seurat <- readRDS("/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_seurat.rds")
+
+seurat@meta.data[, grepl("RNA_snn_res", colnames(seurat@meta.data))] <- NULL 
+seurat <- ScaleData(seurat, features = rownames(seurat))
+seurat <- RunPCA(seurat, features = VariableFeatures(object = seurat))
+seurat <- FindNeighbors(seurat, dims = 1:50)
+seurat <- RunUMAP(seurat, dims = 1:50)
+seurat <- FindClusters(seurat, resolution = c(0.1, 0.3, 0.5, 0.8, 1.0))
+metadata <- seurat@meta.data %>% rownames_to_column(var = "cellID")
+
+##Load MapMyCells results
+mapping <- read.csv(Sys.glob("Data/MapMyCells//MapMyCells_10xWholeMouseBrain_HierarchicalMapping_run2/*.csv"), comment.char="#")
+
+data.frame(Cell_counts = sort(table(mapping$class_name), decreasing = T)) 
+data.frame(Cell_counts = sort(table(mapping$subclass_name), decreasing = T)) 
+
+cellcounts <- table(mapping$class_name) %>% as.data.frame()
+subcellcounts <- table(mapping$subclass_name) %>% as.data.frame()
+
+#Assign rare classes and subclasses as "other"
+mapping$class_new <- mapping$class_name
+mapping$class_new[mapping$class_name %in% cellcounts[cellcounts$Freq < 100, "Var1"]] <- "Other"
+mapping$subclass_new <- mapping$subclass_name
+mapping$subclass_new[mapping$subclass_name %in% subcellcounts[subcellcounts$Freq < 100, "Var1"]] <- "Other"
+
+#Simplify class metadata -- neuronal vs non-neuronal
+mapping$neuronal <- "Neuronal"
+mapping[grepl("NN", mapping$subclass_new), "neuronal"] <- "Non-neuronal"
+
+#Simplify by Neuron NT type 
+mapping$NT <- mapping$neuronal
+mapping[grepl("Gaba", mapping$subclass_new), "NT"] <- "GABA"
+mapping[grepl("Glut", mapping$subclass_new), "NT"] <- "Glut"
+#mapping[grepl("Gaba-Glut", mapping$subclass_new), "NT"] <- "GABA-Glut"
+#mapping[grepl("Glyc", mapping$subclass_new), "NT"] <- "Glyc-GABA"
+#mapping[grepl("Chol", mapping$subclass_new), "NT"] <- "Chol"
+mapping[grepl("Gaba-Chol", mapping$subclass_new), "NT"] <- "GABA-Chol"
+#mapping[grepl("Dopa", mapping$subclass_new), "NT"] <- "Dopa"
+#mapping[grepl("Dopa-Gaba", mapping$subclass_new), "NT"] <- "Dopa-GABA"
+#mapping[grepl("Sero", mapping$subclass_new), "NT"] <- "Glut-Sero"
+#mapping[grepl("Hist", mapping$subclass_new), "NT"] <- "Hist-GABA"
+mapping[grepl("Inh", mapping$subclass_new), "NT"] <- "Inh_IMN"
+mapping[grepl("Neuronal", mapping$NT), "NT"] <- "Misc_NT" ##classify the rest as misc 
+
+#Simplify by broad class 
+mapping$class_simplify <- mapping$NT
+mapping[mapping$NT == "Non-neuronal", "class_simplify"] <- mapping[mapping$NT == "Non-neuronal", "class_new"]
+mapping$class_simplify <- plyr::mapvalues(mapping$class_simplify,
+                                          from = c("30 Astro-Epen", "31 OPC-Oligo", "33 Vascular", "34 Immune"),
+                                          to = c("Astro-Epen", "OPC-Oligo", "Vascular", "Immune")
+                                          )
+#mapping[mapping$class_new == "Other", "class_simplify"] <- "Other"
+
+#Simplify by subclass
+mapping$subclass_simplify <- mapping$NT
+mapping[mapping$NT == "Non-neuronal", "subclass_simplify"] <- mapping[mapping$NT == "Non-neuronal", "subclass_new"]
+mapping$subclass_simplify <- plyr::mapvalues(mapping$subclass_simplify,
+                                             from = c("318 Astro-NT NN", "319 Astro-TE NN", "321 Astroependymal NN", "323 Ependymal NN", "325 CHOR NN",
+                                                      "326 OPC NN", "327 Oligo NN", "330 VLMC NN", "331 Peri NN", "333 Endo NN", "334 Microglia NN"),
+                                             to = c("Astro-NT", "Astro-TE", "Astroependymal", "Ependymal", "Choroid", "OPC", "Oligo", "VLMC", "Pericyte", 
+                                                    "Endothelial", "Microglia"))
+#mapping[mapping$subclass_new == "Other", "subclass_simplify"] <- "Other"
+
+#Put row.names as data colnames and the order to match the data
+rownames(mapping) <- mapping$cell_id
+mapping <- mapping[metadata$cellID,]
+
+#Add new metadata columns from mapping 
+seurat <- AddMetaData(seurat,
+                      metadata = mapping,
+                      col.name = colnames(mapping))
+
+DimPlot(seurat, group.by = "class_simplify")
+DimPlot(seurat, group.by = "subclass_simplify")
+```
+
+```{r}
+saveRDS(seurat, file = "/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_seurat.rds")
+```
+
+####################################################################
+##Part 3 : DF 
+####################################################################
+```{r}
+seurat <- readRDS("/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_seurat.rds")
+```
+
+```{r}
+seurat_list <- SplitObject(seurat, split.by = "orig.ident")
+
+seurat_list_df <- lapply(seq_along(seurat_list), function(i) {
+  print(i)
+  sample <- seurat_list[[i]]
+  # (1) Pre-process sample
+  sample <- NormalizeData(sample)
+  sample <- FindVariableFeatures(sample, selection.method = "vst", nfeatures = 2000)
+  sample <- ScaleData(sample)
+  sample <- RunPCA(sample)
+  sample <- RunUMAP(sample, dims = 1:30)
+  # (2). pK Identification (no ground-truth)
+  sweep.res.list <- paramSweep(sample, PCs = 1:30, sct = FALSE)
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  png(file = paste0("Plots/QC/doubletfinder/", unique(sample$Sample_GT), ".png"),width=3,height=5,units="in",res=600)
+  bcmvn_sample <- find.pK(sweep.stats)
+  dev.off()
+  mpK <-as.numeric(as.vector(bcmvn_sample$pK[which.max(bcmvn_sample$BCmetric)]))
+  # (3). Run DoubletFinder
+  DoubletRate = ncol(sample)*8*1e-6 # ~1000 cells, and a multiplet rate of ~0.8% according to 10XGenomics
+  nExp_poi <- round(DoubletRate*ncol(sample))
+  sample <- doubletFinder(sample, PCs = 1:30, pN = 0.25, pK = mpK, nExp = nExp_poi, reuse.pANN = FALSE, sct = F)
+  # (4). Remove doublets
+  table(sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)])
+  sample$doubletfinder<-sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)]
+  
+  return(sample)
+})
+
+seurat_df <- merge(x = seurat_list_df[[1]], y = seurat_list_df[2:length(seurat_list_df)], merge.data=TRUE)
+seurat_df@meta.data[, grepl("pANN", colnames(seurat_df@meta.data))] <- NULL
+seurat_df@meta.data[, grepl("DF", colnames(seurat_df@meta.data))] <- NULL
+seurat_df@reductions$pca <- seurat@reductions$pca
+seurat_df@reductions$umap <- seurat@reductions$umap
+seurat_df@reductions$tsne <- seurat@reductions$tsne
+
+seurat$doubletfinder <- seurat_df$doubletfinder
+
+save(seurat_df, seurat_list_df, file = "/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_DF.rda")
+saveRDS(seurat, file = "/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_seurat.rds")
+```
+
+####################################################################
+##Part 4 : Refine clusters  
+####################################################################
+
+```{r}
+load(file = "/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_DF.rda")
+seurat <- readRDS("/u/scratch/j/jshin/medial_septum_sct/Data/Derived/PostFilter/MS_complete_analysis/MS_seurat.rds")
+
+seurat$doubletfinder <- seurat_df$doubletfinder
+```
+
+```{r}
+## (1) subset based on MT% 
+seurat_qc <- subset(seurat, percent.mito <= 0.03)
+DimPlot(seurat_qc, split.by = "doubletfinder")
+plot1 <- FeaturePlot(seurat_qc, features = "QC_Score") & scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+plot2 <- FeaturePlot(seurat, features = "QC_Score") & scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+plot1 + plot2
+
+## (2) identify high doublet clusters  
+doublet_counts <- table(seurat_qc$doubletfinder, seurat_qc$RNA_snn_res.1) %>% as.data.frame.matrix()
+new_row <- doublet_counts[1, ] / doublet_counts[2, ]
+doublet_counts <- rbind(doublet_counts, new_row) %>% t()
+doublet_counts <- doublet_counts[order(-doublet_counts[, 3]), ] %>% as.data.frame()
+doublet_counts <- doublet_counts %>% rownames_to_column(var = "RNA_snn_res.1")
+colnames(doublet_counts)[4] <- c("Doublet/Singlet")
+doublet_clusters <- doublet_counts %>% dplyr::filter(Doublet/Singlet >= 0.30) %>% dplyr::select(RNA_snn_res.1) %>% unlist(use.names = FALSE)
+
+Idents(seurat_qc) <- "RNA_snn_res.1"
+seurat_df_list <- SplitObject(seurat_qc, split.by = "doubletfinder")
+cluster_doublet_plots <- lapply(doublet_clusters, function(x) {
+  
+  plot1 <- scCustomize::Cluster_Highlight_Plot(seurat_object = seurat_df_list[["Singlet"]],
+                                               cluster_name = x, pt.size = 0.5) + ggtitle(paste0("Singlet_", x))
+  plot2 <- scCustomize::Cluster_Highlight_Plot(seurat_object = seurat_df_list[["Doublet"]],
+                                               cluster_name = x, pt.size = 0.5) + ggtitle(paste0("Doublet_", x))
+  
+  return(plot1 + plot2)
+})
+png(file = "Plots/QC/doublet_UMAP/doublet_clusters.png", height = 15, width = 50, res = 600, units = "in")
+ggarrange(plotlist = cluster_doublet_plots, ncol = 7, nrow = 3)
+dev.off()
+
+seurat_qc$doubletcluster <- "FALSE"
+seurat_qc@meta.data[seurat_qc@meta.data$RNA_snn_res.1 %in% doublet_clusters, "doubletcluster"] <- "TRUE"
+
+##Recluster microglia
+microglia <- subset(seurat_qc, RNA_snn_res.1 %in% c("26", "61"))
+microglia <- FindVariableFeatures(microglia)
+microglia <- ScaleData(microglia, features = VariableFeatures(object = microglia))
+microglia <- RunPCA(microglia, features = VariableFeatures(object = microglia))
+microglia <- FindNeighbors(microglia, dims = 1:50)
+microglia <- RunUMAP(microglia, dims = 1:50)
+microglia <- FindClusters(microglia, resolution = c(0.03))
+DimPlot(microglia)
+DimPlot(microglia, group.by = "doubletfinder")
+FeaturePlot(microglia, features = c("Hexb", "Tmem119", "Trem2", "C1qa", "Fcrls", "Cx3cr1"), ncol = 3)
+DotPlot(microglia, features = c("Hexb", "Tmem119", "C1qa", "Trem2", "Cx3cr1"))
+microglia$doublet_cluster <- ifelse(microglia$RNA_snn_res.0.03 %in% c("0"), "FALSE", "TRUE")
+
+seurat_qc@meta.data[rownames(seurat_qc@meta.data) %in% WhichCells(microglia), "doubletcluster"] <- microglia$doubletcluster
+
+doublet_plots <- DimPlot(seurat_qc, group.by = "doubletfinder") +
+DimPlot(seurat_qc, group.by = "doubletcluster") +
+DimPlot(seurat_qc, group.by = "RNA_snn_res.1", label = TRUE)
+doublet_plots
+ggsave(plot = doublet_plots, filename = "Plots/QC/doublet_UMAP/doublet_plots.png", width = 15, height = 4.5)
+
+## (3) Check QC gene expression 
+qc_genes <- read_excel(path = "Data/Derived/qc_cells.xlsx", sheet = 2, col_names = FALSE)
+colnames(qc_genes) <- "Gene"
+
+logcounts <- seurat_qc@assays$RNA@data
+logcounts <- logcounts[rownames(logcounts) %in% qc_genes$Gene, ]
+qc_score <- colSums(logcounts) %>% as.data.frame()
+colnames(qc_score) <- "QC_Score"
+
+seurat_qc <- AddMetaData(seurat_qc,
+                      metadata = qc_score,
+                      col.name = "QC_Score")
+
+FeaturePlot(seurat_qc, c(features = "QC_Score", "percent.mito")) & scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+
+seurat_qc_test <- subset(seurat_qc, doubletcluster == "FALSE")
+FeaturePlot(seurat_qc_test, c(features = "QC_Score", "percent.mito"))
+
+VlnPlot(seurat_qc_test, features = c("QC_Score", "percent.mito"), group.by = "orig.ident", pt.size = 0)
+VlnPlot(seurat_qc, features = c("QC_Score", "percent.mito"), group.by = "orig.ident", pt.size = 0)
+VlnPlot(seurat, features = c("QC_Score", "percent.mito"), group.by = "orig.ident", pt.size = 0)
+
+FeaturePlot(seurat_qc, c(features = "QC_Score", "percent.mito")) & scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+```

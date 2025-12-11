@@ -7,9 +7,7 @@ date: "2024-04-25"
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
-```
 
-```{r}
 # library(limma)
 # library(edgeR)
 # library(data.table)
@@ -38,9 +36,9 @@ library(GeneOverlap)
 
 ##DEG datasets
 ```{r}
-DEG_df <- readRDS(file = "Results/ambient_RNA/DEG/DEG_results.rds")
+load(file = "Results/DEG_processed/DEG_v2/DEG_df.rda")
 
-gene_annotation <- readRDS("Saves/gene_annotation.Rds")
+gene_annotation <- readRDS("Gene_annotation/gene_annotation.Rds")
 gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
 gene_list <- read.table("Gene_annotation/gene_universe.txt") %>% unlist(use.names = FALSE)
 

@@ -1,0 +1,310 @@
+---
+title: "Network Inference"
+output: html_document
+date: "2024-06-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(CellChat)
+library(patchwork)
+library(Seurat)
+library(tidyverse)
+```
+
+################################################################
+Create cellchat object 
+################################################################
+
+```{r}
+##Create CellChat object 
+seurat <- readRDS("/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_new.rds")
+
+samples_to_remove <- c("XY-TriSeptum-12", "XY-TriSeptum-24", "XY-TriSeptum-2")
+seurat <- subset(seurat, data.sampleName %in% samples_to_remove, invert = TRUE)
+seurat <- subset(seurat, class_simplify %in% c("Other", "Unknown"), invert = TRUE)
+# seurat$cell.type <- recode(seurat$cell.type, 
+#                            "Myelinating Oligodendrocyte" = "Myelinating.Oligo",
+#                            "Oligodendrocyte Progenitor Cell" = "Oligo.PC") %>% as.character()
+seurat$samples <- seurat$data.sampleName %>% factor()
+
+
+##Split seurat object by Genotype 
+seurat_list <- SplitObject(seurat, split.by = "Genotype")
+for(i in 4:length(seurat_list)) {
+  currentgt <- names(seurat_list[i])
+  cellchat_gt <- createCellChat(object = seurat_list[[i]], group.by = "class_simplify", assay = "RNA")
+  
+  ##Set ligand-receptor interaction database 
+  CellChatDB <- CellChatDB.mouse
+  ##Pick which subset of CellChatDB to use
+  CellChatDB.use <- subsetDB(CellChatDB) ##picks everything except for "Non-protein signaling" 
+  ##Set database in object 
+  cellchat_gt@DB <- CellChatDB.use
+  
+  ###############################################################################################
+  ##Part A : Preprocess expression data for cell-cell communication analysis 
+  ###############################################################################################
+
+  ##Subset expression data of signaling genes 
+  cellchat_gt <- subsetData(cellchat_gt)
+  
+  future::plan("multisession", workers = 4)
+  cellchat_gt <- identifyOverExpressedGenes(cellchat_gt)
+  cellchat_gt <- identifyOverExpressedInteractions(cellchat_gt)
+  
+  options(future.globals.maxSize = 10 * 1000 ^ 3)
+  ##Part A1 : Compute communication probability and infer cellular communication network 
+  cellchat_gt <- computeCommunProb(cellchat_gt, type = "triMean", population.size = TRUE)
+  
+  ##Extract inferred cellular communication network as dataframe 
+  #df.net <- subsetCommunication(cellchat_gt)
+  
+  ###############################################################################################
+  ##Part B : Infer cell-cell communication at signaling pathway level 
+  ###############################################################################################
+  cellchat_gt <- computeCommunProbPathway(cellchat_gt)
+
+  ##Calculate aggregated cell-cell communication network
+  cellchat_gt <- aggregateNet(cellchat_gt)
+  
+  saveRDS(cellchat_gt, file = paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/cellchat/class/", currentgt, ".rds"))
+  #cellchat_list[[currentgt]] <- cellchat_gt
+}
+
+cellchat_list <- list()
+#genotypes <- list.files("/u/scratch/j/jshin/medial_septum_sct/Saves/network/cellchat/")
+#genotypes <- gsub(".rds", "", genotypes)
+genotypes <- c("XYM", "XXF")
+for(genotype in genotypes) {
+  cellchat_list[[genotype]] <- readRDS(paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/cellchat/class/", genotype, ".rds"))
+  cellchat_list[[genotype]] <- netAnalysis_computeCentrality(cellchat_list[[genotype]])
+}
+
+cellchat <- mergeCellChat(object.list = cellchat_list, add.names = names(cellchat_list))
+
+save(cellchat, cellchat_list, file = "/u/scratch/j/jshin/medial_septum_sct/Saves/network/cellchat/cellchat.rda")
+```
+
+################################################################
+Compare the total number of interactions and interaction strength
+################################################################
+
+```{r}
+load(file = "/u/scratch/j/jshin/medial_septum_sct/Saves/network/cellchat/original_celltype/cellchat.rda")
+```
+
+```{r}
+##Compare the total number of interactions and interaction strength
+gg1 <- compareInteractions(cellchat, show.legend = F)
+gg2 <- compareInteractions(cellchat, show.legend = F, measure = "weight")
+gg1 + gg2
+```
+
+```{r}
+##Circle plot showing the number of interactions or interaction strength among different cell populations across multiple datasets
+weight.max <- getMaxWeight(cellchat_list, attribute = c("idents","count"))
+par(mfrow = c(2,4), xpd=TRUE)
+for (i in 1:length(cellchat_list)) {
+  netVisual_circle(cellchat_list[[i]]@net$count, weight.scale = T, label.edge= F, edge.weight.max = weight.max[2], edge.width.max = 12, title.name = paste0("Number of interactions - ", names(cellchat_list)[i]))
+}
+```
+
+################################################################
+Compare the major sources and targets in a 2D space
+################################################################
+
+```{r}
+##Identify cell populations with significant changes in sending or receiving signals
+
+num.link <- sapply(cellchat_list, function(x) {rowSums(x@net$count) + colSums(x@net$count)-diag(x@net$count)})
+weight.MinMax <- c(min(num.link), max(num.link)) # control the dot size in the different datasets
+gg <- list()
+for (i in 1:length(cellchat_list)) {
+  gg[[i]] <- netAnalysis_signalingRole_scatter(cellchat_list[[i]], title = names(cellchat_list)[i], weight.MinMax = weight.MinMax)
+}
+#> Signaling role analysis on the aggregated cell-cell communication network from all signaling pathways
+#> Signaling role analysis on the aggregated cell-cell communication network from all signaling pathways
+patchwork::wrap_plots(plots = gg, ncol = 4)
+```
+
+```{r}
+gg1 <- netAnalysis_signalingChanges_scatter(cellchat, idents.use = "Neuron", signaling.exclude = "MIF")
+#> Visualizing differential outgoing and incoming signaling changes from NL to LS
+#> The following `from` values were not present in `x`: 0
+#> The following `from` values were not present in `x`: 0, -1
+gg2 <- netAnalysis_signalingChanges_scatter(cellchat, idents.use = "cDC1", signaling.exclude = c("MIF"))
+#> Visualizing differential outgoing and incoming signaling changes from NL to LS
+#> The following `from` values were not present in `x`: 0, 2
+#> The following `from` values were not present in `x`: 0, -1
+patchwork::wrap_plots(plots = list(gg1,gg2))
+```
+
+################################################################
+Part II: Identify altered signaling with distinct network architecture and interaction strength
+################################################################
+
+```{r}
+## Identify signaling groups based on their functional similarity
+
+#reticulate::py_install(packages ='umap-learn')
+
+cellchat <- computeNetSimilarityPairwise(cellchat, type = "functional")
+#> Compute signaling network similarity for datasets 1 2
+cellchat <- netEmbedding(cellchat, type = "functional")
+#> Manifold learning of the signaling networks for datasets 1 2
+cellchat <- netClustering(cellchat, type = "functional")
+#> Classification learning of the signaling networks for datasets 1 2
+# Visualization in 2D-space
+netVisual_embeddingPairwise(cellchat, type = "functional", label.size = 3.5)
+#> 2D visualization of signaling networks from datasets 1 2
+
+```
+
+################################################################
+Identify altered signaling with distinct interaction strength
+################################################################
+
+```{r}
+##Compare the overall information flow of each signaling pathway or ligand-receptor pair
+
+plot_ranknet <- function(cellchat_object, groups) {
+  
+  gg1 <- rankNet(cellchat_object, mode = "comparison", measure = "weight", sources.use = NULL, targets.use = NULL, stacked = T, do.stat = TRUE)
+  gg2 <- rankNet(cellchat_object, mode = "comparison", measure = "weight", sources.use = NULL, targets.use = NULL, stacked = F, do.stat = TRUE)
+  gg1 + gg2 + plot_annotation(title = groups)
+
+}
+plot_list <- list()
+
+##normative comparison 
+plot_ranknet(cellchat, groups = paste(c("XXF", "XXM"), collapse = ","))
+
+##gonadal comparison 
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XXF", "XXM")], add.names = names(cellchat_list[c("XXF", "XXM")]))
+plot_list[["XXF_XXM"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XXF", "XXM"), collapse = ","))
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XYF", "XYM")], add.names = names(cellchat_list[c("XYF", "XYM")]))
+plot_list[["XYF_XYM"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XYF", "XYM"), collapse = ","))
+##sexchrom comparison
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XXF", "XYF")], add.names = names(cellchat_list[c("XXF", "XYF")]))
+plot_list[["XXF_XYF"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XXF", "XYF"), collapse = ","))
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XXM", "XYM")], add.names = names(cellchat_list[c("XXM", "XYM")]))
+plot_list[["XXM_XYM"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XXM", "XYM"), collapse = ","))
+##addX comparison 
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XYF", "XXYF")], add.names = names(cellchat_list[c("XXF", "XYF")]))
+plot_list[["XYF_XXYM"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XYF", "XXYM"), collapse = ","))
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XYM", "XXYM")], add.names = names(cellchat_list[c("XXF", "XYF")]))
+plot_list[["XYM_XXYM"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XYM", "XXYM"), collapse = ","))
+##addY1 comparison 
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XXF", "XXYF")], add.names = names(cellchat_list[c("XXF", "XYF")]))
+plot_list[["XXF_XXYF"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XXF", "XXYF"), collapse = ","))
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XXM", "XXYM")], add.names = names(cellchat_list[c("XXF", "XYF")]))
+plot_list[["XXM_XXYM"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XXM", "XXYM"), collapse = ","))
+##addY2 comparison 
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XYF", "XYYF")], add.names = names(cellchat_list[c("XXF", "XYF")]))
+plot_list[["XYF_XYYF"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XYF", "XYYF"), collapse = ","))
+cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XYM", "XYYM")], add.names = names(cellchat_list[c("XXF", "XYF")]))
+plot_list[["XYM_XYYM"]] <- plot_ranknet(cellchat_subset, groups = paste(c("XYM", "XYYM"), collapse = ","))
+
+```
+
+################################################################
+Part III: Identify the up-gulated and down-regulated signaling ligand-receptor pairs
+################################################################
+
+```{r}
+##Identify dysfunctional signaling by using differential expression analysis
+#cellchat_subset <- mergeCellChat(object.list = cellchat_list[c("XXF", "XXM")], add.names = names(cellchat_list[c("XXF", "XXM")]))
+cellchat_subset <- cellchat
+
+# define a positive dataset, i.e., the dataset with positive fold change against the other dataset
+pos.dataset = "XXF"
+neg.dataset = "XYM"
+# define a char name used for storing the results of differential expression analysis
+features.name = paste0(pos.dataset, ".normative")
+
+# perform differential expression analysis 
+# Of note, compared to CellChat version < v2, CellChat v2 now performs an ultra-fast Wilcoxon test using the presto package, which gives smaller values of logFC. Thus we here set a smaller value of thresh.fc compared to the original one (thresh.fc = 0.1). Users can also provide a vector and dataframe of customized DEGs by modifying the cellchat@var.features$LS.merged and cellchat@var.features$LS.merged.info. 
+
+cellchat_subset <- identifyOverExpressedGenes(cellchat_subset, group.dataset = "datasets", pos.dataset = pos.dataset, features.name = features.name, only.pos = FALSE, thresh.pc = 0.1, thresh.fc = 0.05,thresh.p = 0.05, group.DE.combined = FALSE) 
+#> Use the joint cell labels from the merged CellChat object
+
+# map the results of differential expression analysis onto the inferred cell-cell communications to easily manage/subset the ligand-receptor pairs of interest
+net <- netMappingDEG(cellchat_subset, features.name = features.name, variable.all = TRUE)
+# extract the ligand-receptor pairs with upregulated ligands
+net.up <- subsetCommunication(cellchat_subset, net = net, datasets = pos.dataset, ligand.logFC = 0.05, receptor.logFC = NULL)
+# extract the ligand-receptor pairs with upregulated ligands and upregulated receptors in NL, i.e.,downregulated in LS
+net.down <- subsetCommunication(cellchat_subset, net = net, datasets = neg.dataset, ligand.logFC = -0.05, receptor.logFC = NULL)
+
+gene.up <- extractGeneSubsetFromPair(net.up, cellchat_subset)
+gene.down <- extractGeneSubsetFromPair(net.down, cellchat_subset)
+```
+
+```{r}
+## Visualize the identified up-regulated and down-regulated signaling ligand-receptor pairs
+
+# Chord diagram
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_chord_gene(cellchat_list[["XXF"]], slot.name = 'net', net = net.up, lab.cex = 0.8, small.gap = 3.5, title.name = paste0("Up-regulated signaling in ", names(cellchat_list)["XXF"]))
+
+netVisual_chord_gene(cellchat_list[["XYM"]], slot.name = 'net', net = net.down, lab.cex = 0.8, small.gap = 3.5, title.name = paste0("Down-regulated signaling in ", names(cellchat_list)["XYM"]))
+#> You may try the function `netVisual_chord_cell` for visualizing individual signaling pathway
+```
+
+
+
+```{r}
+## single sample test 
+cellchat <- createCellChat(object = seurat, group.by = "cell.type", assay = "RNA")
+
+##Set ligand-receptor interaction database
+CellChatDB <- CellChatDB.mouse
+
+##Pick which subset of CellChatDB to use
+CellChatDB.use <- subsetDB(CellChatDB) ##picks everything except for "Non-protein signaling" 
+
+##Set database in object 
+cellchat@DB <- CellChatDB.use
+
+##Part A : Preprocess expression data for cell-cell communication analysis 
+
+##Subset expression data of signaling genes 
+cellchat <- subsetData(cellchat)
+
+future::plan("multisession", workers = 4)
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+options(future.globals.maxSize = 10 * 1000 ^ 3)
+##Part A1 : Compute communication probability and infer cellular communication network 
+cellchat <- computeCommunProb(cellchat, type = "triMean", population.size = TRUE)
+
+##Extract inferred cellular communication network as dataframe 
+df.net <- subsetCommunication(cellchat)
+
+saveRDS(cellchat, file = "~/scratch/medial_septum_sct/Saves/cellchat.rds")
+
+##Part B : Infer cell-cell communication at signaling pathway level 
+cellchat <- computeCommunProbPathway(cellchat)
+
+##Calculate aggregated cell-cell communication network
+cellchat <- aggregateNet(cellchat)
+
+##visualize network 
+groupSize <- as.numeric(table(cellchat@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+
+##visualize network by each group
+mat <- cellchat@net$weight
+par(mfrow = c(3,4), xpd=TRUE)
+for (i in 1:nrow(mat)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+```
+

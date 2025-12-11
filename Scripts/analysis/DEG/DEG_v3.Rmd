@@ -1,0 +1,282 @@
+---
+title: "DEG_v3"
+output: html_document
+date: "2024-10-14"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(dplyr)
+library(plyr)
+library(Seurat)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+```
+
+####################################################
+##Part 1 : Prep seurat object 
+####################################################
+
+```{r}
+##Load in files 
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds") %>% DietSeurat(counts = TRUE)
+
+##Edit metadata 
+# seurat$Xdose <- plyr::mapvalues(seurat$SexChrom,
+#                                 from = c("XX", "XXY", "XY", "XYY"),
+#                                 to = c(2, 2, 1 ,1)) %>% factor(levels = c(1, 2))
+# seurat$Ydose <- plyr::mapvalues(seurat$SexChrom,
+#                                 from = c("XX", "XXY", "XY", "XYY"),
+#                                 to = c(0, 1, 1 ,2)) %>% factor(levels = c(0, 1, 2))
+# seurat$base_SexChrom <- plyr::mapvalues(seurat$SexChrom,
+#                                 from = c("XX", "XXY", "XY", "XYY"),
+#                                 to = c("XX", "XY", "XY", "XY")) %>% factor(levels = c("XY", "XX"))
+# seurat$trisomyX <- plyr::mapvalues(seurat$SexChrom,
+#                                        from = c("XY", "XX", "XXY", "XYY"),
+#                                        to = c(0, 0, 1, 0)) %>% as.numeric()
+# seurat$trisomyY <- plyr::mapvalues(seurat$SexChrom,
+#                                        from = c("XY", "XX", "XXY", "XYY"),
+#                                        to = c(0, 0, 0, 1)) %>% as.numeric()
+
+##previous analysis
+seurat$GenotypeaddX <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XYM", "XYF", "XXYM", "XXYF"),
+                                       to = c("XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF"))
+seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XXY"),
+                                       to = c(0, 1)) %>% as.numeric()
+# seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+#                                        from = c("XY", "XXY", "XX", "XYY"),
+#                                        to = c(0, 1, 0, 0)) %>% as.character %>% as.numeric()
+seurat$GenotypeaddY <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XXM", "XXF", "XXYM", "XXYF", "XYM", "XYF", "XYYM", "XYYF"),
+                                       to = c("XXM", "XXF", "XXM", "XXF", "XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF", "XXM", "XXF"))
+seurat$addY <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 2)) %>% factor(., levels = c(0, 1, 2))
+seurat$addY1 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 0)) %>% as.character %>% as.numeric()
+seurat$addY2 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 0, 0, 1)) %>% as.character %>% as.numeric()
+
+seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
+seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+seurat$SampleID <- gsub("-", "", seurat$SampleID)
+seurat$Sequencing_Date <- factor(seurat$Sequencing_Date) %>% gsub("-", "_", .)
+
+sample_metadata <- seurat@meta.data %>% dplyr::select(SampleID, Genotype, Gonad, SexChrom, Trisomy, Sequencing_Date, Library_Prep)
+rownames(sample_metadata) <- NULL
+sample_metadata <- sample_metadata %>% unique()
+rownames(sample_metadata) <- sample_metadata$SampleID
+
+genotype_metadata <- seurat@meta.data %>% dplyr::select(Genotype, Gonad, SexChrom, Trisomy, GenotypeaddX, addX, GenotypeaddY, addY1, addY2)
+rownames(genotype_metadata) <- NULL
+genotype_metadata <- genotype_metadata %>% unique() 
+
+# seurat <- PrepSCTFindMarkers(seurat, assay = "SCT", verbose = TRUE)
+seurat_list <- SplitObject(seurat, split.by = "celltype")
+# lapply(seurat_list, function(x) {
+#   x <- PrepSCTFindMarkers(x, assay = "SCT", verbose = TRUE)
+#   return(x)
+# })
+
+assay_to_use <- "RNA" ##RNA or SCT -- SCT doesn't work as well
+```
+
+####################################################
+##Part 2 : Run limma for individual models
+####################################################
+
+```{r}
+##get number of genes tested per cell types 
+
+count_list <- lapply(seurat_list, function(x) {
+  
+  currentcell <- unique(x@meta.data[["celltype"]])
+  gene_counts <- x[[assay_to_use]]@counts
+  gene_data <- x[[assay_to_use]]@data
+  
+  num_genes_all_zero <- sum(Matrix::rowSums(gene_counts) == 0)
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts >= 1) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep, ]
+  
+  cell_gene_count <- data.frame(celltype = currentcell, 
+                                gene_count = nrow(gene_counts), 
+                                all_zero_gene_count = num_genes_all_zero, 
+                                filtered_gene_count = nrow(gene_data))
+  return(cell_gene_count)
+})
+
+cell_counts <- do.call("rbind", count_list)
+write.csv(cell_counts, file = "/u/project/xyang123/jshin/cerebellum_sct/Results/Armin/MS_celltype_gene_counts.csv", quote = FALSE,row.names = FALSE)
+
+
+```
+
+```{r}
+##normative analysis (XYM vs XXM) 
+for(i in seq_along(seurat_list)) {
+  
+  resultlist_normative <- list()
+  currentcell <- names(seurat_list[i])
+  currentsubset <- seurat_list[[i]]
+  
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts >= 1) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~0 + Genotype + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  contrasts <- makeContrasts(XXF_vs_XYM = GenotypeXXF - GenotypeXYM, levels = design)
+  fit <- contrasts.fit(fit, contrasts)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  results <- topTable(fit, n = Inf, coef = "XXF_vs_XYM", adjust.method = "BH")
+  resultlist_normative[["XXF_vs_XYM"]] <- results
+  save(resultlist_normative, file = paste0("Results/complete_analysis/DEG_SD/normative/", currentcell,".rda"))
+  
+}
+```
+
+```{r}
+##sexchrom and gonad analysis (FCG)
+
+for(i in seq_along(seurat_list)) {
+  
+  resultlist_fcg <- list()
+  currentcell <- names(seurat_list[i])
+  currentsubset <- seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XXM", "XYM", "XXF", "XYF"))
+  currentsubset$Genotype <- factor(currentsubset$Genotype, levels = c("XYM", "XYF", "XXM", "XXF"))
+  currentsubset$SexChrom <- factor(currentsubset$SexChrom, levels = c("XY", "XX"))
+  currentsubset$Gonad <- factor(currentsubset$Gonad, levels = c("Male", "Female"))
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts >= 1) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~Gonad + SexChrom + Gonad:SexChrom + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_fcg[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale", adjust.method = "BH")
+  resultlist_fcg[["XX_vs_XY"]] <- topTable(fit, n = Inf, coef = "SexChromXX", adjust.method = "BH")
+  resultlist_fcg[["Ovary:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale:SexChromXX", adjust.method = "BH")
+  
+  save(resultlist_fcg, file = paste0("Results/complete_analysis/DEG_SD/fcg/", currentcell,".rda"))
+}
+```
+
+```{r}
+##addX analysis 
+for(i in seq_along(seurat_list)) {
+  
+  resultlist_addx <- list()
+  currentcell <- names(seurat_list[i])
+  currentsubset <- seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XYM", "XXYM", "XYF", "XXYF"))
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts >= 1) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~GenotypeaddX + addX + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_addx[["XYF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddXXYF", adjust.method = "BH")
+  resultlist_addx[["addX"]] <- topTable(fit, n = Inf, coef = "addX", adjust.method = "BH")
+
+  save(resultlist_addx, file = paste0("Results/complete_analysis/DEG_SD/addx/", currentcell,".rda"))
+}
+```
+
+```{r}
+##addY1 analysis 
+for(i in seq_along(seurat_list)) {
+  
+  resultlist_addy1 <- list()
+  currentcell <- names(seurat_list[i])
+  currentsubset <- seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XXM", "XXYM", "XXF", "XXYF"))
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts >= 1) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~GenotypeaddY + addY1 + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_addy1[["XYF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXYF", adjust.method = "BH")
+  resultlist_addy1[["XXM_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXM", adjust.method = "BH")
+  resultlist_addy1[["XXF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXF", adjust.method = "BH")
+  resultlist_addy1[["addY1"]] <- topTable(fit, n = Inf, coef = "addY1", adjust.method = "BH")
+
+  save(resultlist_addy1, file = paste0("Results/complete_analysis/DEG_SD/addy1/", currentcell,".rda"))
+}
+```
+
+```{r}
+##addY2 analysis 
+for(i in seq_along(seurat_list)) {
+  
+  resultlist_addy2 <- list()
+  currentcell <- names(seurat_list[i])
+  currentsubset <- seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XYM", "XYYM", "XYF", "XYYF"))
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts >= 1) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~GenotypeaddY + addY2 + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_addy2[["XYF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXYF", adjust.method = "BH")
+  resultlist_addy2[["XXM_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXM", adjust.method = "BH")
+  resultlist_addy2[["XXF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXF", adjust.method = "BH")
+  resultlist_addy2[["addY2"]] <- topTable(fit, n = Inf, coef = "addY2", adjust.method = "BH")
+
+  save(resultlist_addy2, file = paste0("Results/complete_analysis/DEG_SD/addy2/", currentcell,".rda"))
+}
+```

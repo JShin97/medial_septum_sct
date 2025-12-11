@@ -1,0 +1,292 @@
+---
+title: "scUtils_Pathway"
+output: html_document
+date: "2025-01-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(clusterProfiler)
+library(enrichplot)
+library(ggplot2)
+library(ggnewscale)
+library(plyr)
+library(dplyr)
+library(stringr)
+library(RColorBrewer)
+library(limma)
+library(edgeR)
+library(data.table)
+library(dplyr)
+library(plyr)
+library(Seurat)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(ViSEAGO)
+library(clusterProfiler)
+library(simplifyEnrichment)
+library(AnnotationHub)
+
+#source("/u/project/xyang123/jshin/ad_peng/scripts/insook/insook_pathway/pathway_enrichment_functions_adjpval.R")
+source("/u/project/xyang123/jshin/resources/scUtils/PathwayEnrichment/pathway_enrichment_functions_YZ.R")
+```
+
+##Custom pathway script
+```{r}
+##still WIP 
+
+#SeuratObject <- readRDS("PATH_TO_YOUR_SEURATOBJECT/SeuratObject_annotated.rds")
+load(file = "Results/complete_analysis/DEG_processed/DEG_SD_original/DEG_df_RNA_SD.rda")
+DEG_df <- DEG_df %>% 
+  dplyr::rename(p_val_adj = adj.P.Val,
+                GENE = gene,
+                avg_logFC = logFC) %>% 
+  dplyr::filter(p_val_adj < 0.05 & abs(avg_logFC) > 0.1)
+effect_list <- split.data.frame(DEG_df, f = DEG_df$effect)
+effect_list <- effect_list[c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")]
+celltype_list <- split.data.frame(DEG_df, f = DEG_df$cell_type)
+
+# # Create a MODULE column so that my pathway analysis can be done on these categories of DEGs. Alternatively, you can just have the Cell_type column so that the pathway enrichment will be done at the cell type level. 
+# DEG_sig$MODULE <- paste(DEG_sig$Cell_type, 
+#                         DEG_sig$Comparison, 
+#                         DEG_sig$Direction, 
+#                         sep = "_") 
+
+pathway_df <- makePathwayEnrichmentDf(DEG_df = effect_list[["Normative"]], 
+                                      resources_path = "/u/project/xyang123/jshin/resources/scUtils/PathwayEnrichment/", 
+                                      output_Dir = "./output_data/Pathway_enrichment", # Your choice of output dir
+                                      convertToHuman = TRUE, 
+                                      FDR_threshold=0.05, # Threshold for DEGs to be used for pathway analysis
+                                      logFC_threshold = 0, # Threshold for DEGs to be used for pathway analysis
+                                      addlogFC = TRUE,
+                                      MODULE_column="MODULE", # Can be NULL if want enrichment to be done on Cell_type column. 
+                                      total_gene_count_our_data = nrow(SeuratObject), # Number of genes detected in our dataset. For single-cell data, it's the nrow of the SeuratObject. 
+                                      min_max=NULL) 
+saveRDS(pathway_df,"intermediate_data/Pathway_enrichment/Pathway_df_unfiltered.rds")
+
+pathway.sig_df <- pathway_df %>% filter(FDR < 0.05 & nOverlap > 5) # Your choice of pathway cutoffs. 
+saveRDS(pathway.sig_df,"intermediate_data/Pathway_enrichment/pathway_df_sig.rds")
+write.xlsx(pathway.sig_df,"output_data/Pathway_enrichment/pathway_df_sig.xlsx")
+```
+
+##ViSEAGO 
+####################################################
+##Part 1 : Load gene selections
+####################################################
+
+```{r}
+ah <- AnnotationHub()
+ensdb <- ah[["AH73905"]]
+```
+
+```{r}
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+# load genes background
+background <- rownames(seurat)
+#convert to entrezID annotation 
+background_gene_info <- AnnotationDbi::select(ensdb,
+                     keys = background,
+                     keytype = "SYMBOL",
+                     column = c("GENENAME", "ENTREZID"))
+
+# load DEGs 
+load("Results/complete_analysis/DEG_processed/DEG_SD_original/DEG_df_RNA_SD.rda")
+# DEG_df <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05)
+DEG_list <- split(DEG_df, f = list(DEG_df$cell_type, DEG_df$effect))
+
+# connect to Bioconductor
+Bioconductor<-ViSEAGO::Bioconductor2GO()
+#ViSEAGO::available_organisms(Bioconductor)
+myGENE2GO<-ViSEAGO::annotate(
+    "org.Mm.eg.db",
+    Bioconductor
+)
+
+DEG_list <- DEG_list[grepl("Normative", names(DEG_list))]
+```
+
+####################################################
+##Part 2 : Run GO enrichment
+####################################################
+http://bioconductor.jp/packages/3.16/bioc/vignettes/ViSEAGO/inst/doc/mouse_bioconductor.html
+
+```{r}
+# create topGOdata for BP
+
+BP_list <- list()
+classic_list <- list()
+for(i in 1:length(DEG_list)) {
+  
+  x <- DEG_list[[i]]
+  currentmodule <- names(DEG_list[i])
+  
+  selection <- x %>% dplyr::filter(adj.P.Val < 0.05)
+  if(nrow(selection) < 2) {next}
+  selection_gene_info <- AnnotationDbi::select(ensdb,
+                     keys = selection$gene,
+                     keytype = "SYMBOL",
+                     column = c("GENENAME", "ENTREZID"))
+  
+  BP <- ViSEAGO::create_topGOdata(
+    geneSel = selection_gene_info$ENTREZID,
+    allGenes = background_gene_info$ENTREZID,
+    gene2GO = myGENE2GO,
+    ont = "BP",
+    nodeSize = 5)
+  
+  classic<-topGO::runTest(
+    BP,
+    algorithm ="classic",
+    statistic = "fisher"
+    )
+  
+  BP_list[[currentmodule]] <- BP
+  classic_list[[currentmodule]] <- classic
+}
+```
+
+####################################################
+##Part 3 : Merge GO results 
+####################################################
+
+```{r}
+modules <- names(BP_list)
+
+# Save elements from BP_list and classic_list to global environment 
+BP_list_test <- BP_list
+names(BP_list_test) <- paste0("BP_", names(BP_list_test))
+list2env(BP_list_test, envir = .GlobalEnv)
+classic_list_test <- classic_list
+names(classic_list_test) <- paste0("classic_", names(classic_list_test))
+list2env(classic_list_test, envir = .GlobalEnv)
+
+# List of input set names
+input_set_names <- modules
+# Define prefixes for variable names
+prefixes <- c("BP_", "classic_")
+
+# Create the input_sets dynamically
+input_sets <- setNames(
+  lapply(input_set_names, function(set_name) {
+    # Construct variable names by pasting prefixes with the input set name
+    paste0(prefixes, set_name)
+  }),
+  input_set_names
+)
+
+BP_sResults<-ViSEAGO::merge_enrich_terms(
+    cutoff=0.01,
+    Input=input_sets
+)
+
+BP_sResults
+ViSEAGO::show_table(BP_sResults)
+```
+
+####################################################
+##Part 4 : Visualization of GO enrichment 
+####################################################
+```{r}
+# barchart of significant (or not) GO terms by comparison
+ViSEAGO::GOcount(BP_sResults)
+
+# display intersections
+ViSEAGO::Upset(
+    BP_sResults,
+    file="upset.xls"
+)
+```
+
+####################################################
+##Part 5 : Semantic similarity 
+####################################################
+
+```{r}
+# create GO_SS-class object
+myGOs<-ViSEAGO::build_GO_SS(
+    gene2GO=myGENE2GO,
+    enrich_GO_terms=BP_sResults
+)
+
+# compute Semantic Similarity (SS)
+myGOs<-ViSEAGO::compute_SS_distances(
+    myGOs,
+    distance="Wang"
+)
+
+# MDSplot
+ViSEAGO::MDSplot(myGOs)
+
+```
+
+```{r}
+# Create GOterms heatmap
+Wang_sample_clusters_wardD2<-ViSEAGO::GOterms_heatmap(
+    myGOs,
+    showIC=FALSE,
+    showGOlabels =FALSE,
+    GO.tree=list(
+        tree=list(
+            distance="Wang",
+            aggreg.method="ward.D2"
+        ),
+        cut=list(
+            dynamic=list(
+                pamStage=TRUE,
+                pamRespectsDendro=TRUE,
+                deepSplit=2,
+                minClusterSize =2
+            )
+        )
+    ),
+    samples.tree=list(
+      tree=list(
+        distance="pearson"
+      )
+    )
+)
+
+Wang_clusters_wardD2<-ViSEAGO::GOterms_heatmap(
+    myGOs,
+    showIC=FALSE,
+    showGOlabels =FALSE,
+    GO.tree=list(
+        tree=list(
+            distance="Wang",
+            aggreg.method="ward.D2"
+        ),
+        cut=list(
+            dynamic=list(
+                pamStage=TRUE,
+                pamRespectsDendro=TRUE,
+                deepSplit=2,
+                minClusterSize =2
+            )
+        )
+    ),
+    samples.tree=NULL
+)
+
+# display the heatmap
+heatmap <- ViSEAGO::show_heatmap(
+    Wang_clusters_wardD2,
+    "GOterms")
+
+# display the heatmap
+sample_heatmap <- ViSEAGO::show_heatmap(
+    Wang_sample_clusters_wardD2,
+    "GOterms")
+
+# # print the heatmap
+# ViSEAGO::show_heatmap(
+#     Wang_clusters_wardD2,
+#     "GOterms",
+#     "/u/project/xyang123/jshin/cerebellum_sct/Results/pathway/VISEAGO_heatmap.png")
+
+save(BP_sResults, myGOs, Wang_clusters_wardD2, Wang_sample_clusters_wardD2, file = "Results/pathway/VISEAGO_merged_results.Rda")
+```

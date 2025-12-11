@@ -2,20 +2,20 @@
 title: "celltype_proportion"
 output: html_document
 date: "2024-05-02"
+
+#https://bioconductor.org/packages/devel/bioc/vignettes/speckle/inst/doc/speckle.html#finding-significant-differences-in-cell-type-proportions-using-propeller
+
 ---
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
-```
 
-```{r}
 # library(limma)
 # library(edgeR)
 # library(data.table)
 library(plyr)
 library(dplyr)
-library(Matrix)
 library(Seurat)
 #library(enrichplot)
 #library(org.Mm.eg.db)
@@ -31,116 +31,365 @@ library(ggplot2)
 library(UpSetR)
 library(tidyverse)
 library(speckle)
-```
+library(ggpubr)
+library(edgeR)
+library(scales)
+library(ggprism)
+library(openxlsx)
 
-```{r}
+source("/u/project/xyang123/jshin/medial_septum_sct/Scripts/analysis/extra/color_palette.R")
+
+```
+######################################
 ##Load in files 
-seurat <- readRDS( "Saves/Caden/For_Figures.rds")
-####
-seurat$cell.type <- factor(seurat$cell.type)
-allcells <- levels(seurat$cell.type)
+######################################
 
-cells_to_remove <- c("Unknown", "Oligodendrocyte Progenitor Cell")
-allcells <- allcells[!allcells %in% cells_to_remove]
-newcells <- c("Neuron", "Astrocyte", "Oligo.PC", "Microglia", "Progenitor", "Myelinating.Oligo", "Endothelial", "Ependymal")
+```{r}
+#seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
 
-#gene_universe <- rownames(seurat@assays$RNA@counts)
-#write.table(gene_universe, file = "Gene_annotation/gene_universe.txt", sep = "\t")
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+sc_seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/supercell_seurat_harmony_sampleid_filtered_annotated.Rds")
+seurat <- sc_seurat
+
+##rename celltypes
+seurat@meta.data <- seurat@meta.data %>% 
+  dplyr::mutate(celltype = replace(celltype, celltype == "Inh_IMN", "Inh-IMN")) %>% 
+  dplyr::mutate(celltype = replace(celltype, celltype == "Misc_NT", "Misc-NT")) %>%
+  dplyr::mutate(celltype = replace(celltype, celltype == "GABA-Chol", "Chol"))
+
+##adjust metadata levels
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XXYM", "XXYF", "XYYM", "XYYF"))
+seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
+seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XXY", "XYY"))
+seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+
+##add new metadata and adjust levels 
+seurat$Gonad_new <- plyr::mapvalues(seurat$Gonad, 
+                                    from = c("Female", "Male"),
+                                    to = c("Ovaries", "Testes"))
+seurat$Genotype_new <- gsub("M", "T", seurat$Genotype)
+seurat$Genotype_new <- gsub("F", "O", seurat$Genotype_new)
+
+seurat$Genotype_new <- factor(seurat$Genotype_new, levels = c("XYT", "XYO", "XXT", "XXO", "XYYT", "XYYO", "XXYT", "XXYO"))
+seurat$Gonad_new <- factor(seurat$Gonad_new, levels = c("Testes", "Ovaries"))
+
+allcells <- levels(seurat$celltype)
+```
+
+######################################
+##Manual analysis 
+######################################
+
+```{r}
+##Speckle 
+speckle_results <- list()
+speckle_results[["Genotype"]] <- propeller(clusters = seurat$celltype, sample = seurat$SampleID, group = seurat$Genotype, transform = "logit") %>% 
+  rownames_to_column(var = "Cell Type")
+speckle_results[["Gonad"]] <- propeller(clusters = seurat$celltype, sample = seurat$SampleID, group = seurat$Gonad, transform = "logit") %>% 
+  rownames_to_column(var = "Cell Type")
+speckle_results[["Sex_Chromosome"]] <- propeller(clusters = seurat$celltype, sample = seurat$SampleID, group = seurat$SexChrom, transform = "logit") %>% 
+  rownames_to_column(var = "Cell Type")
+speckle_results[["Trisomy"]] <- propeller(clusters = seurat$celltype, sample = seurat$SampleID, group = seurat$Trisomy, transform = "logit") %>% 
+  rownames_to_column(var = "Cell Type")
+
+write.xlsx(speckle_results[["Genotype"]], file = "Results/complete_analysis/cell_proportion/metacell_speckle_genotype.xlsx")
+write.xlsx(speckle_results[["Gonad"]], file = "Results/complete_analysis/cell_proportion/metacell_speckle_gonad.xlsx")
+write.xlsx(speckle_results[["Sex_Chromosome"]], file = "Results/complete_analysis/cell_proportion/metacell_speckle_sexchrom.xlsx")
+write.xlsx(speckle_results[["Trisomy"]], file = "Results/complete_analysis/cell_proportion/metacell_speckle_trisomy.xlsx")
+
+##EdgeR 
+edger_dag_analysis <- function(seuratObject, variable) {
+  
+  abundances <- table(seuratObject@meta.data[["celltype"]], seuratObject@meta.data[["SampleID"]]) %>% unclass()
+  extra.info <- seuratObject@meta.data %>% dplyr::select(SampleID, Genotype, Sequencing_Date, Gonad, SexChrom, Trisomy) %>% unique() 
+  rownames(extra.info) <- extra.info$SampleID
+  y.ab <- DGEList(abundances, samples = extra.info)
+  keep <- filterByExpr(y.ab, group = y.ab$samples$Genotype)
+  y.ab <- y.ab[keep, ]
+  
+  formula <- as.formula(paste("~", variable))
+  design <- model.matrix(formula, y.ab$samples)
+  
+  y.ab <- estimateDisp(y.ab, design, trend="none")
+  # summary(y.ab$common.dispersion)
+  # plotBCV(y.ab, cex=1)
+  
+  fit.ab <- glmQLFit(y.ab, design, robust=TRUE, abundance.trend=FALSE)
+  # summary(fit.ab$var.prior)
+  # summary(fit.ab$df.prior)
+  # plotQLDisp(fit.ab, cex=1)
+  
+  res <- glmQLFTest(fit.ab)
+  topTags(res)
+  
+  res_list <- list()
+  for(i in 2:ncol(design)) { ##start from 2 to skip intercept
+    res <- glmQLFTest(fit.ab, coef = i)
+    summary <- summary(decideTests(res))
+    res_list[[i]] <- summary
+  }
+  
+  res_df <- do.call("cbind", res_list)
+  return(res_df)
+}
+
+edger_results <- list()
+edger_results[["gt"]] <- edger_dag_analysis(seurat, "Genotype")
+edger_results[["gonad"]] <- edger_dag_analysis(seurat, "Gonad")
+edger_results[["sexchrom"]] <- edger_dag_analysis(seurat, "SexChrom")
+edger_results[["trisomy"]] <- edger_dag_analysis(seurat, "Trisomy")
+```
+
+######################################
+##Figures
+######################################
+
+```{r}
+##################################
+##Cell Number Grouped BarPlot -- by Genotype
+##################################
+# Count the number of cells for each combination of group, cell type, and sample
+cell_counts <- seurat@meta.data %>%
+  dplyr::group_by(Genotype_new, celltype, SampleID) %>%
+  dplyr::summarize(CellCount = n(), .groups = 'drop') %>% 
+  dplyr::mutate(celltype = factor(celltype, levels = c("GABA", "Glut", "Astrocyte", "Oligo", "OPC", "Microglia", "Vascular", "Chol", "Inh-IMN", "Misc-NT", "Ependymal")))
+
+summary_data <- cell_counts %>%
+  dplyr::group_by(Genotype_new, celltype) %>%
+  dplyr::summarize(
+    MeanCount = mean(CellCount),
+    SDCount = sd(CellCount),
+    .groups = 'drop'
+  ) %>%
+  dplyr::mutate(celltype = factor(celltype, levels = c("GABA", "Glut", "Astrocyte", "Oligo", "OPC", "Microglia", "Vascular", "Chol", "Inh-IMN", "Misc-NT", "Ependymal"))) 
+
+summary_data_zoom <- summary_data[!summary_data$celltype %in% c("GABA", "Glut", "Astrocyte", "Oligo"), ]
+cell_counts_zoom <- cell_counts[!cell_counts$celltype %in% c("GABA", "Glut", "Astrocyte", "Oligo"), ]
+
+ggplot(summary_data_zoom, aes(x = celltype, y = MeanCount, fill = Genotype_new)) +
+  # Grouped bars for mean counts
+  geom_bar(stat = "identity", position = position_dodge(), alpha = 0.7) +
+  
+  # Error bars
+  geom_errorbar(
+    aes(ymin = MeanCount - SDCount, ymax = MeanCount + SDCount, color = Genotype_new),
+    position = position_dodge(width = 0.9),
+    width = 1
+  ) +
+  
+  # Points for each sample directly overlayed on bars
+  geom_point(
+    data = cell_counts_zoom, # Use raw sample-level data
+    aes(x = celltype, y = CellCount, group = Genotype_new, color = Genotype_new),
+    position = position_dodge(width = 0.9), # Align points with the bars
+    size = 2,
+    shape = 21, # Filled points with black outlines
+    stroke = 0.5 # Black outline thickness
+  ) +
+  
+  # Labels and theme
+  labs(
+    x = "Cell Type",
+    y = "Cell Count"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 22), 
+        axis.title.x = element_text(size = 20),   # X-axis title size
+        axis.title.y = element_text(size = 20),   # Y-axis title size
+        axis.text.y = element_text(size = 22),
+        legend.text = element_text(size=18),
+        legend.title = element_text(size = 20),
+        plot.margin = margin(10, 10, 10, 10)) +
+  scale_fill_manual(values = genotype_hex_colors) + # Bar colors by cell type
+  scale_color_manual(values = genotype_hex_colors)  # Point colors by cell type
+
+
+png("Plots/Final_Figures/Barplot/Cell_counts_grouped.png", width = 10, height = 6, units = "in", res = 600)
+print(last_plot())
+dev.off()
+
+png("Plots/Final_Figures/Barplot/Cell_counts_grouped_zoomin.png", width = 10, height = 6, units = "in", res = 600)
+print(last_plot())
+dev.off()
 ```
 
 ```{r}
-cell_metadata <- seurat@meta.data %>% dplyr::select(data.sampleName, Gonad, SexChrom, Genotype, cell.type)
-sample_metadata <- seurat@meta.data %>% dplyr::select(data.sampleName, Gonad, SexChrom, Genotype)
+##################################
+##Cell Proportion Plots -- by Sample
+##################################
+library(gtools)
+cell_counts <- seurat@meta.data %>%
+  dplyr::group_by(Genotype_new, celltype, SampleID) %>%
+  dplyr::summarize(CellCount = n(), .groups = 'drop') %>% 
+  dplyr::mutate(celltype = factor(celltype, levels = c("GABA", "Glut", "Astrocyte", "Oligo", "OPC", "Microglia", "Vascular", "Chol", "Inh-IMN", "Misc-NT", "Ependymal"))) %>% 
+  dplyr::mutate(SampleID = factor(SampleID, levels = gtools::mixedsort(unique(seurat$SampleID), decreasing = FALSE)))
+
+cell_proportions <- cell_counts %>% 
+  dplyr::group_by(SampleID) %>% 
+  dplyr::mutate(total_counts = sum(CellCount),
+         Proportion = CellCount / total_counts) %>% 
+  ungroup()
+
+ggplot(cell_proportions, aes(x = SampleID, y = Proportion, fill = celltype)) +
+  geom_bar(position = "stack", stat = "identity") +
+  theme_minimal() +
+  ggtitle("Proportion of Cell Counts by Sample") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 20),
+        axis.title.x = element_text(size = 22),
+        axis.text.y = element_text(size = 20),
+        axis.title.y = element_text(size = 22),
+        legend.text =  element_text(size = 20),
+        legend.title = element_text(size = 22),
+        plot.title = element_text(size = 22)) +
+  scale_fill_manual(values = cell_hex_colors) +
+    labs(fill = "Cell Type")
+
+pdf("Plots/Final_Figures/Barplot/metacell_Cluster_props_sample.pdf", width = 12, height = 12)
+print(last_plot())
+dev.off()
+
+##################################
+##Proportion by bio variables 
+##################################
+make_prop_barplot <- function(variable) {
+  
+  cell_counts <- table(seurat@meta.data[["SampleID"]], seurat@meta.data[[variable]], seurat@meta.data[["celltype"]]) %>% as.data.frame() %>% dplyr::filter(Freq != 0)
+  colnames(cell_counts) <- c("SampleID", as.character(variable), "celltype", "Freq")
+  
+  cell_counts$celltype <- factor(cell_counts$celltype, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Misc-NT", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))
+  cell_counts[[variable]] <- factor(cell_counts[[variable]], levels = levels(seurat@meta.data[[variable]]))
+
+  proportions <- cell_counts %>% 
+    dplyr::group_by(!!sym(variable)) %>% 
+    dplyr::mutate(total_counts = sum(Freq),
+           Proportion = Freq / total_counts) %>% 
+    ungroup()
+  
+  plot <- ggplot(proportions, aes(x = !!sym(variable), y = Proportion, fill = celltype)) +
+    geom_bar(position = "stack", stat = "identity") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 20),
+          axis.title.x = element_text(size = 22),
+          axis.text.y = element_text(size = 20),
+          axis.title.y = element_text(size = 22),
+          legend.text =  element_text(size = 20),
+          legend.title = element_text(size = 20)) +
+    scale_fill_manual(values = cell_hex_colors) + 
+    labs(fill = "Cell Type")
+  
+  return(plot)
+}
+
+gonad_plot <- make_prop_barplot("Gonad_new")
+sexchrom_plot <- make_prop_barplot("SexChrom")
+trisomy_plot <- make_prop_barplot("Trisomy")
+gt_plot <- make_prop_barplot("Genotype_new")
+
+# pdf("Plots/Final_Figures/Barplot/Cluster_props_ALL.pdf", width = 16, height = 8)
+# ggarrange(plotlist = list(gt_plot, gonad_plot, sexchrom_plot, trisomy_plot), nrow = 1, widths = c(4, 4, 4, 4), heights = c(1, 1, 1, 5))
+# dev.off()
+
+pdf("Plots/Final_Figures/Barplot/metacell_cluster_props_gonad.pdf", width = 4, height = 8)
+print(gonad_plot)
+dev.off()
+
+pdf("Plots/Final_Figures/Barplot/metacell_cluster_props_sexchrom.pdf", width = 4.6, height = 8)
+print(sexchrom_plot)
+dev.off()
+
+pdf("Plots/Final_Figures/Barplot/metacell_cluster_props_trisomy.pdf", width = 4.5, height = 9)
+print(trisomy_plot)
+dev.off()
+
+pdf("Plots/Final_Figures/Barplot/metacell_metacell_cluster_props_genotype.pdf", width = 8, height = 8)
+print(gt_plot)
+dev.off()
+```
+
+######################################
+##Speckle analysis
+######################################
+
+```{r}
+cell_metadata <- seurat@meta.data %>% dplyr::select(Sample_GT, Gonad, SexChrom, Genotype, celltype)
+sample_metadata <- seurat@meta.data %>% dplyr::select(Sample_GT, Gonad, SexChrom, Genotype, Trisomy)
 rownames(sample_metadata) <- NULL
 sample_metadata <- unique(sample_metadata)
-sample_metadata <- sample_metadata %>% 
-  group_by(Genotype) %>%
-  mutate(Sample2 = paste0(Genotype, row_number()))
+# sample_metadata <- sample_metadata %>%
+#   group_by(Genotype) %>%
+#   mutate(Sample2 = paste0(Genotype, row_number()))
+# cell_metadata <- left_join(cell_metadata, sample_metadata[, c(1, 5)], by = "data.sampleName") %>% relocate(Sample2)
 
-cell_metadata <- left_join(cell_metadata, sample_metadata[, c(1, 5)], by = "data.sampleName") %>% relocate(Sample2)
-
-cell.counts <- table(cell_metadata$cell.type, cell_metadata$data.sampleName) %>% t()
+cell.counts <- table(cell_metadata$celltype, cell_metadata$Sample_GT) %>% t()
 trueprops <- rowSums(cell.counts)/sum(rowSums(cell.counts))
 cell.counts <- cell.counts %>% as.data.frame() 
 
-cell_metadata <- left_join(cell_metadata, cell.counts, by = c("data.sampleName" = "Var1", "cell.type" = "Var2"))
+cell_metadata <- left_join(cell_metadata, cell.counts, by = c("Sample_GT" = "Var1", "celltype" = "Var2"))
 
 cell_metadata <- cell_metadata %>%
-  group_by(Sample2) %>%
-  mutate(Sample2 = factor(Sample2),
+  group_by(Sample_GT) %>%
+  mutate(Sample_GT = factor(Sample_GT),
          Genotype = factor(Genotype, levels = c("XXF", "XXM", "XXYF", "XXYM", "XYF", "XYM", "XYYF", "XYYM")))
 
-input <- cell_metadata %>%
-  dplyr::select(Sample2, Genotype, cell.type) %>%
-  filter(!cell.type %in% c("Unknown", "Intermediate Progenitor Cell"))
-input$cell.type2 <- plyr::mapvalues(input$cell.type, 
-                                    from = c("Myelinating Oligodendrocyte", "Oligodendrocyte Progenitor Cell"),
-                                    to = c("Myelinating.Oligo", "OPC"))
-input$cell.type2 <- factor(input$cell.type2)
-input2 <- input %>% 
-  filter(!cell.type == "Neuron")
-input2$cell.type2 <- plyr::mapvalues(input2$cell.type, 
-                                    from = c("Myelinating Oligodendrocyte", "Oligodendrocyte Progenitor Cell"),
-                                    to = c("Myelinating.Oligo", "OPC"))
-input2$cell.type2 <- factor(input2$cell.type2)
+input <- cell_metadata %>% dplyr::select(Sample_GT, Genotype, celltype)
+#input$celltype <- factor(input$celltype, levels = c("GABA", "GABA-Chol", "Glut", "Oligo", "OPC", "Astrocyte", "Ependymal", "Microglia", "Vascular"))
 ```
 
 ```{r}
-propeller(clusters = input$cell.type2, sample = input$Sample2, group = input$Genotype)
-
-##all cell types + by sample
-plot1 <- plotCellTypeProps(clusters=input$cell.type2, sample=input$Sample2) + 
+##visualize cell proportions -- stacked barplot 
+plot1 <- plotCellTypeProps(clusters=input$celltype, sample=input$Sample_GT) + 
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
         axis.title.x = element_text(margin = margin(t = 20)))
 ##all cell types + by genotype
-plot2 <- plotCellTypeProps(clusters=input$cell.type2, sample=input$Genotype) + 
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
-        axis.title.x = element_text(margin = margin(t = 20)))
-##no neuron cells + by sample
-plot3 <- plotCellTypeProps(clusters=input2$cell.type2, sample=input2$Sample2) + 
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
-        axis.title.x = element_text(margin = margin(t = 20)))
-##no neuron cells + by genotype 
-plot4 <- plotCellTypeProps(clusters=input2$cell.type2, sample=input2$Genotype) + 
+plot2 <- plotCellTypeProps(clusters=input$celltype, sample=input$Genotype) + 
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
         axis.title.x = element_text(margin = margin(t = 20)))
 
-pdf("Plots/Caden/Barplot/Cluster_prop_Sample.pdf", width = 20, height = 8)
-ggarrange(plotlist = list(plot1, plot3), nrow = 1)
+# pdf("Plots/QC/complete_SCT_dataset/Barplot/Cluster_prop.pdf", width = 20, height = 8)
+# ggarrange(plotlist = list(plot1, plot2), nrow = 1)
+# dev.off()
+
+pdf("Plots/Final_Figures/Barplot/Cluster_props_sample.pdf", width = 10, height = 8)
+ggarrange(plotlist = list(plot1), nrow = 1)
 dev.off()
 
-pdf("Plots/Caden/Barplot/Cluster_prop_Genotype.pdf", width = 10, height = 8)
-ggarrange(plotlist = list(plot2, plot4), nrow = 1)
+pdf("Plots/Final_Figures/Barplot/Cluster_props_gt.pdf", width = 6, height = 8)
+ggarrange(plotlist = list(plot2), nrow = 1)
 dev.off()
 
 ########
 
 ##get statistics 
-
-abundances <- table(input$cell.type, input$Sample2) 
+abundances <- table(input$celltype, input$Sample_GT) 
 abundances <- unclass(abundances) 
 
-index <- match(colnames(abundances), sample_metadata$Sample2)
+index <- match(colnames(abundances), sample_metadata$Sample_GT)
 sample_metadata <- sample_metadata[index, ]
 
 y <- DGEList(abundances, samples = sample_metadata)
 keep <- filterByExpr(y, group=y$samples$Genotype)
 y$counts <- y$counts[keep, ]
 
-design <- model.matrix(~Genotype, y$samples)
+design <- model.matrix(~Gonad + SexChrom, y$samples)
 y <- estimateDisp(y, design, trend="none")
 fit.ab <- glmQLFit(y, design, robust=TRUE, abundance.trend=FALSE)
-res <- glmQLFTest(fit.ab, coef=ncol(design))
+res <- glmQLFTest(fit.ab)
 
-topTags(res)
+summary(decideTests(res))
+topTags(res, adjust.method = "BH")
 
 write.table(res, file = "Results/ambient_RNA/DAG/celltype_abundance_test.txt", sep = "\t", quote = FALSE)
+
 #### - propeller weird 
-prop.logit <- getTransformedProps(clusters = input$cell.type2, 
-                                  sample = input$Sample2,
-                                  transform = "logit")
+output.logit <- propeller(clusters = input$celltype, sample = input$Sample_GT, group = input$Genotype, transform = "logit")
+output.logit
+
+prop.logit <- getTransformedProps(clusters = input$celltype, sample=input$Sample_GT,transform = "logit")
 design.anova <- model.matrix(~0+Genotype, data = sample_metadata)
+fit <- lmFit(prop.logit$TransformedProps,design.anova)
+fit <- eBayes(fit, robust=TRUE)
+topTable(fit)
 
-propeller.anova(prop.logit, design = design.anova, robust=TRUE,trend = FALSE, sort=TRUE)
-
+propeller.anova(prop.logit,design = design.anova, robust=TRUE, trend = FALSE, sort=TRUE, coef = 1)
 ```
+

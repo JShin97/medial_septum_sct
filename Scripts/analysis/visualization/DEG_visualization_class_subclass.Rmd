@@ -1,0 +1,296 @@
+---
+title: "DEG visualization for DEG_v3"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(data.table)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(ggplot2)
+library(ComplexUpset)
+library(ggpubr)
+library(readxl)
+library(tidytext)
+library(gtools)
+library(GeneOverlap)
+```
+
+```{r}
+gene_universe <- read.table("Gene_annotation/gene_universe.txt") %>% unlist(use.names = FALSE)
+
+###############################################################
+load(file = "Results/DEG_processed/DEG_v3/DEG_df_class.rda")
+
+gene_annotation <- readRDS("Data/Derived/gene_annotation.Rds")
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+gene_list <- read.table("Gene_annotation/gene_universe.txt") %>% unlist(use.names = FALSE)
+
+DEG_df_annotated_class <- left_join(DEG_df, gene_annotation2, by = c("gene"="mgi_symbol"))
+DEG_df_annotated_class$chromosome_name <- factor(DEG_df_annotated_class$chromosome_name, levels = c((1:19),"X","Y","MT"))
+DEG_df_class <- DEG_df 
+
+###############################################################
+load(file = "Results/DEG_processed/DEG_v3/DEG_df_subclass.rda")
+
+gene_annotation <- readRDS("Data/Derived/gene_annotation.Rds")
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+gene_list <- read.table("Gene_annotation/gene_universe.txt") %>% unlist(use.names = FALSE)
+
+DEG_df_annotated_subclass <- left_join(DEG_df, gene_annotation2, by = c("gene"="mgi_symbol"))
+DEG_df_annotated_subclass$chromosome_name <- factor(DEG_df_annotated_subclass$chromosome_name, levels = c((1:19),"X","Y","MT"))
+DEG_df_subclass <- DEG_df 
+```
+
+COUNT BARPLOTS
+```{r}
+p1 <- DEG_df_class %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(abs_Freq = Freq, 
+         Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = reorder_within(Var1, -abs_Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction")) 
+
+p2 <- DEG_df_class %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Class")) 
+
+p3 <- DEG_df_subclass %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(abs_Freq = Freq, 
+         Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = reorder_within(Var1, -abs_Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction")) 
+
+p4 <- DEG_df_subclass %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Subclass")) 
+
+pdf("Plots/DEG_v3/Barplot/Allsexeffects_count_ordered_.pdf", width = 23, height = 48)
+ggarrange(plotlist = list(p1, p2, p3, p4), nrow = 4)
+dev.off()
+```
+
+
+OVERLAP WITH NORMATIVE DIFFERENCE BARPLOTS 
+```{r}
+make_set_props <- function(df) {
+  
+  df_filtered <- df %>% 
+    dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+    mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")),
+           cell_type = factor(cell_type)) %>% dplyr::select(gene, effect, cell_type)
+  
+  sets <- as.data.frame(table(df_filtered$gene, df_filtered$effect, df_filtered$cell_type)) %>% 
+    pivot_wider(names_from = Var2, values_from = Freq) %>%
+    as.data.frame(check.names = FALSE) %>%
+    dplyr::filter(!Normative == 0)
+  sets <- sets %>%
+    mutate(shared = ifelse(rowSums(.[, 3:ncol(sets)]) > 2, 1, 0)) %>% ##make sure all columns are selected here 
+    group_by(Var3) %>%
+    relocate(Var1, Var3, Normative)
+  
+  for(col in c("Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")) {
+    sets[[col]] <- ifelse(sets$shared == 1, 0, sets[[col]])}
+  
+  sets <- sets %>% dplyr::summarise(across(where(is.numeric), sum)) %>%
+    dplyr::mutate(normative_unique = Normative - Gonad - SexChrom - `Gonad:SexChrom` - addX - addY1 - addY2 - shared)
+  
+  sets_prop <- t(apply(sets[-1], 1, function(row) row / row[1])) %>% as.data.frame()
+  rownames(sets_prop) <- sets$Var3
+  sets_prop <- sets_prop %>% rownames_to_column(var = "cell_type")
+  sets_prop$Normative <- NULL
+  sets_prop <- sets_prop %>% 
+    pivot_longer(cols = !cell_type, names_to = "Set", values_to = "Proportion")
+  
+  sets_order <- sets_prop %>% filter(Set == "normative_unique") %>% arrange(Proportion) %>% dplyr::select(cell_type) %>% unlist(use.names = FALSE)
+  sets_prop$cell_type <- factor(sets_prop$cell_type, levels = sets_order)
+  sets_prop$Set <- factor(sets_prop$Set, levels = c("normative_unique", "shared", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2"))
+  
+  return(sets_prop)
+}
+
+sets_prop_class <- make_set_props(DEG_df_class)
+sets_prop_subclass <- make_set_props(DEG_df_subclass)
+
+p1 <- ggplot(sets_prop_class, aes(x = cell_type, y = Proportion, fill = Set)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "",
+    y = "Proportion",
+    fill = "Category"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 14)) +
+  scale_fill_manual(values=c("#999999", "#1874CD", "#E69F00", "#68228B", "#90EE90", "#698B69", "#FF1493", "#BF3EFF"))
+
+p2 <- ggplot(sets_prop_subclass, aes(x = cell_type, y = Proportion, fill = Set)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "",
+    y = "Proportion",
+    fill = "Category"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 14)) +
+  scale_fill_manual(values=c("#999999", "#1874CD", "#E69F00", "#68228B", "#90EE90", "#698B69", "#FF1493", "#BF3EFF"))
+
+pdf("Plots/DEG_v3/Barplot/Normative_overlap.pdf", width = 10, height = 7)
+ggarrange(plotlist = list(p1, p2), nrow = 1, ncol = 2)
+dev.off()
+```
+
+OVERLAP WITH EXTERNAL GENE SETS 
+```{r}
+##Read in control sets 
+estrogen1 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_1.xlsx", sheet = 1) %>% dplyr::filter(padj < 0.05)
+colnames(estrogen1)[1] <- "gene"
+estrogen2 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_3.xlsx", sheet = 1) %>% dplyr::filter(padj < 0.05)
+colnames(estrogen2)[1] <- "gene"
+estrogen3 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/humphreys_2014_e2.xlsx", sheet = 2)
+estrogen4 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/gocz_2022_estrogen1.xlsx", sheet = 1, skip = 1) %>% 
+  dplyr::filter(p.adj. < 0.05)
+estrogen5 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/gocz_2022_estrogen2.xlsx", sheet = 1, skip = 1) %>% 
+  dplyr::filter(p.adj < 0.05)
+# estrogen6 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/fels_2021_erb.xlsx", sheet = 2) %>% 
+#   dplyr::filter(padj < 0.05)
+
+estrogen_list <- list()
+for(i in 1:7) {estrogen_list[[i]] <- readxl::read_xlsx("Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_2.xlsx", sheet = i) %>% dplyr::filter(padj < 0.05)
+}
+names(estrogen_list) <- excel_sheets(path = "Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_2.xlsx")
+
+li_androgen <- read_xlsx(path = "~/project-xyang123/cerebellum_sct/Gene_annotation/external_gene_sets/li_2024_androgens.xlsx", col_names = TRUE) %>%
+  dplyr::filter(Tissue == "Brain" & p_val_adj < 0.05)
+
+androgen1 <- li_androgen %>% filter(Comparison == "MSvsFS")
+androgen2 <- li_androgen %>% filter(Comparison == "FDvsFS")
+#androgen3 <- read_xlsx(path = "~/project-xyang123/cerebellum_sct/Gene_annotation/external_gene_sets/keleva_2022_androgen.xlsx", sheet = 2, col_names = TRUE)
+
+x_chromosome_genes <- gene_annotation2 %>% dplyr::filter(chromosome_name == "X")
+y_chromosome_genes <- gene_annotation2 %>% dplyr::filter(chromosome_name == "Y")
+escape_genes <- gene_annotation2 %>% dplyr::filter(Escapee == "Escapee")
+
+hormone_control_genes <- list(estrogen1$gene, estrogen2$gene, estrogen_list[[1]]$...1, estrogen_list[[2]]$...1, estrogen_list[[3]]$...1, estrogen_list[[4]]$...1, estrogen_list[[5]]$...1, estrogen_list[[6]]$...1, estrogen_list[[7]]$...1, estrogen3$`Gene name`, estrogen4$`Gene symbol`, estrogen5$`Gene symbol`, androgen1$Gene_symbol, androgen2$Gene_symbol)
+names(hormone_control_genes) <- c("gonad_estrogen_1", "gonad_estrogen_2", "gonad_estrogen_3", "gonad_estrogen_4", "gonad_estrogen_5", "gonad_estrogen_6", "gonad_estrogen_7", "gonad_estrogen_8", "gonad_estrogen_9", "gonad_estrogen_10", "gonad_estrogen_11", "gonad_estrogen_12", "gonad_androgen_1", "gonad_androgen_2")
+
+sex_control_genes <- list(x_chromosome_genes$mgi_symbol, escape_genes$mgi_symbol, y_chromosome_genes$mgi_symbol)
+names(sex_control_genes) <- c("X_chromosome", "X_inactivation_escape", "Y_chromosome")
+
+control_genes <- c(hormone_control_genes, sex_control_genes)
+names(control_genes) <- c(names(hormone_control_genes), names(sex_control_genes))
+
+#################################################################
+
+##Create proportion df 
+test_gene_overlap <- function(DEG_df) { ##input is dataframe with columns for celltype, effect, gene, adj.P.Val, logFC
+  
+  allcells <- unique(DEG_df[["cell_type"]])
+  result_list <- list()
+  for(i in 1:length(allcells)) {
+    
+    currentcell <- allcells[i]
+    deg_list <- DEG_df %>% 
+      dplyr::filter(cell_type == currentcell & adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+      mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2"))) %>% 
+      split(., f = .$effect)
+    deg_list <- lapply(deg_list, function(x) {x %>% dplyr::select(gene) %>% unlist(use.names = FALSE)})
+    
+    go.obj<- newGOM(control_genes, deg_list, genome.size = length(gene_universe))
+
+    pvals <- getMatrix(go.obj, name="pval") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "pval")
+    odds <- getMatrix(go.obj, name="odds.ratio") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "odds")
+    
+    cell_counts <- lapply(deg_list, function(x) {length(x)}) %>% do.call("rbind", .) %>% as.data.frame() %>% tibble::rownames_to_column(var = "set")
+    df <- left_join(pvals, odds, by=c("setA" = "setA", "setB" = "setB"))
+    df <- left_join(df, cell_counts, by=c("setB" = "set")) %>% dplyr::rename(setB_size = V1)
+    df$cell_type <- currentcell
+    df$adj.pval <- p.adjust(df$pval, method = "BH", n = (nrow(df)*length(allcells)))
+    
+    df$odds <- ifelse(df$adj.pval > 0.05, NA, df$odds)
+    
+    result_list[[currentcell]] <- df
+  }
+  return(result_list)
+}
+
+class_result_list <- test_gene_overlap(DEG_df_class)
+subclass_result_list <- test_gene_overlap(DEG_df_subclass)
+
+plot_list <- lapply(class_result_list, function(x) {
+  subset <- x[is.finite(x$odds), ]
+  max <- max(subset$odds) %>% ceiling()
+  min <- min(subset$odds) %>% floor()
+  
+  x$odds <- ifelse(x$odds == Inf, max + 10, x$odds)
+  x$setA <- factor(x$setA, levels = mixedsort(unique(x$setA)))
+  x$setB <- factor(x$setB, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY", "addY1", "addY2"))
+  
+  ggplot(x, aes(x = setA, y = setB, fill = odds)) +
+    geom_tile() +
+    theme_minimal() +
+    scale_fill_gradient2(low="pink", high="darkred", limits = c(0, max + 10)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95, size = 30),
+          axis.text.y = element_text(size = 30),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          text = element_text(size= 30)) +
+    ggtitle(x$cell_type)
+})
+
+pdf("Plots/DEG_v3/Overlap/control_sets_overlap_class.pdf", height = 17, width = 60)
+print(ggarrange(plotlist = plot_list, ncol = 6, nrow = 2))
+dev.off()
+```

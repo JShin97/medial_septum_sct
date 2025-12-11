@@ -1,0 +1,893 @@
+---
+title: "wkDA_prep"
+output: html_document
+date: "2024-07-16"
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct/")
+#knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(gtools)
+
+source("/u/project/xyang123/jshin/resources/mergeomics/Mergeomics_Version_1.99.0.R")
+source("/u/project/xyang123/jshin/medial_septum_sct/Scripts/analysis/extra/color_palette.R")
+```
+
+###################################
+## Step 1 : Read in input variables 
+###################################
+
+```{r}
+##Step 1 : Read in input variables
+celltype_networks <- "/u/home/j/jshin/scratch/medial_septum_sct/Data/Derived/network/SCING_complete/saved_networks/final_edges/"
+celltypes <- list.files(celltype_networks, full.names = FALSE, recursive = FALSE)
+celltypes <- gsub(".csv.gz", "", celltypes)
+
+#modfiles <- list.files("Results/MSEA/input_files/", full.names = FALSE, recursive = FALSE)
+```
+
+###################################
+## Step 2 : Prepare network file
+###################################
+
+```{r}
+##Step 2 : process SCING network file to be readable by mergeomics script 
+##Output = celltype-specific network and module file 
+
+#load("Results/celltype2_analysis/network/hdwgcna_associations/coef_pval_fdr_list.RDA")
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  
+  network <- read.csv2(paste0(celltype_networks, celltype, ".csv.gz"), sep = ",", row.names = 1)
+  colnames(network) <- c("TAIL", "HEAD", "WEIGHT")
+  
+  # scing_mods <- read.csv(paste0("/u/scratch/j/jshin/medial_septum_sct/Saves/network/SCING_2/gene_memberships/", celltype, ".gene_membership.50.csv.gz"), row.names = 1)
+  # 
+  # ##filter for biologically meaningful modules 
+  # pathway_list <- readRDS(paste0("Results/celltype2_analysis/network/module_pathways/", celltype, ".RDS"))
+  # gobp <- pathway_list[["GO:BP"]]
+  # gobp <- gobp[sapply(gobp, function(df) nrow(df) >= 5)]
+  # gobp <- do.call("rbind", gobp)
+  # gobp <- gobp %>% dplyr::filter(p.adjust < 0.05) 
+  # gobp$module <- factor(gobp$module, levels = unique(mixedsort(gobp$module)))
+  # 
+  # scing_mods <- scing_mods %>% dplyr::filter(cluster_membership %in% gobp$module)
+  # 
+  # ##filer for modules associated with sex factor of interest
+  # fdr_df <- fdr_list[[celltype]] %>% as.data.frame() %>% rownames_to_column(var = "effect") %>%
+  #   pivot_longer(cols = !effect, names_to = "module", values_to = "fdr") %>%
+  #   dplyr::filter(fdr < 0.05)
+  # effects <- unique(fdr_df$effect)
+  # 
+  # network <- network %>% dplyr::filter(TAIL %in% rownames(scing_mods) | HEAD %in% rownames(scing_mods))
+  
+  write.table(network, file = paste0("Results/complete_analysis/KDA/DEG_SD/input_files/network/", celltype, "_network.txt"), sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
+}
+```
+
+###################################
+## Step 2.5 : Prepare module file  
+###################################
+
+```{r}
+##Step 3 : create module files readable by mergeomics 
+
+##to-do: make modifle (MODULE = gene module number, gene = genename ) --> module key driver 
+
+##prepare modfile 
+##Limma results 
+load(file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell/DEG_df_RNA_SD.rda")
+DEG_df <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::mutate(effect = plyr::mapvalues(effect, 
+                                         from = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2"), 
+                                         to = c("Normative", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")))
+DEG_list <- split(DEG_df, f = DEG_df$effect)
+
+## version 1 : create celltype_effect modules 
+wKDA_input <- DEG_df %>% 
+  mutate(module = paste(effect, cell_type, sep = "_")) %>%
+  dplyr::select(module, gene)
+colnames(wKDA_input) <- c("MODULE", "NODE")
+wKDA_input <- wKDA_input[!is.na(wKDA_input$NODE), ]
+
+##filter out mitochondrial genes 
+wKDA_input <- wKDA_input[!grepl(pattern = "mt-", wKDA_input$NODE), ]
+celltypes <- unique(DEG_df$cell_type)
+
+for(i in 1:length(celltypes)) {
+  celltype <- celltypes[i]
+  index <- grepl(celltype, wKDA_input$MODULE)
+  celltype_modfile <- wKDA_input[index, ]
+  
+  if(celltype == "GABA") {celltype_modfile <- celltype_modfile[!grepl("-Chol", celltype_modfile$MODULE), ]}
+  
+  write.table(celltype_modfile, file = paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/modfile/celltype_modules/", celltype, "_modfile.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+}
+
+## version 2 : prepare celltype and sex-effect specific modfile 
+effects <- unique(DEG_df$effect)
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  for(j in 1:length(effects)) {
+    
+    effect <- effects[j]
+    module <- paste(effect, celltype, sep = "_")
+    module_modfile <- wKDA_input %>% dplyr::filter(MODULE %in% module)
+    
+    write.table(module_modfile, file = paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/modfile/sexeffect_modules/", module, "_modfile.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+  }
+}
+```
+
+###################################
+## Step 3 : Run wKDA (use cluster R script for real run) 
+###################################
+
+```{r}
+##Step 4 : run wkDA (use cluster R script for real run)
+
+##run all effects at once 
+modules <- list.files("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/modfile/celltype_modules", full.names = FALSE, recursive = FALSE)
+modules <- gsub("_modfile.txt", "", modules)
+
+for(i in 1:length(modules)) {
+  
+  module <- modules[i]
+  # celltype <- str_split(module, pattern = "_", n = 2)[[1]][1]
+  # effect <- str_split(module, pattern = "_", n = 2)[[1]][2]
+  
+  job.kda <- list()
+  job.kda$label <- module
+  job.kda$folder <- paste0("Results/complete_analysis/KDA/DEG_SD_metacell/", module) # parent folder for results
+  # Input a network
+  # columns: TAIL HEAD WEIGHT
+  job.kda$netfile <- paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/network/all_edges/", module, "_network.txt")
+  # Tab delimited text file of gene set containing two columns: MODULE, NODE
+  # Outputs from Module Merge script can be directly used
+  job.kda$modfile <- paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/modfile/celltype_modules/", module, "_modfile.txt")
+  
+  # 0.0-1.0 - 0.0 means not factoring in edge weights, 0.5 means partial influence,
+  # and 1.0 means full influence
+  job.kda$edgefactor<-0 #or 0 (less restrictions than 1)
+  # The searching depth for the KDA
+  job.kda$depth<-1 #can try 2 
+  # 0 means we do not consider the directions of the regulatory interactions
+  # while 1 is opposite.
+  job.kda$direction <- 0 
+  job.kda$nperm<-10000 ##10000 is better but takes longer 
+  
+  ## Let's run KDA!
+  job.kda <- kda.configure(job.kda)
+  job.kda <- kda.start(job.kda)
+  job.kda <- kda.prepare(job.kda)
+  job.kda <- kda.analyze(job.kda)
+  job.kda <- kda.finish(job.kda)
+  
+  job.kda <- kda2cytoscape(job.kda)
+  
+}
+
+##run by celltype and each effect separately 
+effects <- c("Normative", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")
+celltype <- celltypes
+for(i in 1) { ##make Normative network only
+  
+  effect <- effects[i]
+  module <- paste0(celltype, "_", effect)
+  
+  job.kda <- list()
+  job.kda$label <- celltype
+  job.kda$folder <- paste0("Results/celltype2_MAST_analysis/wkDA/", effect) # parent folder for results
+  # Input a network
+  # columns: TAIL HEAD WEIGHT
+  job.kda$netfile <- paste0("Results/celltype2_analysis/wkDA/input_files/network/all_edges/", celltype, "_network.txt")
+  # Tab delimited text file of gene set containing two columns: MODULE, NODE
+  # Outputs from Module Merge script can be directly used
+  job.kda$modfile <- paste0("Results/celltype2_MAST_analysis/wkDA/input_files/modfile/celltype_sexeffect_modules/", module, "_modfile.txt")
+  
+  # 0.0-1.0 - 0.0 means not factoring in edge weights, 0.5 means partial influence,
+  # and 1.0 means full influence
+  job.kda$edgefactor<-0 #or 0 (less restrictions than 1)
+  # The searching depth for the KDA
+  job.kda$depth<-1 #can try 2 
+  # 0 means we do not consider the directions of the regulatory interactions
+  # while 1 is opposite.
+  job.kda$direction <- 0 
+  job.kda$nperm<-2000 ##10000 is better but takes longer 
+  
+  ## Let's run KDA!
+  job.kda <- kda.configure(job.kda)
+  job.kda <- kda.start(job.kda)
+  job.kda <- kda.prepare(job.kda)
+  job.kda <- kda.analyze(job.kda)
+  job.kda <- kda.finish(job.kda)
+  
+  job.kda <- kda2cytoscape(job.kda)
+}
+```
+
+######################################################################
+## Step 4 : Create new network and node file
+######################################################################
+
+```{r}
+##Step 5 : Create new network and node file based on KDA results -- all effects at once (OLD VERSION)
+modules <- list.files("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/modfile/celltype_modules", full.names = FALSE, recursive = FALSE)
+modules <- gsub("_modfile.txt", "", modules)
+modules <- modules[5]
+
+for(i in 1:length(modules)) {
+  
+  celltype <- modules[i]
+  celltype_modfile <- read.delim(file = paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/modfile/celltype_modules/", celltype, "_modfile.txt"))
+  celltype_modfile <- celltype_modfile %>%
+      mutate(value = 1) %>%
+      pivot_wider(names_from = MODULE, values_from = value, values_fill = 0)
+  
+  kds <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD_metacell/", celltype, "/kda/", celltype, ".pvalues.txt"))
+  colnames(kds) <- c("MODULE", "NODE", "Pval", "FDR", "FOLD")
+  kds <- kds %>% dplyr::filter(FDR < 0.05) %>% arrange(Pval)
+  top_kds <- kds %>% 
+    mutate(effect =  gsub(paste0("_", celltype), "", MODULE)) %>%
+    dplyr::select(effect, NODE) %>% 
+    mutate(value = 1) %>%
+    pivot_wider(names_from = effect, values_from = value, values_fill = 0)
+    #slice_head(n = 20)
+
+  network <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/network/", celltype, "_network.txt"))
+  network <- network %>% dplyr::filter(TAIL %in% top_kds$NODE | HEAD %in% top_kds$NODE)
+  
+  nodes <- data.frame(NODE = unique(c(network$TAIL, network$HEAD)))
+  nodes$TOP_KD <- ifelse(nodes$NODE %in% top_kds$NODE, "YES", 
+                         ifelse(nodes$NODE %in% kds$NODE, "NO", "Not a KD"))
+  nodes <- nodes %>% 
+    mutate(LABEL = NODE,
+           SHAPE = ifelse(TOP_KD %in% c("YES"), "Diamond", "Ellipse"), 
+           COLOR = plyr::mapvalues(TOP_KD,
+                                   from = c("Not a KD", "NO", "YES"),
+                                   to = c("#D3D3D3", "#FFC0CB", "#FF0000")),
+           LABEL_SIZE = plyr::mapvalues(TOP_KD, 
+                                   from = c("Not a KD", "NO", "YES"),
+                                   to = c(20, 30, 45)), 
+           WIDTH = plyr::mapvalues(TOP_KD, 
+                                   from = c("Not a KD", "NO", "YES"),
+                                   to = c(60, 100, 150)),
+           HEIGHT = WIDTH)
+  
+    nodes_DEGs <- left_join(nodes, celltype_modfile, by = c("NODE"))
+    effect_colors <- c("Normative" = "rgb(102,194,165)","Gonad" = "rgb(252,141,98)", "SexChrom" = "rgb(166,216,84)",
+                       "addX" = "rgb(231,138,195)", "addY1" = "rgb(141,160,203)", "addY2" = "rgb(255,217,47)")
+    nodes_DEGs$colors <- apply(nodes_DEGs[, -c(1:8)], 1, function(x) {
+      paste(sprintf("'%s'", effect_colors[x == 1]), collapse = ",")
+    })
+    top_kds$colors <- apply(top_kds[, -c(1)], 1, function(x) {
+      paste(sprintf("'%s'", effect_colors[x == 1]), collapse = ",")
+    })
+    
+    nodes_DEGs$module_count <- sapply(nodes_DEGs$colors, function(x) {
+      # Count the number of 'rgb(' in the string
+      count <- str_count(x, "rgb\\(")
+      # Create a string of '1' repeated based on the count
+      paste(rep(1, count), collapse = ",")
+    })
+    top_kds$module_count <- sapply(top_kds$colors, function(x) {
+      # Count the number of 'rgb(' in the string
+      count <- str_count(x, "rgb\\(")
+      # Create a string of '1' repeated based on the count
+      paste(rep(1, count), collapse = ",")
+    })
+    nodes_DEGs$module_count <- ifelse(nodes_DEGs$module_count == "", 0, nodes_DEGs$module_count)
+    
+    nodes_DEGs$url <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", nodes_DEGs$module_count, "],backgroundColor:[", nodes_DEGs$colors, "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+    
+    nodes_DEGs[nodes_DEGs$module_count == 0, "url"] <-"https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[1],backgroundColor:['rgb(255,255,255)'],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}"
+    
+    top_kds$url <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", top_kds$module_count, "],backgroundColor:[", top_kds$colors, "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+    
+    top_kds <- top_kds[match(top_kds$NODE, nodes_DEGs[nodes_DEGs$TOP_KD == "YES", "NODE"]), ]
+    #nodes_DEGs[nodes_DEGs$TOP_KD == "YES", "url"] <- top_kds$url
+    
+    nodes <- nodes_DEGs %>% dplyr::select(NODE, TOP_KD, LABEL, SHAPE, COLOR, LABEL_SIZE, WIDTH, HEIGHT, url) 
+             
+    write.table(network, paste0("Results/complete_analysis/KDA/", celltype, "/cytoscape/", celltype, "_network_edited.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+    write.table(nodes, paste0("Results/complete_analysis/KDA/", celltype, "/cytoscape/", celltype, "_nodes_edited_deg.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+  
+}
+
+```
+
+```{r}
+##Step 5 : Create new network and node file based on KDA results -- celltype and effect separately (NEW VERSION -- USE THIS)
+#load(file = "Results/DEG_processed/DEG_v3/DEG_df_celltype2.rda")
+effects <- c("Normative", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")
+celltypes <- c("Astrocyte", "Ependymal", "GABA-Chol", "GABA", "Glut", "Inh_IMN", "Microglia", "Oligo", "OPC", "Vascular")
+
+for (i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i] #4 for GABA, 5 for Glut
+  celltype_modfile <- read.delim(file = paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/modfile/celltype_modules/", celltype, "_modfile.txt"))
+  celltype_modfile <- celltype_modfile %>%
+      mutate(value = 1) %>%
+      pivot_wider(names_from = MODULE, values_from = value, values_fill = 0)
+  
+  kd_list <- list()
+  effect_results <- list.dirs(paste0("Results/complete_analysis/KDA/DEG_SD_metacell/sexeffect_separate/", celltype), full.names = FALSE)
+  effect_results <- effect_results[grepl("cytoscape", effect_results)]
+  effect_results <- gsub("/cytoscape", "", effect_results)
+  for(j in 1:length(effect_results)) {
+    
+    effect <- effect_results[j]
+    kds <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD_metacell/sexeffect_separate/", celltype, "/", effect, "/kda/", celltype, ".pvalues.txt"))
+    colnames(kds) <- c("MODULE", "NODE", "Pval", "FDR", "FOLD")
+    kds <- kds %>% 
+      dplyr::filter(FDR < 0.05) %>% 
+      arrange(Pval)
+    top_kds <- kds %>% 
+      mutate(effect =  gsub(paste0("_", celltype), "", MODULE)) %>%
+      dplyr::select(effect, NODE, FDR) %>% 
+      #mutate(value = 1) %>%
+      pivot_wider(names_from = effect, values_from = FDR, values_fill = 0) ##fill with Pval and not value 
+      #slice_head(n = 5)
+    kd_list[[effect]] <- top_kds
+    
+  }
+  kd_list <- kd_list[effects]
+  names(kd_list) <- effects
+  
+  write.xlsx(kd_list[["Normative"]] %>% dplyr::mutate(Effect = "Typical") %>% dplyr::rename(Pval = "Normative"), 
+             file = "Plots/Final_Figures/SuppTables/typical_kda.xlsx") 
+  write.xlsx(kd_list[["GE"]] %>% dplyr::mutate(Effect = "GE") %>% dplyr::rename(Pval = "GE"), 
+             file = "Plots/Final_Figures/SuppTables/ge_kda.xlsx") 
+  write.xlsx(kd_list[["SCE"]] %>% dplyr::mutate(Effect = "SCE") %>% dplyr::rename(Pval = "SCE"), 
+             file = "Plots/Final_Figures/SuppTables/sce_kda.xlsx") 
+  write.xlsx(kd_list[["GExSCE"]] %>% dplyr::mutate(Effect = "GExSCE") %>% dplyr::rename(Pval = "GExSCE"), 
+             file = "Plots/Final_Figures/SuppTables/gexsce_kda.xlsx") 
+  write.xlsx(kd_list[["XCD"]] %>% dplyr::mutate(Effect = "XCD") %>% dplyr::rename(Pval = "XCD"), 
+             file = "Plots/Final_Figures/SuppTables/xcd_kda.xlsx")
+  write.xlsx(kd_list[["YCD1"]] %>% dplyr::mutate(Effect = "YCD1") %>% dplyr::rename(Pval = "YCD1"), 
+             file = "Plots/Final_Figures/SuppTables/ycd1_kda.xlsx") 
+  write.xlsx(kd_list[["YCD2"]] %>% dplyr::mutate(Effect = "YCD2") %>% dplyr::rename(Pval = "YCD2"), 
+             file = "Plots/Final_Figures/SuppTables/ycd2_kda.xlsx") 
+  
+  # Replace NULL elements with an empty dataframe 
+  kd_list <- Map(function(df, name) {
+    if (is.null(df)) {
+        data.frame(NODE = character(), setNames(list(double()), name))
+      } else {
+        df
+      }
+    }, kd_list, names(kd_list))
+
+  # Function to merge dataframes in list by 'genes'
+  kd_df <- Reduce(function(x, y) full_join(x, y, by = "NODE"), kd_list)
+  kd_df$TOP_MODULE <- apply(kd_df[, -c(1)], 1, function(x) {
+     colnames(kd_df[, -c(1)])[which.min(x)]
+  })
+  # Replace NA with 0 in effect columns
+  kd_df[is.na(kd_df)] <- 0
+  
+  network <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD_metacell/input_files/network/", celltype, "_network.txt"))
+  network$WEIGHT <- 1
+  network <- network %>% dplyr::filter(TAIL %in% kd_df$NODE | HEAD %in% kd_df$NODE)
+  
+  nodes <- data.frame(NODE = unique(c(network$TAIL, network$HEAD)))
+  nodes <- left_join(nodes, celltype_modfile, by = "NODE")
+  colnames(nodes) <- gsub(paste0("_", celltype), "", colnames(nodes))
+  
+  # effect_colors <- c("Normative" = "rgb(255,0,0)","Gonad" = "rgb(30,144,255)", "SexChrom" = "rgb(154,205,50)",
+  #                    "Gonad:SexChrom" = "rgb(255,215,0)", "addX" = "rgb(0,255,127)", "addY1" = "rgb(0,255,255)",
+  #                    "addY2" = "rgb(64,224,208)")
+  effect_colors <- effect_rgb_colors
+  kd_df <- kd_df %>%
+    mutate(TOP_MODULE_COLOR = effect_colors[TOP_MODULE])
+
+  kd_df$colors <- apply(kd_df[, colnames(kd_df) %in% effects], 1, function(row) {
+    paste(sprintf("'%s'", effect_colors[names(row)[row > 0]]), collapse = ",") })
+  
+  kd_df$module_count <- sapply(kd_df$colors, function(x) {
+    # Count the number of 'rgb(' in the string
+    count <- str_count(x, "rgb\\(")
+    # Create a string of '1' repeated based on the count
+    paste(rep(1, count), collapse = ",")
+  })
+
+  nodes$colors <- apply(nodes[, colnames(nodes) %in% effects], 1, function(row) {
+    paste(sprintf("'%s'", effect_colors[names(row)[row > 0]]), collapse = ",") })
+  nodes$module_count <- sapply(nodes$colors, function(x) {
+    # Count the number of 'rgb(' in the string
+    count <- str_count(x, "rgb\\(")
+    # Create a string of '1' repeated based on the count
+    paste(rep(1, count), collapse = ",")
+  })
+  nodes$module_count <- ifelse(nodes$module_count == "", 0, nodes$module_count)
+  
+  nodes$url <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", nodes$module_count, "],backgroundColor:[", nodes$colors, "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+  
+  nodes[nodes$module_count == 0, "url"] <-"https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[1],backgroundColor:['rgb(255,255,255)'],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}"
+  
+  kd_df$url <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", kd_df$module_count, "],backgroundColor:[", kd_df$colors, "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+  
+  nodes <- nodes %>% 
+    mutate(LABEL = NODE,
+           TOP_KD = ifelse(NODE %in% kd_df$NODE, "YES", "NO"),
+           SHAPE = ifelse(TOP_KD %in% c("YES"), "Diamond", "Ellipse"),
+           LABEL_SIZE = plyr::mapvalues(TOP_KD, 
+                                        from = c("NO", "YES"),
+                                        to = c("40", "60")),
+           WIDTH = plyr::mapvalues(TOP_KD, 
+                                   from = c("NO", "YES"),
+                                   to = c(100, 200)),
+           HEIGHT = WIDTH)
+  
+  nodes <- nodes %>% 
+    left_join(kd_df[, colnames(kd_df) %in% c("NODE", "TOP_MODULE", "TOP_MODULE_COLOR", "module_count", "url")], by = "NODE", suffix = c("", "_new")) %>% 
+    mutate(url = coalesce(url_new, url),
+           module_count = coalesce(module_count_new, module_count)) %>%             # Replace with new values if available
+  dplyr::select(-url_new, -module_count_new)                     
+  
+  nodes <- nodes %>% dplyr::select(NODE, TOP_KD, LABEL, SHAPE, LABEL_SIZE, WIDTH, HEIGHT, TOP_MODULE_COLOR, url) 
+             
+    write.table(network, paste0("Results/complete_analysis/KDA/DEG_SD_metacell/sexeffect_separate/", celltype, "/", celltype, "_network_edited.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+    write.table(nodes, paste0("Results/complete_analysis/KDA/DEG_SD_metacell/sexeffect_separate/", celltype, "/", celltype, "_nodes_edited.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+}
+```
+
+######################################################################
+## Step 5 : Create new network and node file for Dosage subnetworks 
+######################################################################
+
+```{r}
+effects <- c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")
+celltypes <- celltypes[celltypes != "Misc_NT"]
+effect_colors <- c("Normative" = "rgb(255,0,0)","Gonad" = "rgb(30,144,255)", "SexChrom" = "rgb(154,205,50)","Gonad:SexChrom" = "rgb(255,215,0)", "addX" = "rgb(0,255,127)", "addY1" = "rgb(0,255,255)","addY2" = "rgb(64,224,208)") ##original colors 
+
+direction_effect_colors <- c("addX_UP" = "rgb(31,120,180)", "addX_DOWN" = "rgb(166,206,227)", 
+                             "addY1_UP" = "rgb(205,14,16)", "addY1_DOWN" = "rgb(251,154,153)",
+                             "addY2_UP" = "rgb(117,60,177)", "addY2_DOWN" = "rgb(202,178,214)")
+
+load(file = "Results/complete_analysis/DEG_processed/DEG_df_RNA_SD.rda")
+DEG_df <- DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::mutate(DIRECTION = ifelse(logFC > 0, "UP", "DOWN")) %>% 
+  dplyr::mutate(DIRECTION_MODULE = paste(effect, DIRECTION, sep = "_"))
+DEG_df <- DEG_df[!is.na(DEG_df$gene), ]
+
+##filter out mitochondrial genes 
+DEG_df <- DEG_df[!grepl(pattern = "mt-", DEG_df$gene), ]
+
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  celltype_df <- DEG_df %>% dplyr::filter(cell_type == celltype)
+  
+  celltype_network <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", celltype, "/", celltype, "_network_edited_2.txt"))
+  celltype_nodes <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", celltype, "/", celltype, "_nodes_edited_2.txt"))
+  
+  dose_kds <- celltype_nodes %>% 
+    dplyr::filter(TOP_MODULE_COLOR %in% effect_rgb_colors[c("addX", "addY1", "addY2")])
+  
+  dose_network <- celltype_network %>% 
+    dplyr::filter(TAIL %in% dose_kds$NODE | HEAD %in% dose_kds$NODE)
+  
+  network_genes <- c(dose_network$TAIL, dose_network$HEAD) %>% unique()
+  network_genes <- network_genes[!network_genes %in% dose_kds$NODE]
+  
+  dose_degs <- data.frame(gene = network_genes) %>% 
+    left_join(celltype_df, by = "gene") %>% 
+    dplyr::filter(gene %in% network_genes) %>% 
+    dplyr::select(DIRECTION_MODULE, gene) %>%
+    dplyr::mutate(value = 1) %>% 
+    pivot_wider(names_from = DIRECTION_MODULE, values_from = value, values_fill = 0)
+  
+  dose_degs <- dose_degs[, grepl("gene|addX|addY1|addY2", colnames(dose_degs))]
+  
+  dose_degs$colors <- apply(dose_degs[, -1], 1, function(row) {
+   paste(sprintf("'%s'", direction_effect_colors[names(row)[row > 0]]), collapse = ",")
+  })
+  
+  dose_degs$module_count <- sapply(dose_degs$colors, function(x) {
+    # Count the number of 'rgb(' in the string
+    count <- str_count(x, "rgb\\(")
+    # Create a string of '1' repeated based on the count
+    paste(rep(1, count), collapse = ",")
+  })
+  dose_degs$module_count <- ifelse(dose_degs$module_count == "", 0, dose_degs$module_count)
+  
+  dose_degs$url <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", dose_degs$module_count, "],backgroundColor:[", dose_degs$colors, "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+  
+  dose_degs[dose_degs$module_count == 0, "url"] <-"https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[1],backgroundColor:['rgb(255,255,255)'],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}"
+
+  dose_degs <- dose_degs %>%
+    mutate(NODE = gene,
+           LABEL = NODE,
+           TOP_KD = FALSE,
+           SHAPE = "Ellipse", 
+           LABEL_SIZE = 40,
+           WIDTH = 100,
+           HEIGHT = 100,
+           TOP_MODULE_COLOR = NA)
+  dose_degs <- dose_degs[, colnames(dose_kds)]
+  
+  dose_nodes <- rbind(dose_kds, dose_degs)
+  
+  #dose_nodes <- data.frame(NODE = network_genes) %>% left_join(dose_genes, by = "NODE")
+  #dose_nodes <- rbind(dose_kds, dose_degs)
+  
+  write.table(dose_network, file = paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", celltype, "/", celltype, "_dose_network.txt"), sep = "\t", quote = FALSE, row.names = FALSE)
+  write.table(dose_nodes, file = paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", celltype, "/", celltype, "_dose_nodes.txt"), sep = "\t", quote = FALSE, row.names = FALSE)
+}
+
+```
+
+######################################################################
+## Step 6 : Create new network and node file for Glut/GABA/Chol -- WIP 
+######################################################################
+
+```{r}
+##Step 5 : Create new network and node file based on KDA results -- celltype and effect separately 
+#load(file = "Results/DEG_processed/DEG_v3/DEG_df_celltype2.rda")
+effects <- c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")
+celltypes <- celltypes[celltypes != "Misc_NT"]
+
+celltype_kd_list <- list()
+network_list <- list()
+for (i in 3:5) {
+  
+  celltype <- celltypes[i] #3 for GABA-chol, 4 for GABA, 5 for Glut
+  celltype_modfile <- read.delim(file = paste0("Results/complete_analysis/KDA/DEG_SD/input_files/modfile/celltype_modules/", celltype, "_modfile.txt"))
+  celltype_modfile <- celltype_modfile %>%
+      mutate(value = 1) %>%
+      pivot_wider(names_from = MODULE, values_from = value, values_fill = 0)
+  
+  kd_list <- list()
+  effect_results <- list.dirs(paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", celltype), full.names = FALSE)
+  effect_results <- effect_results[grepl("cytoscape", effect_results)]
+  effect_results <- gsub("/cytoscape", "", effect_results)
+  for(j in 1:length(effect_results)) {
+    
+    effect <- effect_results[j]
+    kds <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", celltype, "/", effect, "/kda/", effect, ".pvalues.txt"))
+    colnames(kds) <- c("MODULE", "NODE", "Pval", "FDR", "FOLD")
+    kds <- kds %>% dplyr::filter(FDR < 0.05) %>% arrange(Pval)
+    top_kds <- kds %>% 
+      mutate(effect =  gsub(paste0("_", celltype), "", MODULE)) %>%
+      dplyr::select(effect, NODE, Pval) %>% 
+      #mutate(value = 1) %>%
+      pivot_wider(names_from = effect, values_from = Pval, values_fill = 0) %>%  ##fill with Pval and not value 
+      slice_head(n = 5)
+    kd_list[[effect]] <- top_kds
+    
+  }
+  kd_list <- kd_list[effects]
+  names(kd_list) <- effects
+  
+  kd_list <- Map(function(df, name) {
+    if (is.null(df)) {
+        data.frame(NODE = character(), setNames(list(double()), name))
+      } else {
+        df
+      }
+    }, kd_list, names(kd_list))
+
+  # Function to merge dataframes in list by 'genes'
+  kd_df <- Reduce(function(x, y) full_join(x, y, by = "NODE"), kd_list)
+  kd_df$TOP_MODULE <- apply(kd_df[, -c(1)], 1, function(x) {
+    colnames(kd_df[, -c(1)])[which.min(x)]
+  })
+  # Replace NA with 0 in effect columns
+  kd_df[is.na(kd_df)] <- 0
+  kd_df$Celltype <- celltype
+  
+  celltype_kd_list[[celltype]] <- kd_df
+  
+  network <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD/input_files/network/", celltype, "_network.txt"))
+  network <- network %>% dplyr::filter(TAIL %in% kd_df$NODE | HEAD %in% kd_df$NODE)
+  network$Celltype <- celltype
+  
+  network_list[[celltype]] <- network
+}
+
+celltype_kd <- do.call("rbind", celltype_kd_list)
+celltype_network <- do.call("rbind", network_list)
+
+for(i in 1:length(effects)) {
+  
+  effect <- effects[i]
+  
+  effect_kd <- celltype_kd %>% dplyr::filter(TOP_MODULE == effect)
+  
+  # celltype_kd_long <- celltype_kd %>% 
+  #   dplyr::select(NODE, !!sym(effect), TOP_MODULE, Celltype) %>% 
+  #   dplyr::filter(!!sym(effect) > 0) %>% 
+  #   pivot_wider(names_from = Celltype, values_from = !!sym(effect)) %>% 
+  #   rowwise() %>%  # Operate row-wise for each gene
+  #   mutate(
+  #     Celltype_count = sum(!is.na(c_across(3:ncol(.)))),  # Count non-NA values from column 2 to the last column
+  #     min_pval = min(c_across(3:ncol(.)), na.rm = TRUE)  # Calculate minimum p-value, ignoring NAs
+  #   ) %>%
+  #   ungroup() %>% 
+  #   arrange(desc(Celltype_count), min_pval)
+  # 
+  # effect_kd <- celltype_kd_long %>% 
+  #   dplyr::filter(Celltype_count > 1) %>%
+  #   pivot_longer(cols = 3:5, 
+  #                names_to = "Celltype", 
+  #                values_to = "pval") %>% 
+  #   dplyr::filter(!is.na(pval)) %>% 
+  #   group_by(Celltype) %>%
+  #   slice_min(order_by = min_pval, n = 10) %>%
+  #   ungroup() %>% 
+  #   mutate(TOP_MODULE = effect) 
+
+  effect_network <- celltype_network %>% dplyr::filter(TAIL %in% effect_kd$NODE | HEAD %in% effect_kd$NODE)
+  
+  nodes <- data.frame(NODE = unique(c(effect_network$TAIL, effect_network$HEAD)))
+  nodes <- nodes %>% 
+    left_join(effect_kd, by = "NODE") %>% 
+    mutate(TOP_MODULE_COLOR = effect_rgb_colors[TOP_MODULE],
+           CELLTYPE_COLOR = paste0("'", cell_rgb_colors[Celltype], "'"))
+  
+  ##add celltype info for non-kd nodes 
+  celltype_nodes <- effect_network %>% 
+    dplyr::select(-WEIGHT) %>%
+    pivot_longer(cols = c(TAIL, HEAD), names_to = "Position", values_to = "NODE") %>%
+    dplyr::select(NODE, Celltype) %>%
+    distinct(NODE, Celltype, .keep_all = TRUE) %>% 
+    dplyr::mutate(value = 1) %>% 
+    pivot_wider(names_from = Celltype, values_from = value, values_fill = 0)
+  
+  nodes <- left_join(nodes, celltype_nodes, by = "NODE")
+  nodes[is.na(nodes$TOP_MODULE), "CELLTYPE_COLOR"] <-  apply(nodes[is.na(nodes$TOP_MODULE), colnames(nodes) %in% c("GABA", "Glut", "GABA-Chol")], 1, function(row) {
+    paste(sprintf("'%s'", cell_rgb_colors[names(row)[row > 0]]), collapse = ",")})
+  nodes[is.na(nodes$TOP_MODULE), "CELL_COUNT"] <- sapply(nodes[is.na(nodes$TOP_MODULE), "CELLTYPE_COLOR"], function(x) {
+      # Count the number of 'rgb(' in the string
+      count <- str_count(x, "rgb\\(")
+      # Create a string of '1' repeated based on the count
+      paste(rep(1, count), collapse = ",")
+    })
+
+  nodes[is.na(nodes$TOP_MODULE), "url"] <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", nodes[is.na(nodes$TOP_MODULE), "CELL_COUNT"], "],backgroundColor:[", nodes[is.na(nodes$TOP_MODULE), "CELLTYPE_COLOR"], "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+  
+  nodes[!is.na(nodes$TOP_MODULE), "url"] <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[1],backgroundColor:[", nodes[!is.na(nodes$TOP_MODULE), "CELLTYPE_COLOR"], "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+  
+  nodes <- nodes %>% 
+    mutate(LABEL = NODE,
+           TOP_KD = ifelse(is.na(TOP_MODULE), "NO", "YES"),
+           SHAPE = ifelse(TOP_KD %in% c("YES"), "Diamond", "Ellipse"),
+           LABEL_SIZE = plyr::mapvalues(TOP_KD, 
+                                        from = c("NO", "YES"),
+                                        to = c("40", "60")),
+           WIDTH = plyr::mapvalues(TOP_KD, 
+                                   from = c("NO", "YES"),
+                                   to = c(100, 200)),
+           HEIGHT = WIDTH)
+  
+  
+  write.table(effect_network, paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", effect, "_interneuron_network_edited.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+  write.table(nodes, paste0("Results/complete_analysis/KDA/DEG_SD/sexeffect_separate/", effect, "_interneuron_nodes_edited.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+  
+}
+
+
+```
+
+
+######################################################################
+## Extra : Test on xenium panel genes 
+######################################################################
+
+```{r}
+##run KDA on xenium panel subnetworks
+xenium_panel <- read.csv("/u/project/xyang123/jshin/resources/XeniumPrimeMouse5Kpan_tissue_pathways_metadata.csv")
+brain_panel <- read.csv("/u/project/xyang123/jshin/resources/Xenium_mBrain_v1.1_metadata.csv")
+effects <- c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")
+
+load(file = "Results/complete_analysis/DEG_processed/DEG_df_RNA_SD.rda")
+DEG_df <- DEG_df %>% filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) 
+DEG_list <- split(DEG_df, f = DEG_df$effect)
+DEG_celltype_list <- split(DEG_df, f = DEG_df$cell_type)
+
+for(i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i]
+  celltype_network <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD/input_files/network/", celltype, "_network.txt"))
+  celltype_network <- celltype_network %>% dplyr::filter(TAIL %in% xenium_panel$gene_name & HEAD %in% xenium_panel$gene_name)
+  write.table(celltype_network, paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/input_files/network/", celltype, "_network.txt"), sep = "\t", quote = FALSE, row.names = FALSE)
+  
+  celltype_DEG <- DEG_celltype_list[[celltype]] %>% 
+    dplyr::filter(gene %in% xenium_panel$gene_name)
+  celltype_DEG$module <- paste(celltype_DEG$cell_type, celltype_DEG$effect, sep = "_")
+  celltype_module_DEG <- split(celltype_DEG, f = celltype_DEG$module) 
+  
+  celltype_DEG <- celltype_DEG %>% 
+    dplyr::select(effect, gene)
+  colnames(celltype_DEG) <- c("MODULE", "NODE")
+  write.table(celltype_DEG, paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/input_files/modfile/", celltype, ".txt"), sep = "\t", quote = FALSE, row.names = FALSE)
+  
+  lapply(seq_along(celltype_module_DEG), function(i) {
+    celltype_module <- names(celltype_module_DEG)[i]
+    x <- celltype_module_DEG[[i]] %>% 
+      dplyr::select(module, gene)
+    colnames(x) <- c("MODULE", "NODE")
+    write.table(x, paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/input_files/modfile/", celltype_module, ".txt"), sep = "\t", quote = FALSE, row.names = FALSE)
+  })
+}
+
+run_KDA <- function(celltype, effect) {
+  
+  job.kda <- list()
+  job.kda$label <- effect
+  job.kda$folder <- paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test", "/", celltype, "/", effect) # parent folder for results
+  # Input a network
+  # columns: TAIL HEAD WEIGHT
+  job.kda$netfile <- paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/input_files/network/", celltype, "_network.txt")
+  # Tab delimited text file of gene set containing two columns: MODULE, NODE
+  # Outputs from Module Merge script can be directly used
+  job.kda$modfile <- paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/input_files/modfile/", celltype, "_", effect, ".txt")
+  
+  # 0.0-1.0 - 0.0 means not factoring in edge weights, 0.5 means partial influence,
+  # and 1.0 means full influence
+  job.kda$edgefactor<-0 #or 0 (less restrictions than 1)
+  # The searching depth for the KDA
+  job.kda$depth<-1 #can try 2 
+  # 0 means we do not consider the directions of the regulatory interactions
+  # while 1 is opposite.
+  job.kda$direction <- 0 
+  job.kda$nperm<-2000 ##10000 is better but takes longer 
+  
+  ## Let's run KDA!
+  job.kda <- kda.configure(job.kda)
+  job.kda <- kda.start(job.kda)
+  job.kda <- kda.prepare(job.kda)
+  job.kda <- kda.analyze(job.kda)
+  job.kda <- kda.finish(job.kda)
+  
+  job.kda <- kda2cytoscape(job.kda)
+}
+
+for(i in 5) {
+  
+  celltype <- celltypes[i]
+  
+  if(!dir.exists(paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/", celltype))) {
+    dir.create(paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/", celltype))
+  }
+  
+  try(run_KDA(celltype, "Normative"), silent = TRUE)
+  try(run_KDA(celltype, "Gonad"), silent = TRUE)
+  try(run_KDA(celltype, "SexChrom"), silent = TRUE)
+  try(run_KDA(celltype, "Gonad:SexChrom"), silent = TRUE)
+  try(run_KDA(celltype, "addX"), silent = TRUE)
+  try(run_KDA(celltype, "addY1"), silent = TRUE)
+  try(run_KDA(celltype, "addY2"), silent = TRUE)
+} ##fix this so that it keeps going even after no KDs found
+
+```
+
+```{r}
+##Step 5 : Create new network and node file based on KDA results -- celltype and effect separately (NEW VERSION)
+#load(file = "Results/DEG_processed/DEG_v3/DEG_df_celltype2.rda")
+effects <- c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")
+celltypes <- celltypes[celltypes != "Misc_NT"]
+
+for (i in 1:length(celltypes)) {
+  
+  celltype <- celltypes[i] #4 for GABA, 5 for Glut
+  celltype_modfile <- read.delim(file = paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/input_files/modfile/", celltype, ".txt"))
+  celltype_modfile <- celltype_modfile %>%
+      mutate(value = 1) %>%
+      pivot_wider(names_from = MODULE, values_from = value, values_fill = 0)
+  
+  kd_list <- list()
+  effect_results <- list.dirs(paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/", celltype), full.names = FALSE)
+  effect_results <- effect_results[grepl("cytoscape", effect_results)]
+  effect_results <- gsub("/cytoscape", "", effect_results)
+  for(j in 1:length(effect_results)) {
+    
+    effect <- effect_results[j]
+    kds <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/", celltype, "/", effect, "/kda/", effect, ".pvalues.txt"))
+    colnames(kds) <- c("MODULE", "NODE", "Pval", "FDR", "FOLD")
+    kds <- kds %>% dplyr::filter(FDR < 0.05) %>% arrange(Pval)
+    top_kds <- kds %>% 
+      mutate(effect =  gsub(paste0("_", celltype), "", MODULE)) %>%
+      dplyr::select(effect, NODE, Pval) %>% 
+      #mutate(value = 1) %>%
+      pivot_wider(names_from = effect, values_from = Pval, values_fill = 0) %>% ##fill with Pval and not value 
+      slice_head(n = 5)
+    kd_list[[effect]] <- top_kds
+    
+  }
+  kd_list <- kd_list[effects]
+  names(kd_list) <- effects
+  
+  kd_list <- Map(function(df, name) {
+    if (is.null(df)) {
+        data.frame(NODE = character(), setNames(list(double()), name))
+      } else {
+        df
+      }
+    }, kd_list, names(kd_list))
+
+  # Function to merge dataframes in list by 'genes'
+  kd_df <- Reduce(function(x, y) full_join(x, y, by = "NODE"), kd_list)
+  colnames(kd_df) <- gsub(paste0(celltype, "_"), "", colnames(kd_df))
+  kd_df$TOP_MODULE <- apply(kd_df[, -c(1)], 1, function(x) {
+     colnames(kd_df[, -c(1)])[which.min(x)]
+  })
+  # Replace NA with 0 in effect columns
+  kd_df[is.na(kd_df)] <- 0
+  
+  network <- read.delim(paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/input_files/network/", celltype, "_network.txt"))
+  network$WEIGHT <- 1
+  network <- network %>% dplyr::filter(TAIL %in% kd_df$NODE | HEAD %in% kd_df$NODE)
+  
+  nodes <- data.frame(NODE = unique(c(network$TAIL, network$HEAD)))
+  nodes <- left_join(nodes, celltype_modfile, by = "NODE")
+  colnames(nodes) <- gsub(paste0("_", celltype), "", colnames(nodes))
+  
+  effect_colors <- c("Normative" = "rgb(255,0,0)","Gonad" = "rgb(30,144,255)", "SexChrom" = "rgb(154,205,50)",
+                     "Gonad:SexChrom" = "rgb(255,215,0)", "addX" = "rgb(0,255,127)", "addY1" = "rgb(0,255,255)",
+                     "addY2" = "rgb(64,224,208)")
+  kd_df <- kd_df %>%
+    mutate(TOP_MODULE_COLOR = effect_colors[TOP_MODULE])
+
+  kd_df$colors <- apply(kd_df[, colnames(kd_df) %in% c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")], 1, function(row) {
+  paste(sprintf("'%s'", effect_colors[names(row)[row > 0]]), collapse = ",")
+})
+  
+  kd_df$module_count <- sapply(kd_df$colors, function(x) {
+    # Count the number of 'rgb(' in the string
+    count <- str_count(x, "rgb\\(")
+    # Create a string of '1' repeated based on the count
+    paste(rep(1, count), collapse = ",")
+  })
+
+  nodes$colors <- apply(nodes[, colnames(nodes) %in% c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")], 1, function(row) {
+  paste(sprintf("'%s'", effect_colors[names(row)[row > 0]]), collapse = ",")
+  })
+  nodes$module_count <- sapply(nodes$colors, function(x) {
+    # Count the number of 'rgb(' in the string
+    count <- str_count(x, "rgb\\(")
+    # Create a string of '1' repeated based on the count
+    paste(rep(1, count), collapse = ",")
+  })
+  nodes$module_count <- ifelse(nodes$module_count == "", 0, nodes$module_count)
+  
+  nodes$url <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", nodes$module_count, "],backgroundColor:[", nodes$colors, "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+  
+  nodes[nodes$module_count == 0, "url"] <-"https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[1],backgroundColor:['rgb(255,255,255)'],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}"
+  
+  kd_df$url <- paste0("https://quickchart.io/chart?c={type:'pie',data:{labels:[],datasets:[{data:[", kd_df$module_count, "],backgroundColor:[", kd_df$colors, "],},],},options:{legend:{display:false},plugins:{datalabels:{display:false}},elements:{arc:{backgroundColor:'transparent',borderColor:'transparent'},},},}")
+  
+  nodes <- nodes %>% 
+    mutate(LABEL = NODE,
+           TOP_KD = ifelse(NODE %in% kd_df$NODE, "YES", "NO"),
+           SHAPE = ifelse(TOP_KD %in% c("YES"), "Diamond", "Ellipse"),
+           LABEL_SIZE = plyr::mapvalues(TOP_KD, 
+                                        from = c("NO", "YES"),
+                                        to = c("40", "60")),
+           WIDTH = plyr::mapvalues(TOP_KD, 
+                                   from = c("NO", "YES"),
+                                   to = c(100, 200)),
+           HEIGHT = WIDTH)
+  
+  nodes <- nodes %>% 
+    left_join(kd_df[, colnames(kd_df) %in% c("NODE", "TOP_MODULE", "TOP_MODULE_COLOR", "module_count", "url")], by = "NODE", suffix = c("", "_new")) %>% 
+    mutate(url = coalesce(url_new, url),
+           module_count = coalesce(module_count_new, module_count)) %>%             # Replace with new values if available
+  dplyr::select(-url_new, -module_count_new)                     
+  
+  nodes <- nodes %>% dplyr::select(NODE, TOP_KD, LABEL, SHAPE, LABEL_SIZE, WIDTH, HEIGHT, TOP_MODULE_COLOR, url) 
+             
+    write.table(network, paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/", celltype, "/", celltype, "_network_edited.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+    write.table(nodes, paste0("Results/complete_analysis/KDA/DEG_SD/xenium_panel_test/", celltype, "/", celltype, "_nodes_edited.txt"), sep = "\t", quote = FALSE, col.names = TRUE, row.names = FALSE)
+}
+```
+
