@@ -11,5 +11,6 @@ Results/
 Gene_annotation/
 tmp/
 Scripts/supercell_scripts
+Scripts/cluster_scripts/logs/
 
 
