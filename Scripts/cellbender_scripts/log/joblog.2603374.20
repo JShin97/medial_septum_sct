@@ -1,0 +1,57 @@
+Job 2603374 started on:    g12
+Job 2603374 started on:    Mon Apr 8 02:06:02 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-5/outs/raw_feature_bc_matrix.h5 --output TriSeptum-5.h5 --cuda
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash 840a682a53)
+cellbender:remove-background: 2024-04-08 02:06:08
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-5/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 26040 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 9540
+cellbender:remove-background: Prior on counts for empty droplets is 361
+cellbender:remove-background: Excluding 6519 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 19521 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 180
+cellbender:remove-background: Using 2649 probable cell barcodes, plus an additional 11870 barcodes, and 64958 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 539 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2603374.20.gpu_RTX2080Ti.q/tmptvapsnyj
+cellbender:remove-background: No saved checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/base_cli.py", line 118, in main
+    cli_dict[args.tool].run(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/cli.py", line 185, in run
+    return main(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/cli.py", line 230, in main
+    posterior = run_remove_background(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 95, in run_remove_background
+    inferred_model, _, _, _ = run_inference(dataset_obj=dataset_obj, args=args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 750, in run_inference
+    final_elbo_fail_fraction=args.final_elbo_fail_fraction)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/contextlib.py", line 74, in inner
+    return func(*args, **kwds)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/train.py", line 178, in run_training
+    total_epoch_loss_train = train_epoch(svi, train_loader)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/train.py", line 60, in train_epoch
+    epoch_loss += svi.step(x_cell_batch)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/pyro/infer/svi.py", line 145, in step
+    loss = self.loss_and_grads(self.model, self.guide, *args, **kwargs)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/pyro/infer/traceenum_elbo.py", line 467, in loss_and_grads
+    (loss_particle / self.num_particles).backward(retain_graph=True)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/torch/_tensor.py", line 489, in backward
+    self, gradient, retain_graph, create_graph, inputs=inputs
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/torch/autograd/__init__.py", line 199, in backward
+    allow_unreachable=True, accumulate_grad=True)  # Calls into the C++ engine to run the backward pass
+RuntimeError: numel: integer multiplication overflow
+Job 2603374 ended on:    g12
+Job 2603374 ended on:    Mon Apr 8 02:06:18 PDT 2024
+ 

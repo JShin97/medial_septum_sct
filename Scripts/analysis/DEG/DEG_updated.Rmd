@@ -1,0 +1,205 @@
+---
+title: "DEG Analysis -- ignore"
+output: html_document
+date: "2023-11-08"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct/")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(tidyverse)
+library(Seurat)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(readxl)
+library(ggpubr)
+library(ggplotify)
+library(scuttle)
+library(str2str)
+library(dplyr)
+```
+
+############################################################
+##Step 1 : Load seurat object and prep metadata 
+############################################################
+
+```{r}
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds") %>% DietSeurat(counts = TRUE)
+allcells <- unique(seurat$celltype)
+
+##Edit metadata 
+seurat$Xdose <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% factor(levels = c(1, 2))
+seurat$Ydose <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% factor(levels = c(0, 1, 2))
+seurat$base_SexChrom <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c("XX", "XY", "XY", "XY")) %>% factor(levels = c("XY", "XX"))
+seurat$trisomyX <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XX", "XXY", "XYY"),
+                                       to = c(0, 0, 1, 0)) %>% as.numeric()
+seurat$trisomyY <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XX", "XXY", "XYY"),
+                                       to = c(0, 0, 0, 1)) %>% as.numeric()
+
+##previous analysis
+seurat$GenotypeaddX <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XYM", "XYF", "XXYM", "XXYF"),
+                                       to = c("XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF"))
+seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XXY"),
+                                       to = c(0, 1)) %>% as.numeric()
+seurat$GenotypeaddY <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XXM", "XXF", "XXYM", "XXYF", "XYM", "XYF", "XYYM", "XYYF"),
+                                       to = c("XXM", "XXF", "XXM", "XXF", "XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF", "XXM", "XXF"))
+seurat$addY <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 1)) %>% as.numeric()
+seurat$addY1 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 0)) %>% as.numeric()
+seurat$addY2 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 0, 0, 1)) %>% as.numeric()
+
+seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
+seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+
+seurat_list <- SplitObject(seurat, split.by = "celltype")
+```
+
+############################################################
+##Step 2 : Run Limma on Normative, FCG, addX, addY models 
+############################################################
+
+```{r}
+##normative analysis (XYM vs XXM) 
+resultlist_normative <- lapply(seq_along(seurat_list), function(i) {
+  currentcell <- names(seurat_list[i])
+  currentsubset <- seurat_list[[i]]
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$Genotype)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ] ##remove genes that are 0 in all cells 
+  dge <- calcNormFactors(dge)
+
+  design <- model.matrix(~Genotype + SampleID, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+})
+
+
+resultlist_normative <- list()
+for (i in 1:length(seurat_list)) {
+  currentcell <- names(seurat_list[i])
+  currentsubset <- seurat_list[[i]]
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ] ##remove genes that are 0 in all cells 
+  #keep.exprs <- filterByExpr(dge)
+  #dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+  
+  design <- model.matrix(~Genotype, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE) ##error? 
+
+  resultlist_normative[["XXF_vs_XYM"]] <- topTable(fit, n = Inf, adjust.method = "BH", coef = "GenotypeXXF")
+  save(resultlist_normative, file = paste0("~/scratch/medial_septum_sct/Data/Derived/Pseudobulk_DEG/normative/", currentcell,".rda"))
+}
+
+##sex effect analysis (Gonad, SexChrom, addX, addY) 
+resultlist_sexeffects <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+  
+  design <- model.matrix(~Gonad + base_SexChrom + addX + addY, data = currentsubset@meta.data)
+  
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_sexeffects[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, adjust.method = "BH", coef = "GonadFemale")
+  resultlist_sexeffects[["XX_vs_XY"]] <- topTable(fit, n = Inf, adjust.method = "BH", coef = "base_SexChromXX")
+  resultlist_sexeffects[["addX"]] <- topTable(fit, n = Inf, adjust.method = "BH", coef = "addX1") ##check coefficient name - might be addX 
+  resultlist_sexeffects[["addY"]] <- topTable(fit, n = Inf, adjust.method = "BH", coef = "addY1")
+  
+  save(resultlist_normative, file = paste0("~/scratch/medial_septum_sct/Data/Derived/Pseudobulk_DEG/sexeffects/", currentcell,".rda"))
+}
+
+```
+
+############################################################
+##Step 3 : Process DEGs into single dataframe 
+############################################################
+
+```{r}
+togenes <- list()
+DEG_results <- list()
+for(i in 1:length(allcells)) {
+  
+  currentcell <- as.character(allcells[i])
+  
+  load(paste0("~/scratch/medial_septum_sct/Data/Derived/Pseudobulk_DEG/normative/", currentcell,".rda"))
+  load(paste0("~/scratch/medial_septum_sct/Data/Derived/Pseudobulk_DEG/sexeffects/", currentcell,".rda"))
+  
+  ##Normative Effect 
+  for(k in 1:length(resultlist_normative)) {
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_normative[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+    
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  ##Sex Effects 
+  for(k in 1:length(resultlist_sexeffects)) {
+    currentframe <- resultlist_sexeffects[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_sexeffects[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+    
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+}
+
+deg_df <- do.call("rbind", DEG_results)
+topgenes_df <- do.call("rbind", topgenes)
+
+save(deg_df, topgenes_df, file = "yourfilepath.rda")
+```

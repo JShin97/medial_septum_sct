@@ -1,0 +1,256 @@
+---
+title: "DEG analysis"
+output: html_document
+date: "2023-10-01"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(plyr)
+library(dplyr)
+library(Seurat)
+#library(enrichplot)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+#library(simplifyEnrichment)
+library(stringr)
+library(EnhancedVolcano)
+library(biomaRt)
+library(readxl)
+library(UpSetR)
+library(tidyr)
+library(purrr)
+library(ggridges)
+library(ggpubr)
+library(ComplexHeatmap)
+library(ComplexUpset)
+library(ggplotify)
+```
+
+```{r}
+seurat <- readRDS( "~/scratch/medial_septum_sct/Saves/Pseudobulk_sce_to_seurat.RDS") %>% DietSeurat(counts = TRUE)
+```
+
+```{r, eval = FALSE}
+gene_annotation <- read.table("Gene_annotation/gene_annotation_final2.txt", sep = "\t", header=TRUE)
+par_genes <- c("Mid1", "Sts", "Nlgn4", "Asmt", "Mid1-ps", "Erdr1", "Mafl", "Asmtl", "Mafl-ps", "Dhrsx-ps", "VZI55075-ps", "Cd99", "Xg", "Arse", "Akap17a")
+xescape_brain <- read_xlsx("Gene_annotation/xescape_brain.xlsx")
+colnames(xescape_brain) <- xescape_brain[1, ]
+xescape_brain <- xescape_brain[-1, ]
+
+gene_annotation <- gene_annotation %>% mutate(PAR = ifelse(mgi_symbol %in% par_genes, "PAR", "Non-PAR"))
+gene_annotation <- gene_annotation %>% mutate(Escapee = ifelse(mgi_symbol %in% xescape_brain$Gene, "Escapee", "Non-escapee"))
+gene_annotation <- gene_annotation %>% mutate(Class = ifelse(chromosome_name %in% c("X", "Y"), "Sex-linked", "Autosomal"))
+
+rm(xescape_brain)
+saveRDS(gene_annotation, "~/scratch/medial_septum_sct/Saves/gene_annotation.Rds")
+```
+
+```{r}
+gene_annotation <- readRDS("~/scratch/medial_septum_sct/Saves/gene_annotation.Rds")
+
+organism <- org.Mm.eg.db
+
+gene_list <- rownames(seurat@assays$RNA@counts)
+gene_list <- na.omit(gene_list)
+```
+
+```{r}
+allcells <- c("Neuron", "Astrocyte", "Oligodendrocyte Progenitor Cell", "Microglia", "Myelinating Oligodendrocyte", "Endothelial", "Ependymal", "Intermediate Progenitor Cell")
+allcells <- gsub(" ", "_", allcells)
+allcells <- allcells[-8]
+```
+
+##Process DEG results into df 
+```{r}
+alldata <- list.dirs("~/scratch/old-scratch-julianas/medial_septum_sct/Data/Derived/DEG", recursive = TRUE)
+alldata <- alldata[c(6,9,10,11,12)]
+
+alldata <- list.dirs("~/scratch/old-scratch-julianas/medial_septum_sct/Data/Derived/Pseudobulk_sum_DEG", recursive = TRUE)
+alldata <- alldata[-c(1,3)]
+
+alldata <- list.dirs("~/scratch/old-scratch-julianas/medial_septum_sct/Data/Derived/Pseudobulk_DEG", recursive = TRUE)
+alldata <- alldata[-c(1)]
+
+alldata <- list.dirs("~/scratch/old-scratch-julianas/medial_septum_sct/Data/Derived/Supercell_DEG", recursive = TRUE)
+alldata <- alldata[-c(1)]
+
+topgenes <- list()
+DEG_results <- list()
+
+for(i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  #currentsupercell <- paste0("50sc_", currentcell)
+  
+  for(j in 1:length(alldata)) {
+    load(paste0(alldata[j], "/", currentcell, ".rda"))
+  }
+  
+  #for original DEG only
+  # resultlist_dose <- resultlist_full_cont
+  # resultlist_aneuploidy <- resultlist_add
+  # resultlist_quad <- resultlist_full_quad
+  
+  ##normative model
+  for(k in 1:length(resultlist_normative)) {
+
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    #currentframe <- currentframe %>% dplyr::filter(!grepl("Gm42418", gene))
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_normative[k])
+    currentmodel <- "Normative"
+    currentframe$cell <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##FCG model 
+  for(k in 1:length(resultlist_fcg)) {
+ 
+    currentframe <- resultlist_fcg[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    #currentframe <- currentframe %>% dplyr::filter(!grepl("Gm42418", gene))
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_fcg[k])
+    currentmodel <- "FCG"
+    currentframe$cell <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##dose model 
+  for(k in 1:length(resultlist_dose)) {
+ 
+    currentframe <- resultlist_dose[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    #currentframe <- currentframe %>% dplyr::filter(!grepl("Gm42418", gene))
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_dose[k])
+    currentmodel <- "Dose"
+    currentframe$cell <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Quadratic model 
+  for(k in 1:length(resultlist_quad)) {
+ 
+    currentframe <- resultlist_quad[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    #currentframe <- currentframe %>% dplyr::filter(!grepl("Gm42418", gene))
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_quad[k])
+    currentmodel <- "Quadratic"
+    currentframe$cell <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Aneuploidy model 
+  for(k in 1:length(resultlist_aneuploidy)) {
+ 
+    currentframe <- resultlist_aneuploidy[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    #currentframe <- currentframe %>% dplyr::filter(!grepl("Gm42418", gene))
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_aneuploidy[k])
+    currentmodel <- "Aneuploidy"
+    currentframe$cell <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+}
+
+save(topgenes, DEG_results, file = paste0("~/scratch/medial_septum_sct/Results/Supercell_DEG/50sc_allcells.Rda"))
+```
+
+```{r}
+sc_list <- list()
+for (i in c(100, 200, 300, 400, 500)) {
+  load(paste0("~/scratch/medial_septum_sct/Results/Supercell_DEG/", i, "sc_Neuron.Rda"))
+  DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+  DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+  DEG_df$comparison <- factor(DEG_df$comparison)
+  DEG_df$supercell_count <- i
+  DEG_df$method <- "supercell"
+  
+  name <- paste0("supercell_", as.character(i))
+  sc_list[[name]] <- DEG_df
+}
+
+load("~/scratch/medial_septum_sct/Results/Pseudobulk_DEG/Neuron.Rda")
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+DEG_df$comparison <- factor(DEG_df$comparison)
+DEG_df$supercell_count <- 0
+DEG_df$method <- "pseudobulk"
+sc_list[["pseudobulk"]] <- DEG_df
+
+load("~/scratch/medial_septum_sct/Results/DEG/Neuron.Rda")
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+DEG_df$comparison <- factor(DEG_df$comparison)
+DEG_df$supercell_count <- 0
+DEG_df$method <- "single_cell"
+sc_list[["single_cell"]] <- DEG_df
+
+combined_df <- do.call("rbind", sc_list)
+combined_df$supercell_count <- factor(combined_df$supercell_count)
+DEG_df <- combined_df
+```
+
+```{r}
+##merge DEG results in 1 df 
+
+#load(file = "Saves/Pseudobulk_DEG_results.Rda")
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Quadratic"))
+DEG_df$comparison <- factor(DEG_df$comparison)
+
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+DEG_df_annotated <- left_join(DEG_df, gene_annotation2, by = c("gene"="mgi_symbol"))
+DEG_df_annotated$chromosome_name <- factor(DEG_df_annotated$chromosome_name, levels = c((1:19),"X","Y","MT"))
+
+```
+

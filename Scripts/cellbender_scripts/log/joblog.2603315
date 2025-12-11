@@ -1,0 +1,23 @@
+Job 2603315 started on:  n6159
+Job 2603315 started on:  Sun Apr 7 22:35:34 PDT 2024
+ 
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/ptrepack", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/tables/scripts/ptrepack.py", line 509, in main
+    srcnodeobject = h5srcfile.get_node(srcnode)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/tables/file.py", line 1607, in get_node
+    node = self._get_node(nodepath)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/tables/file.py", line 1556, in _get_node
+    node = self._node_manager.get_node(nodepath)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/tables/file.py", line 417, in get_node
+    node = self.node_factory(key)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/tables/group.py", line 1137, in _g_load_child
+    node_type = self._g_check_has_child(childname)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/tables/group.py", line 377, in _g_check_has_child
+    % (self._v_pathname, name))
+tables.exceptions.NoSuchNodeError: group ``/`` does not have a child named ``/matrix``
+Closing remaining open files:TriSeptum-10_posterior.h5...done
+Job 2603315 ended on:  n6159
+Job 2603315 ended on:  Sun Apr 7 22:35:36 PDT 2024
+ 

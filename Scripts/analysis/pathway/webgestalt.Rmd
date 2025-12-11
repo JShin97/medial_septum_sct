@@ -1,0 +1,655 @@
+---
+title: "webgestalt"
+output: html_document
+date: "2025-01-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(AnnotationHub)
+library(enrichplot)
+library(ggplot2)
+library(ggnewscale)
+library(plyr)
+library(dplyr)
+library(rrvgo)
+library(WebGestaltR)
+library(tidyverse)
+library(scales)
+library(forcats)
+
+source("/u/project/xyang123/jshin/resources/R_scripts/pathway_enrichment_clusterprofiler.R")
+```
+
+##Load DEGs
+```{r}
+load(file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell/DEG_df_RNA_SD.rda")
+#load(file = "Results/complete_analysis/DEG_processed/DEG_SD_downsample/DEG_df_RNA_SD.rda")
+
+#add chromosome annotation 
+ah <- AnnotationHub()
+query(ah, c("Mus musculus", "Ensembl", "v97"))
+ensdb <- ah[["AH73905"]]
+columns(ensdb)
+
+gene_info <- ensembldb::select(ensdb,
+                     keys = DEG_df$gene,
+                     keytype = "SYMBOL",
+                     column = c("GENENAME", "ENTREZID", "SEQNAME", "DESCRIPTION"))
+gene_info2 <- ensembldb::select(org.Mm.eg.db, 
+                     keys = DEG_df$gene,
+                     keytype = "SYMBOL", 
+                     column = c("ENSEMBL"))
+gene_info_all <- left_join(gene_info, gene_info2, by = "SYMBOL") %>% unique()
+
+
+DEG_df <- DEG_df %>% 
+  dplyr::select(gene, logFC, P.Value, adj.P.Val, cell_type, effect) %>%
+  mutate(cell_type = replace(cell_type, cell_type == "Inh_IMN", "Inh-IMN")) %>%
+  mutate(cell_type = replace(cell_type, cell_type == "Misc_NT", "Misc-NT")) %>%
+  mutate(cell_type = replace(cell_type, cell_type == "GABA-Chol", "Chol")) %>%
+  mutate(effect = replace(effect, effect == "Gonad", "GE")) %>% 
+  mutate(effect = replace(effect, effect == "SexChrom", "SCE")) %>% 
+  mutate(effect = replace(effect, effect == "Gonad:SexChrom", "GExSCE")) %>% 
+  mutate(effect = replace(effect, effect == "addX", "XCD")) %>% 
+  mutate(effect = replace(effect, effect == "addY1", "YCD1")) %>% 
+  mutate(effect = replace(effect, effect == "addY2", "YCD2")) %>% 
+  dplyr::filter(!cell_type == "Misc-NT") %>%
+  mutate(module = paste(cell_type, effect, sep = "_"))
+modules <- unique(paste(DEG_df$cell_type, DEG_df$effect, sep = "_"))
+
+ordered_columns <- c("gene", "GENENAME", "CHR", 
+                     unlist(lapply(modules, function(x) c(paste0("logFC_", x), paste0("P.Value_", x), paste0( "adj.P.Val_", x)))))
+par_genes <- c("Mid1", "Erdr1", "Mafl", "Asmtl", "Cd99", "Xg", "Arse", "Sts", "Nlgn4", "Akap17a", "Asmt")
+
+DEG_df_wide <- DEG_df %>%
+  pivot_wider(
+    names_from = c(cell_type, effect),
+    values_from = c(logFC, P.Value, adj.P.Val),
+    names_sep = "_"
+  )
+DEG_df_wide <- DEG_df_wide %>% 
+  left_join(gene_info_all, by = c("gene" = "SYMBOL")) %>% 
+  dplyr::filter(SEQNAME %in% c(as.character(1:19), "MT", "X", "Y")) %>% 
+  dplyr::mutate( PAR = ifelse(gene %in% par_genes, "TRUE", "FALSE")) %>% 
+  dplyr::rename("CHR" = "SEQNAME")
+DEG_df_wide <- DEG_df_wide[ordered_columns] %>% distinct()
+
+DEG_df_long <- DEG_df %>% 
+   left_join(gene_info_all, by = c("gene" = "SYMBOL")) %>% 
+  dplyr::filter(SEQNAME %in% c(as.character(1:19), "MT", "X", "Y")) %>% 
+  dplyr::mutate( PAR = ifelse(gene %in% par_genes, "TRUE", "FALSE")) %>% 
+  dplyr::rename("CHR" = "SEQNAME") %>% 
+  dplyr::select(gene, CHR, logFC, P.Value, adj.P.Val, cell_type, effect) %>% distinct()
+DEG_df_long$CHR <- factor(DEG_df_long$CHR, levels = c((1:19),"X","Y","MT"))
+```
+
+##Run Pathway Enrichment on Normative effect (downsample)
+```{r}
+#WebGestaltR::listReferenceSet()
+WebGestaltR::listGeneSet()
+
+normative_results <- list() 
+normative_results <- WebGestaltRBatch(enrichMethod = "ORA",
+                 organism = "mmusculus",
+                 enrichDatabase = "geneontology_Biological_Process_noRedundant",
+                 interestGeneFolder = "Results/complete_analysis/Pathway/RNA_SD/webgestalt/input/Normative",
+                 interestGeneType = "genesymbol",
+                 referenceSet = "genome",
+                 referenceGeneType = "genesymbol",
+                 #outputDirectory = "Results/complete_analysis/Pathway/RNA_SD/webgestalt/test/",
+                 isOutput = FALSE)
+
+names(normative_results) <- list.files("Results/complete_analysis/Pathway/RNA_SD/webgestalt/input/Normative", pattern = "\\.txt", full.names = FALSE) %>% gsub(".txt", "", .)
+
+normative_results_df <- data.frame()
+for(i in seq_along(normative_results)) {
+  celltype <- names(normative_results[i])
+  enrichment_results <- normative_results[[i]]$enrichResult
+  
+  if(nrow(enrichment_results) == 0) {next}
+  
+  enrichment_results$celltype <- celltype
+  normative_results_df <- rbind(normative_results_df, enrichment_results)
+}
+
+normative_results_df <- normative_results_df %>% 
+  group_by(celltype) %>% 
+  filter(FDR < 0.05) %>% 
+  dplyr::slice_head(n = 20)
+
+ggplot(normative_results_df, aes(x = overlap, y = description, fill = enrichmentRatio)) +
+  geom_bar(stat = "identity") + 
+  facet_grid(~ celltype)
+```
+
+##Run pathway enrichment on modules (Functions)
+```{r}
+module_pathway_enrichment <- function(DEG_input_df, module_to_test, cutoff) {
+  
+  module_filter <- modules %>% dplyr::filter(Cluster %in% module_to_test) %>% rownames()
+  DEG_df_module <- DEG_input_df %>%
+      dplyr::filter(module %in% module_filter) %>% 
+      dplyr::mutate(present = 1) %>% 
+      dplyr::select(gene, module, present) %>% 
+      pivot_wider(names_from = module, values_from = present, values_fill = 0) %>%
+      column_to_rownames(var = "gene")
+  
+  DEG_df_module$sum <- rowSums(DEG_df_module)
+  DEG_df_module$keep <- ifelse(DEG_df_module$sum >= (cutoff * (ncol(DEG_df) -1)), "TRUE", "FALSE")
+
+  genes <- rownames(DEG_df_module %>% dplyr::filter(keep == TRUE))
+  print(length(genes))
+  if(length(genes) == 0) {print("Not enough genes - change threshold.")}
+
+  pathway_results <- WebGestaltR(enrichMethod = "ORA",
+                 organism = "mmusculus",
+                 enrichDatabase = "geneontology_Biological_Process_noRedundant",
+                 #enrichDatabase = "pathway_REACTOME", 
+                 #interestGeneFolder = "Results/complete_analysis/Pathway/RNA_SD/webgestalt/input/Normative",
+                 interestGene = genes,
+                 interestGeneType = "genesymbol",
+                 referenceSet = "genome",
+                 referenceGeneType = "genesymbol",
+                 #outputDirectory = "Results/complete_analysis/Pathway/RNA_SD/webgestalt/test/",
+                 isOutput = FALSE, 
+                 fdrThr = 0.05)
+  
+  return(pathway_results)
+}
+
+# Function to calculate Jaccard similarity
+jaccard_similarity <- function(set1, set2) {
+  intersect_len <- length(intersect(set1, set2))
+  union_len <- length(union(set1, set2))
+  return(intersect_len / union_len)
+}
+```
+
+##Run pathway enrichment on modules (Autosomal and Sex-linked)
+```{r}
+#modules <- read.delim("Results/complete_analysis/Pathway/metacell_SD/autosomal_gene_modules.txt", sep = "\t")
+#modules <- read.delim("Results/complete_analysis/Pathway/metacell_SD/sexlinked_gene_modules.txt", sep = "\t")
+modules <- read.delim("Results/complete_analysis/Pathway/metacell_SD/allgene_gene_modules.txt", sep = "\t")
+
+
+all_pathway_result <- list() 
+for(i in 1:length(unique(modules$Cluster))) {
+  
+  test_module <- i
+  
+  gene_sets <-  modules %>% dplyr::filter(Cluster == test_module) %>% rownames()
+  DEG_df_filter <- DEG_df_long %>% 
+    dplyr::filter(adj.P.Val < 0.05 & abs(logFC) >= 0.1) %>%
+    dplyr::mutate(module = paste(cell_type, effect, sep = "_")) %>% 
+    #dplyr::filter(CHR %in% c("MT", "X", "Y") & module %in% gene_sets) %>%  ##for sex-linked genes
+    #dplyr::filter(!CHR %in% c("MT", "X", "Y") & module %in% gene_sets) %>%  ##for autosomal genes
+    dplyr::filter(module %in% gene_sets) %>%
+    dplyr::select(gene, module) %>% 
+    dplyr::mutate(present = 1) %>% 
+    pivot_wider(names_from = module, values_from = present, values_fill = 0)
+  DEG_df_filter$Module_percent <- rowSums(DEG_df_filter[-1]) / (ncol(DEG_df_filter) - 1)
+  
+  genes_to_test <- DEG_df_filter %>% dplyr::filter(Module_percent >= 0.20) %>% dplyr::select(gene) %>% unlist(use.names = FALSE) ##originally 0.33 
+  
+  CP_test <- enrichGO(gene = unique(genes_to_test), OrgDb = org.Mm.eg.db, ont = "BP", keyType = "SYMBOL")
+  CP_test_simple <- clusterProfiler::simplify(CP_test)
+  pathway_result <- CP_test_simple@result
+  pathway_result$Cluster <- test_module
+  
+ # pathway_results <- WebGestaltR(enrichMethod = "ORA",
+ #               organism = "mmusculus",
+ #               enrichDatabase = "geneontology_Biological_Process_noRedundant",
+ #               #enrichDatabase = "pathway_REACTOME", 
+ #               #interestGeneFolder = "Results/complete_analysis/Pathway/RNA_SD/webgestalt/input/Normative",
+ #               interestGene = unique(genes_to_test),
+ #               interestGeneType = "genesymbol",
+ #               referenceSet = "genome",
+ #               referenceGeneType = "genesymbol",
+ #               #outputDirectory = "Results/complete_analysis/Pathway/RNA_SD/webgestalt/test/",
+ #               isOutput = FALSE, 
+ #               fdrThr = 0.05)
+ #  
+  #pathway_result <- module_pathway_enrichment(DEG_input_df = DEG_df_filter, module_to_test = test_module, cutoff = 0.75)
+  #pathway_result$module <- module
+  all_pathway_result[[i]] <- pathway_result
+
+}
+
+save(all_pathway_result, file = "Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/allgene_all_pathway_results.rda")
+
+load("Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/allgene_all_pathway_results.rda")
+
+#all_pathway_result <- Filter(function(x) length(x) > 1, all_pathway_result)
+
+filtered_pathway_result <- list()
+for(k in 1:length(all_pathway_result)) {
+  
+  print(k)
+  x <- all_pathway_result[[k]]
+  pathway_df <- x %>%
+    mutate(GeneSet = strsplit(geneID, "/")) 
+  if(nrow(x) == 1) {
+    filtered_pathway_result[[k]] <- x 
+    next
+    } 
+  
+  # Identify and filter similar rows
+  to_remove <- c()
+  
+  for (i in 1:(nrow(pathway_df) - 1)) {
+    for (j in (i + 1):nrow(pathway_df)) {
+      if (j %in% to_remove) next
+      similarity <- jaccard_similarity(pathway_df$GeneSet[[i]], pathway_df$GeneSet[[j]])
+      
+      if (similarity > 0.5) {  # Adjust threshold as needed
+        worse_row <- ifelse(pathway_df$p.adjust[i] < pathway_df$p.adjust[j], j, i) ##originally FDR
+        to_remove <- c(to_remove, worse_row)
+      }
+    }
+  }
+  
+  if(is.null(to_remove)) {
+    filtered_pathway_result[[k]] <- x 
+    next}
+  
+  # Keep only unique rows
+  filtered_df <- pathway_df[-to_remove, ] %>% 
+    dplyr::arrange(p.adjust, desc(Count)) %>% ##originally by FDR and enrichmentRatio %>% 
+    dplyr::select(-GeneSet)
+  
+  filtered_pathway_result[[k]] <- filtered_df
+}
+filtered_pathway_result <- do.call("rbind", filtered_pathway_result)
+
+filtered_pathway_result_sorted <- filtered_pathway_result %>% 
+  dplyr::filter(p.adjust < 0.05) %>%
+  group_by(Cluster) %>% 
+  slice_min(order_by = p.adjust, n = 50) %>% 
+  mutate(present = 1) %>%
+  dplyr::select(ID, Description, present, Cluster) %>% 
+  pivot_wider(values_from = present, names_from = Cluster, values_fill = 0)
+filtered_pathway_result_sorted$Cluster_Count <- rowSums(filtered_pathway_result_sorted[, 3:10]) %>% as.numeric()
+# Create a module assignment column to ensure exclusive modules are sorted
+filtered_pathway_result_sorted$Cluster_Assignment <- apply(filtered_pathway_result_sorted[ , 3:10], 1, function(x) {
+  if(sum(x) == 1) {
+    return(which(x == 1))
+  } else {
+    return(NA)
+  }
+})
+
+# Sort dataframe: First by number of modules (descending), then by module number (ascending)
+filtered_pathway_result_sorted <- filtered_pathway_result_sorted[order(-filtered_pathway_result_sorted$Cluster_Count,
+                                                                       filtered_pathway_result_sorted$Cluster_Assignment, na.last = FALSE), ]
+filtered_pathway_result_sorted
+
+write.csv(filtered_pathway_result_sorted, file = "Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/allgene_filtered_pathway_result_sorted.csv")
+save(all_pathway_result, filtered_pathway_result, file = "Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/allgene_all_pathway_results.rda")
+
+load("Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/allgene_all_pathway_results.rda")
+openxlsx::write.xlsx(filtered_pathway_result, file = "Plots/Final_Figures/SuppTables/filtered_pathway_results.xlsx")
+```
+
+##Visualize pathways (All genes)
+```{r}
+load("Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/allgene_all_pathway_results.rda")
+
+##webgestalt filtering: 
+shared_pathways_of_interest <- c("positive regulation of cell projection organization", 
+                                 "dendrite development",
+                                 "developmental cell growth", 
+                                 "neuron apoptotic process", 
+                                 
+                                 "gliogenesis",
+
+                                 "regulation of postsynaptic membrane neurotransmitter receptor levels", 
+                                 "vesicle-mediated transport in synapse", 
+                                 "regulation of synaptic plasticity", 
+                                 
+                                 "cytoplasmic translation", 
+                                 "chromatin remodeling", 
+                                 
+                                 "protein targeting", 
+                                 "negative regulation of protein modification process",
+                                 
+                                 "regulation of membrane potential", 
+                                 
+                                 "generation of precursor metabolites and energy", 
+                                 "oxidative phosphorylation", 
+                                 "ribonucleotide metabolic process"
+                                 ) 
+
+unique_pathways_of_interest <- c("protein polyubiquitination", 
+                                 "mRNA processing", 
+                                 
+                                 "cellular respiration", 
+                                 "mitochondrial transport", 
+                                 
+                                 "RNA splicing", 
+                                 "regulation of protein stability", 
+                                 
+                                 "regulation of microtubule cytoskeleton organization", 
+                                 "calcium ion homeostasis", 
+                                 
+                                 "regulation of axonogenesis", 
+                                 "negative regulation of phosphate metabolic process", 
+                                 
+                                 "regulation of neurogenesis", 
+                                 #"regulation of neuron apoptotic process", 
+                                 "neurotransmitter receptor internalization", 
+                                 
+                                 "energy derivation by oxidation of organic compounds",
+                                 "negative regulation of locomotion", 
+                                 
+                                 "telencephalon development", 
+                                 "ATP metabolic process")
+
+pathways_of_interest <- c(shared_pathways_of_interest, unique_pathways_of_interest)
+df <- filtered_pathway_result %>%
+  group_by(Cluster) %>% 
+  slice_min(n = 50, order_by = p.adjust) %>% 
+  ungroup() %>% 
+  dplyr::filter(Description %in% pathways_of_interest) %>%
+  mutate(Description = factor(Description, levels = pathways_of_interest))
+         #Description = factor(Description, levels = unique(Description[order(ID)])))
+df$FDR2 <- -log10(df$p.adjust + 1e-10)
+df$GeneRatio_numeric <- sapply(df$GeneRatio, function(x) eval(parse(text = gsub(" ", "", x))))
+df$GeneRatio_log <- -log10(df$GeneRatio_numeric + 1e-10)
+df$Cluster <- paste0("C", df$Cluster)
+#df$Cluster <- gsub("_", "_S", df$module)
+
+##clean up pathway descriptions 
+df <- df %>%
+  mutate(Description = fct_relabel(Description, ~ toupper(.)), 
+         Description = fct_relabel(Description, ~ gsub("^(POSITIVE|NEGATIVE) REGULATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("REGULATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("ESTABLISHMENT OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("FORMATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("CENTRAL NERVOUS SYSTEM", "CNS", .x)))
+
+pathway_order <- c(shared_pathways_of_interest, unique_pathways_of_interest) %>% 
+  toupper() %>% 
+  gsub("^(POSITIVE|NEGATIVE) REGULATION OF ", "", .) %>% 
+  gsub("REGULATION OF ", "", .) %>% 
+  gsub("FORMATION OF ", "", .) %>% 
+  gsub("ESTABLISHMENT OF ", "", .) %>%
+  gsub("CENTRAL NERVOUS SYSTEM", "CNS", .)
+
+df <- df %>% mutate(Description = factor(Description, levels = rev(pathway_order)))
+
+ggplot(df, aes(x = Cluster, y = Description, size = FDR2, color = GeneRatio_log)) +
+  geom_point() +
+  scale_size_continuous(range = c(3,12), 
+                        limits = c(1,10), 
+                        breaks = c(1, 2.5, 5, 7.5, 10),
+                        name = "FDR") +  # Adjust the range for dot sizes
+  scale_color_gradientn(
+    colors = c("white", "pink", "red", "red"),
+    values = scales::rescale(x = c(0.7, 1.2, 1.6, 1.8)), # <-- CHANGED 1.0 to 1.2
+    limits = c(0, 2),
+    oob = scales::squish, 
+    name = "Log of Gene Ratio") + 
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  ggtitle("Overrepresented Pathways") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 22), 
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 22),
+        axis.title.y = element_text(size = 0),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 30), 
+        legend.spacing.y = unit(1, "cm"))
+
+pdf("Plots/Final_Figures/Pathway/allgene_pathways_clusters_metacell.pdf", width = 18, height = 14)
+print(last_plot())
+dev.off()
+
+```
+
+##Visualize pathways (Sex-linked)
+```{r}
+load("Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/sexlinked_all_pathway_results.rda")
+
+##webgestalt filtering: 
+shared_pathways_of_interest <- c("dosage compensation", 
+                                 "chromatin remodeling", 
+                                 "regulation of histone modification", 
+                                 "cytoplasmic translation", 
+                                 "negative regulation of protein ubiquitination", 
+                                 "protein dealkylation", 
+                                 "positive regulation of lipid biosynthetic process", 
+                                 "negative regulation of organelle organization", 
+                                 "cell junction assembly", 
+                                 "synaptic vesicle cycle", 
+                                 "branching morphogenesis of a nerve") 
+
+unique_pathways_of_interest <- c("protein-RNA complex organization", 
+                                 "ribosome assembly", 
+                                 "aerobic respiration", 
+                                 "sister chromatid cohesion", 
+                                 "regulation of neurotransmitter transport", 
+                                 "axon ensheathment in central nervous system", 
+                                 "signaling receptor ligand precursor processing", 
+                                 "regulation of synapse structure or activity", 
+                                 "regulation of neurotransmitter secretion", 
+                                 "neuron migration", 
+                                 "regulation of short-term neuronal synaptic plasticity", 
+                                 "regulation of dendrite morphogenesis", 
+                                 "negative regulation of post-translational protein modification", 
+                                 "peptide hormone processing", 
+                                 #"regulation of neurotransmitter receptor localization to postsynaptic specialization membrane", 
+                                 "regulation of cell growth", 
+                                 "formation of translation preinitiation complex", 
+                                 "genomic imprinting", 
+                                 "regulation of early endosome to late endosome transport", 
+                                 "regulation of presynapse organization")
+
+pathways_of_interest <- c(shared_pathways_of_interest, unique_pathways_of_interest)
+df <- filtered_pathway_result %>%
+  group_by(Cluster) %>% 
+  slice_min(n = 30, order_by = p.adjust) %>% 
+  ungroup() %>% 
+  dplyr::filter(Description %in% pathways_of_interest) %>%
+  mutate(Description = factor(Description, levels = pathways_of_interest))
+         #Description = factor(Description, levels = unique(Description[order(ID)])))
+df$FDR2 <- -log10(df$p.adjust + 1e-10)
+df$GeneRatio_numeric <- sapply(df$GeneRatio, function(x) eval(parse(text = gsub(" ", "", x))))
+df$GeneRatio_log <- -log10(df$GeneRatio_numeric + 1e-10)
+df$Cluster <- paste0("Cluster_S", df$Cluster)
+#df$Cluster <- gsub("_", "_S", df$module)
+
+##clean up pathway descriptions 
+df <- df %>%
+  mutate(Description = fct_relabel(Description, ~ toupper(.)), 
+         Description = fct_relabel(Description, ~ gsub("^(POSITIVE|NEGATIVE) REGULATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("REGULATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("ESTABLISHMENT OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("FORMATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("CENTRAL NERVOUS SYSTEM", "CNS", .x)),
+         Description = fct_recode(Description, `SIGNALING RECEPTOR LIGAND PROCESSING` = "SIGNALING RECEPTOR LIGAND PRECURSOR PROCESSING"))
+
+pathway_order <- c(shared_pathways_of_interest, unique_pathways_of_interest) %>% 
+  toupper() %>% 
+  gsub("^(POSITIVE|NEGATIVE) REGULATION OF ", "", .) %>% 
+  gsub("REGULATION OF ", "", .) %>% 
+  gsub("FORMATION OF ", "", .) %>% 
+  gsub("ESTABLISHMENT OF ", "", .) %>%
+  gsub("CENTRAL NERVOUS SYSTEM", "CNS", .) %>%
+  gsub("SIGNALING RECEPTOR LIGAND PRECURSOR PROCESSING", "SIGNALING RECEPTOR LIGAND PROCESSING", .)
+
+df <- df %>% mutate(Description = factor(Description, levels = rev(pathway_order)))
+
+ggplot(df, aes(x = Cluster, y = Description, size = FDR2, color = GeneRatio_log)) +
+  geom_point() +
+  scale_size_continuous(range = c(3,12), 
+                        limits = c(1,5), 
+                        breaks = c(1, 2, 3, 4, 5),
+                        name = "FDR") +  # Adjust the range for dot sizes
+  scale_color_gradientn(
+    colors = c("white", "pink", "red", "red"),
+    values = scales::rescale(x = c(0.4, 0.8, 1.2, 1.4, 1.6)), # <-- CHANGED 1.0 to 1.2
+    limits = c(0, 2),
+    oob = scales::squish, 
+    name = "Log of Gene Ratio") + 
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  ggtitle("Sex-linked Pathways") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 22), 
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 22),
+        axis.title.y = element_text(size = 0),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 30), 
+        legend.spacing.y = unit(1, "cm"))
+
+pdf("Plots/Final_Figures/Pathway/sexlinked_pathways_clusters_metacell.pdf", width = 15, height = 14)
+print(last_plot())
+dev.off()
+```
+
+##Visualize Pathways (autosomal)
+```{r}
+load("Results/complete_analysis/Pathway/metacell_SD/CP_pathway_results/autosomal_all_pathway_results.rda")
+
+shared_pathways_of_interest <- c("generation of precursor metabolites and energy", 
+                                 "regulation of mRNA metabolic process", 
+                                 "cytoplasmic translation", 
+                                 "protein folding", 
+                                 "protein targeting", 
+                                 "regulation of protein catabolic process", 
+                                 "negative regulation of protein modification process", 
+                                 "actin filament organization", 
+                                 "cell junction assembly", 
+                                 "neuron apoptotic process", 
+                                 "gliogenesis", 
+                                 "neuron migration", 
+                                 "dendrite development", 
+                                 "neuron projection organization", 
+                                 "regulation of signaling receptor activity", 
+                                 "regulation of transporter activity", 
+                                 "vesicle-mediated transport in synapse", 
+                                 "regulation of synapse organization", 
+                                 "regulation of postsynaptic memebrane neurotransmitter receptor levels", 
+                                 "regulation of synaptic plasticity")
+  
+unique_pathways_of_interest <- c("receptor cycling", 
+                                 "protein polyubiquitination", 
+                                 "'de novo' protein folding", 
+                                 "ribosome assembly", 
+                                 "ATP metabolic process", 
+                                 "positive regulation of protein transport", 
+                                 "synaptic vesicle exocytosis", 
+                                 "regulation of neurogenesis", 
+                                 "neurotransmitter transport", 
+                                 "regulation of translation", 
+                                 "mRNA processing", 
+                                 "neuromuscular process controlling balance", 
+                                 "regulation of neurotransmitter receptor activity", 
+                                 "mitochondrial gene expression", 
+                                 "protein dephosphorylation", 
+                                 "regulation of neurotransmitter levels", 
+                                 "nucleotide metabolic process"
+                                 )
+
+pathways_of_interest <- c(shared_pathways_of_interest, unique_pathways_of_interest)
+df <- filtered_pathway_result %>%
+  group_by(Cluster) %>% 
+  slice_min(n = 50, order_by = p.adjust) %>% 
+  ungroup() %>% 
+  dplyr::filter(Description %in% pathways_of_interest) %>%
+  mutate(ID = factor(Description, levels = pathways_of_interest))
+         #Description = factor(Description, levels = unique(Description[order(ID)])))
+df$FDR2 <- -log10(df$p.adjust + 1e-10)
+df$GeneRatio_numeric <- sapply(df$GeneRatio, function(x) eval(parse(text = gsub(" ", "", x))))
+df$GeneRatio_log <- -log10(df$GeneRatio_numeric + 1e-10)
+df$Cluster <- paste0("Cluster_A", df$Cluster)
+#df$module <- gsub("_", "_A", df$module)
+
+##clean up pathway descriptions 
+df <- df %>%
+  mutate(Description = fct_relabel(Description, ~ toupper(.)), 
+         Description = fct_relabel(Description, ~ gsub("^(POSITIVE|NEGATIVE) REGULATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("REGULATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("ESTABLISHMENT OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("GENERATION OF ", "", .x)), 
+         Description = fct_relabel(Description, ~ gsub("'DE NOVO'", "DE NOVO", .x)))
+
+pathway_order <- c(shared_pathways_of_interest, unique_pathways_of_interest) %>% 
+  toupper() %>% 
+  gsub("^(POSITIVE|NEGATIVE) REGULATION OF ", "", .) %>% 
+  gsub("REGULATION OF ", "", .) %>% 
+  gsub("ESTABLISHMENT OF ", "", .) %>% 
+  gsub("GENERATION OF ", "", .) %>% 
+  gsub("'DE NOVO'", "DE NOVO", .)
+
+df <- df %>% mutate(Description = factor(Description, levels = rev(pathway_order)))
+
+ggplot(df, aes(x = Cluster, y = Description, size = FDR2, color = GeneRatio_log)) +
+  geom_point() +
+  scale_size_continuous(range = c(3,12), 
+                        limits = c(1,10), 
+                        breaks = c(1, 2.5, 5, 7.5, 10),
+                        name = "FDR") +  # Adjust the range for dot sizes
+  scale_color_gradientn(
+    colors = c("white", "pink", "red", "red"),
+    values = scales::rescale(x = c(0.4, 0.8, 1.2, 1.4, 1.6)), # <-- CHANGED 1.0 to 1.2
+    limits = c(0, 2),
+    oob = scales::squish, 
+    name = "Log of Gene Ratio") + 
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  ggtitle("Autosomal Pathways") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 22), 
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 22),
+        axis.title.y = element_text(size = 0),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size = 30), 
+        legend.spacing.y = unit(1, "cm"))
+
+pdf("Plots/Final_Figures/Pathway/autosomal_pathways_clusters_metacell.pdf", width = 15, height = 14)
+print(last_plot())
+dev.off()
+```
+
+##Make river plots / circle plots 
+```{r}
+library(circlize)
+library(ggalluvial)
+
+autosomal_modules <- read.delim("Results/complete_analysis/Pathway/RNA_SD/pathway_modules/autosomal_modules.txt", sep = "\t")
+autosomal_modules$Module <- dplyr::recode(autosomal_modules$Module, 
+                Module_3 = "Module_2",
+                Module_4 = "Module_3",
+                Module_5 = "Module_3",
+                Module_6 = "Module_4",
+                Module_7 = "Module_5",
+                Module_8 = "Module_5")
+sexlinked_modules <- read.delim("Results/complete_analysis/Pathway/RNA_SD/pathway_modules/sexlinked_modules.txt", sep = "\t")
+
+all_modules <- left_join(autosomal_modules, sexlinked_modules, by = "Gene_sets") %>% 
+  column_to_rownames(var = "Gene_sets")
+colnames(all_modules) <- c("Autosomal_modules", "Sexlinked_modules")
+
+all_modules_df <- all_modules %>%
+  dplyr::count(Autosomal_modules, Sexlinked_modules)
+
+ggplot(all_modules_df, aes(axis1 = Autosomal_modules, axis2 = Sexlinked_modules, y = n)) +
+  geom_alluvium(aes(fill = Autosomal_modules), knot.pos = 0.3, alpha = 0.7) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal() +
+  labs(x = "Module Grouping", y = "Number of Gene Sets", fill = "Module 1") +
+  ggtitle("Module membership (Autosomal to Sex-linked)") +
+  theme(axis.text.x = element_blank())
+
+pdf("Plots/Final_Figures/Pathway/module_membership_riverplot.pdf", width = 6, height = 4)
+print(last_plot())
+dev.off()
+```

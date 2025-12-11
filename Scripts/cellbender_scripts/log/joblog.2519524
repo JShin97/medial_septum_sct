@@ -1,0 +1,15 @@
+Job 2519524 started on:  n7677
+Job 2519524 started on:  Wed Apr 3 17:53:55 PDT 2024
+ 
+mkdir: cannot create directory ‘/u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-1’: File exists
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/base_cli.py", line 115, in main
+    args = cli_dict[args.tool].validate_args(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/cli.py", line 80, in validate_args
+    assert torch.cuda.is_available(), "Trying to use CUDA, " \
+AssertionError: Trying to use CUDA, but CUDA is not available.
+Job 2519524 ended on:  n7677
+Job 2519524 ended on:  Wed Apr 3 17:54:03 PDT 2024
+ 

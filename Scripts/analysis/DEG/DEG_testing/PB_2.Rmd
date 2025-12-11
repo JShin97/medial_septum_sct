@@ -1,0 +1,1072 @@
+---
+title: "pseuodbulk_2.Rmd"
+output: html_document
+date: "2024-01-20"
+---
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+```
+
+```{r}
+library(limma)
+library(edgeR)
+library(data.table)
+library(tidyverse)
+library(Seurat)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+library(readxl)
+library(ggpubr)
+library(ggplotify)
+library(scuttle)
+library(Mus.musculus)
+library(mashr)
+library(str2str)
+library(EnhancedVolcano)
+library(dplyr)
+library(grDevices)
+library(ComplexHeatmap)
+```
+
+```{r, eval = FALSE}
+seurat <- readRDS("~/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds") %>% DietSeurat(counts = TRUE)
+
+##edit metadata 
+seurat$GenotypeaddX <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XYM", "XYF", "XXYM", "XXYF"),
+                                       to = c("XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF"))
+seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XXY"),
+                                       to = c(0, 1)) %>% as.numeric()
+# seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+#                                        from = c("XY", "XXY", "XX", "XYY"),
+#                                        to = c(0, 1, 0, 0)) %>% as.character %>% as.numeric()
+seurat$GenotypeaddY <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XXM", "XXF", "XXYM", "XXYF", "XYM", "XYF", "XYYM", "XYYF"),
+                                       to = c("XXM", "XXF", "XXM", "XXF", "XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF", "XXM", "XXF"))
+seurat$addY <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 2)) %>% factor(., levels = c(0, 1, 2))
+seurat$addY1 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 0)) %>% as.character %>% as.numeric()
+seurat$addY2 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 0, 0, 1)) %>% as.character %>% as.numeric()
+
+seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
+seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+seurat$SampleID <- gsub("-", "", seurat$SampleID)
+seurat$Sequencing_Date <- factor(seurat$Sequencing_Date) %>% gsub("-", "_", .)
+
+
+sce <- as.SingleCellExperiment(seurat)
+summed <- aggregateAcrossCells(sce, 
+                               id = colData(sce)[, c("cell.type", "data.sampleName")],
+                               statistics = "sum") #mean or sum
+summed$id <- paste(summed$cell.type, summed$orig.ident, sep = "_")
+
+cols_to_keep <- c("id", "data.sampleName", "Genotype", "cell.type", "Gonad", "SexChrom", "Trisomy", "ncells")
+colData(summed) <- colData(summed)[, cols_to_keep]
+
+counts <- counts(summed)
+colnames(counts) <- summed$id
+metadata <- as.data.frame(colData(summed)) 
+rownames(metadata) <- metadata$id
+metadata$id <- NULL
+
+summed_seurat <- CreateSeuratObject(counts = counts, meta.data = metadata)
+
+samples_to_remove <- c("XY-TriSeptum-12", "XY-TriSeptum-24", "XY-TriSeptum-2")
+summed_seurat <- subset(summed_seurat, data.sampleName %in% samples_to_remove, invert = TRUE)
+
+saveRDS(summed_seurat, file.path(data.dir, "Saves/Pseudobulk_sum_sce_to_seurat.RDS"))
+
+
+##barplot of count distribution by sample
+seurat <- subset(seurat, data.sampleName %in% samples_to_remove, invert = TRUE)
+
+seurat %>% 
+  {table(.$data.sampleName, .$cell.type)} %>% 
+  as.data.frame() %>%
+  dplyr::filter(Var1 %in% c("XY-TriSeptum-11", "XY-TriSeptum-13", "XY-TriSeptum-23", "XY-TriSeptum-1", "XY-TriSeptum-15", "XY-TriSeptum-8")) %>%
+  dplyr::filter(Var2 %in% c("Ependymal", "Intermediate_Progenitor_Cell")) %>%
+  ggplot(., aes(x = Var2, y = Freq)) +
+    geom_boxplot() +
+    geom_jitter() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+normative <- subset(seurat, Genotype %in% c("XYM", "XXF"))
+
+normative@meta.data %>% 
+  dplyr::select(data.sampleName, cell.type, Genotype) %>% 
+  ftable(.) %>%
+  as.data.frame() %>%
+  dplyr::mutate(data.sampleName = factor(data.sampleName, levels =c("XY-TriSeptum-11", "XY-TriSeptum-13", "XY-TriSeptum-23", "XY-TriSeptum-1", "XY-TriSeptum-15", "XY-TriSeptum-8"))) %>%
+  dplyr::filter(Freq != 0) %>%
+  dplyr::filter(cell.type %in% c("Ependymal", "Intermediate_Progenitor_Cell")) %>%
+  ggplot(., aes(x = cell.type, y = Freq, color = Genotype)) +
+    geom_boxplot() +
+    geom_jitter(position=position_dodge(width=0.75),aes(group=Genotype)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+sapply(X = unique(seurat$cell.type), function(c) {
+  cells.c <- WhichCells(object = seurat, expression = cell.type == c)
+  nFeature.c <- sum(rowSums(seurat[['RNA']]@counts[, cells.c ]) != 0)
+  return(nFeature.c)
+})
+
+
+VlnPlot(seurat, features = c("nFeature_RNA", "nCount_RNA"), group.by = "cell.type", pt.size = 0)
+VlnPlot(seurat, features = c("nFeature_RNA", "nCount_RNA"), group.by = "cell.type", pt.size = 0.5)
+
+```
+
+```{r, eval = FALSE}
+data.dir <- "/u/scratch/j/jshin/medial_septum_sct"
+summed_seurat <- readRDS(file.path(data.dir, "Saves/original/Pseudobulk_sum_sce_to_seurat.RDS"))
+
+##Edit metadata 
+allcells <- unique(summed_seurat$cell.type)
+
+summed_seurat$Xdose <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% factor(levels = c(1, 2))
+summed_seurat$Xdose_cont <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% as.character() %>% as.numeric()
+summed_seurat$Ydose <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% factor(levels = c(0, 1, 2))
+summed_seurat$Ydose_cont <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% as.character() %>% as.numeric()
+summed_seurat$base_SexChrom <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c("XX", "XY", "XY", "XY")) %>% factor(levels = c("XY", "XX"))
+summed_seurat$addX <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 0, 0)) %>% as.numeric()
+summed_seurat$addY <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 0, 0, 1)) %>% as.numeric()
+
+summed_seurat$Gonad <- factor(summed_seurat$Gonad, levels = c("Male", "Female"))
+summed_seurat$SexChrom <- factor(summed_seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+summed_seurat$Genotype <- factor(summed_seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+summed_seurat$Trisomy <- factor(summed_seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+```
+
+GLOBAL FIT ANALYSIS
+
+```{r}
+##FUNCTIONS
+
+run_venn <- function(x, model) {
+  pdf(paste0("Plots/Pseudobulk_DEG/venn_diagram/", model, "_global.pdf"), onefile = TRUE, width = 20, height = 10)
+  par(mfrow = c(2,4))
+  for(i in 1:length(x[["global"]])) {
+    currentdt <- x[["global"]][[i]]
+    currentcell <- x[["global"]][i] %>% names()
+    
+    vennDiagram(currentdt[,-1]) + title(currentcell, cex.main = 2)
+  }
+  dev.off()
+  
+  pdf(paste0("Plots/Pseudobulk_DEG/venn_diagram/", model, "_separate.pdf"), onefile = TRUE, width = 20, height = 10)
+  par(mfrow = c(2,4))
+  for(i in 1:length(x[["separate"]])) {
+    currentdt <- x[["separate"]][[i]]
+    currentcell <- x[["separate"]][i] %>% names()
+    
+    vennDiagram(currentdt[,-1]) + title(currentcell, cex.main = 2)
+  }
+  dev.off()
+  
+  print("Plots Saved!")
+}
+
+get_summary <- function(x) {
+  
+  global_summary_list <- lapply(x[["global"]], function(x) {summary(x)})
+  separate_summary_list <- lapply(x[["separate"]], function(x) {summary(x)})
+  
+  return(list(separate_summary_list, global_summary_list))
+}
+
+```
+
+```{r}
+##normative analysis (XYM vs XXM) 
+dt_list <- list()
+fit_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+  
+  design <- model.matrix(~Genotype, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  # contrasts <- makeContrasts(XXF_vs_XYM = GenotypeXXF - GenotypeXYM, levels = design)
+  # fit <- contrasts.fit(fit, contrasts)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  dt1 <- decideTests(fit, method = "separate")
+  dt2 <- decideTests(fit, method = "global")
+  
+  dt_list[["separate"]][[currentcell]] <- dt1
+  dt_list[["global"]][[currentcell]] <- dt2
+  fit_list[[currentcell]] <- fit 
+  
+  write.fit(fit, method = "global", adjust = "BH", sep = "\t", quote = FALSE, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Normative/", currentcell, ".txt"))
+    
+  #resultlist_normative[["XXF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "XXF_vs_XYM")
+  
+  #save(resultlist_normative, file = paste0("Data/Derived/Pseudobulk_DEG_sum/normative/", currentcell,".rda"))
+}
+
+#run_venn(dt_list, "Normative")
+summary <- get_summary(dt_list)
+summary[[2]]
+
+##process written fit file 
+for(i in 1:length(allcells)) {
+  
+  resultlist_normative <- list()
+  
+  currentcell <- allcells[i]
+  DEresults <- read.table(paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Normative/", currentcell, ".txt"), sep = "\t", header = TRUE, row.names = 1)
+  head(DEresults)
+  
+  resultlist_normative[["XXF_vs_XYM"]] <- DEresults %>% dplyr::select(Coef.GenotypeXXF, t.GenotypeXXF, P.value.GenotypeXXF, P.value.adj.GenotypeXXF, F, F.p.value)
+  
+  resultlist_normative <- lapply(resultlist_normative, setNames, c("logFC", "T", "P.Val", "adj.P.Val", "F", "F.P.Val"))
+  
+  save(resultlist_normative, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/Normative/", currentcell,".rda"))
+}
+
+```
+
+```{r}
+##sexchrom and gonad analysis (FCG)
+
+dt_list <- list()
+fit_list <- list()
+for (i in 1:length(allcells)) {
+  
+  #resultlist_fcg <- list()
+  
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell & Genotype %in% c("XYM","XXF","XXM" ,"XYF"))
+  currentsubset@meta.data <- currentsubset@meta.data %>%
+  dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM","XXF","XXM" ,"XYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")))
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + SexChrom + Gonad:SexChrom, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  rsq <- DGEobj.utils::rsqCalc(y$E, fit)
+  
+  dt1 <- decideTests(fit, method = "separate")
+  dt2 <- decideTests(fit, method = "global")
+  
+  dt_list[["separate"]][[currentcell]] <- dt1
+  dt_list[["global"]][[currentcell]] <- dt2
+  fit_list[[currentcell]] <- fit 
+  
+  write.fit(fit, method = "global", adjust = "BH", sep = "\t", quote = FALSE, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/FCG/", currentcell, ".txt"))
+    
+  #resultlist_fcg[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
+  #resultlist_fcg[["XX_vs_XY"]] <- topTable(fit, n = Inf, coef = "SexChromXX")
+  #resultlist_fcg[["Ovary:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale:SexChromXX")
+    
+  #save(resultlist_fcg, file = paste0("Data/Derived/Pseudobulk_DEG_sum/FCG/", currentcell,".rda"))
+}
+
+run_venn(dt_list, "FCG")
+summary <- get_summary(dt_list)
+summary[[2]]
+
+##process written fit file 
+for(i in 1:length(allcells)) {
+  
+  resultlist_fcg <- list()
+  
+  currentcell <- allcells[i]
+  DEresults <- read.table(paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/FCG/", currentcell, ".txt"), sep = "\t", header = TRUE, row.names = 1)
+  head(DEresults)
+  
+  resultlist_fcg[["Ovary_vs_Testis"]] <- DEresults %>% dplyr::select(Coef.GonadFemale, t.GonadFemale, P.value.GonadFemale, P.value.adj.GonadFemale, F, F.p.value)
+  resultlist_fcg[["XX_vs_XY"]] <- DEresults %>% dplyr::select(Coef.SexChromXX, t.SexChromXX, P.value.SexChromXX, P.value.adj.SexChromXX, F, F.p.value)
+  resultlist_fcg[["Gonad:SexChrom"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.SexChromXX, t.GonadFemale.SexChromXX, P.value.GonadFemale.SexChromXX, P.value.adj.GonadFemale.SexChromXX, F, F.p.value)
+  
+  resultlist_fcg <- lapply(resultlist_fcg, setNames, c("logFC", "T", "P.Val", "adj.P.Val", "F", "F.P.Val"))
+  
+  save(resultlist_fcg, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/FCG/", currentcell,".rda"))
+}
+```
+
+```{r}
+##Armin/Jason complete model 
+
+dt_list <- list()
+fit_list <- list()
+for (i in 1:length(allcells)) {
+  
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + base_SexChrom + addX + addY + Gonad:base_SexChrom + Gonad:addX + Gonad:addY, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  dt1 <- decideTests(fit, method = "separate")
+  dt2 <- decideTests(fit, method = "global")
+  
+  dt_list[["separate"]][[currentcell]] <- dt1
+  dt_list[["global"]][[currentcell]] <- dt2
+  fit_list[[currentcell]] <- fit 
+  
+  write.fit(fit, method = "global", adjust = "BH", sep = "\t", quote = FALSE, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Complete/", currentcell, ".txt"))
+    
+  #resultlist_fcg[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
+  #resultlist_fcg[["XX_vs_XY"]] <- topTable(fit, n = Inf, coef = "SexChromXX")
+  #resultlist_fcg[["Ovary:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale:SexChromXX")
+    
+  #save(resultlist_fcg, file = paste0("Data/Derived/Pseudobulk_DEG_sum/FCG/", currentcell,".rda"))
+}
+
+run_venn(dt_list, "Complete")
+summary <- get_summary(dt_list)
+summary[[2]]
+
+##process written fit file 
+for(i in 1:length(allcells)) {
+  
+  resultlist_complete <- list()
+  
+  currentcell <- allcells[i]
+  DEresults <- read.table(paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Complete/", currentcell, ".txt"), sep = "\t", header = TRUE, row.names = 1)
+  head(DEresults)
+  
+  resultlist_complete[["Ovary_vs_Testis"]] <- DEresults %>% dplyr::select(Coef.GonadFemale, t.GonadFemale, P.value.GonadFemale, P.value.adj.GonadFemale, F, F.p.value)
+  resultlist_complete[["XX_vs_XY"]] <- DEresults %>% dplyr::select(Coef.base_SexChromXX, t.base_SexChromXX, P.value.base_SexChromXX, P.value.adj.base_SexChromXX, F, F.p.value)
+  resultlist_complete[["addX"]] <- DEresults %>% dplyr::select(Coef.addX, t.addX, P.value.addX, P.value.adj.addX, F, F.p.value)
+  resultlist_complete[["addY"]] <- DEresults %>% dplyr::select(Coef.addY, t.addY, P.value.addY, P.value.adj.addY, F, F.p.value)
+  resultlist_complete[["Gonad:addX"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.addX, t.GonadFemale.addX, P.value.GonadFemale.addX, P.value.adj.GonadFemale.addX, F, F.p.value)
+  resultlist_complete[["Gonad:addY"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.addY, t.GonadFemale.addY, P.value.GonadFemale.addY, P.value.adj.GonadFemale.addY, F, F.p.value)
+  resultlist_complete[["Gonad:SexChrom"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.base_SexChromXX, t.GonadFemale.base_SexChromXX, P.value.GonadFemale.base_SexChromXX, P.value.adj.GonadFemale.base_SexChromXX, F, F.p.value)
+  # 
+  resultlist_complete <- lapply(resultlist_complete, setNames, c("logFC", "T", "P.Val", "adj.P.Val", "F", "F.P.Val"))
+  
+  save(resultlist_complete, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/Complete/", currentcell,".rda"))
+}
+```
+
+PROCESS DEGS (FCG and Complete only)
+##Process DEG results into df 
+```{r}
+alldata <- list.dirs("~/scratch/old-scratch-julianas/medial_septum_sct/Data/Derived/Pseudobulk_DEG_sum/global_fit", recursive = FALSE)
+alldata <- alldata[-c(3)]
+
+topgenes <- list()
+DEG_results <- list()
+
+for(i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  for(j in 1:length(alldata)) {
+    load(paste0(alldata[j], "/", currentcell, ".rda"))
+  }
+  
+  ##normative model
+  for(k in 1:length(resultlist_normative)) {
+
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_normative[k])
+    currentmodel <- "Normative"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##FCG model 
+  for(k in 1:length(resultlist_fcg)) {
+ 
+    currentframe <- resultlist_fcg[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_fcg[k])
+    currentmodel <- "FCG"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Complete model 
+  for(k in 1:length(resultlist_complete)) {
+ 
+    currentframe <- resultlist_complete[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_complete[k])
+    currentmodel <- "Complete"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+}
+
+save(topgenes, DEG_results, file = paste0(data.dir, "/Results/Pseudobulk_DEG/DEG_results.Rda"))
+```
+
+OTHER MODELS  
+
+```{r}
+##full model (X and Y dose + gonad)
+
+dt_list <- list()
+fit_list <- list()
+for (i in 1:length(allcells)) {
+  
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + Xdose_cont + Ydose_cont + Gonad:Xdose_cont + Gonad:Ydose_cont + Xdose_cont:Ydose_cont, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  dt1 <- decideTests(fit, method = "separate")
+  dt2 <- decideTests(fit, method = "global")
+  
+  dt_list[["separate"]][[currentcell]] <- dt1
+  dt_list[["global"]][[currentcell]] <- dt2
+  fit_list[[currentcell]] <- fit 
+  
+  write.fit(fit, method = "global", adjust = "BH", sep = "\t", quote = FALSE, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Dose/", currentcell, ".txt"))
+}
+
+run_venn(dt_list, "Dose")
+summary <- get_summary(dt_list)
+summary[[2]]
+
+##process written fit file 
+for(i in 1:length(allcells)) {
+  
+  resultlist_dose <- list()
+  
+  currentcell <- allcells[i]
+  DEresults <- read.table(paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Dose/", currentcell, ".txt"), sep = "\t", header = TRUE, row.names = 1)
+  head(DEresults)
+  
+  resultlist_dose[["Ovary_vs_Testis"]] <- DEresults %>% dplyr::select(Coef.GonadFemale, t.GonadFemale, P.value.GonadFemale, P.value.adj.GonadFemale, F, F.p.value)
+  resultlist_dose[["Xdose"]] <- DEresults %>% dplyr::select(Coef.Xdose_cont, t.Xdose_cont, P.value.Xdose_cont, P.value.adj.Xdose_cont, F, F.p.value)
+  resultlist_dose[["Ydose"]] <- DEresults %>% dplyr::select(Coef.Ydose_cont, t.Ydose_cont, P.value.Ydose_cont, P.value.adj.Ydose_cont, F, F.p.value)
+  resultlist_dose[["Gonad:Xdose"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.Xdose_cont, t.GonadFemale.Xdose_cont, P.value.GonadFemale.Xdose_cont, P.value.adj.GonadFemale.Xdose_cont, F, F.p.value)
+  resultlist_dose[["Gonad:Ydose"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.Ydose_cont, t.GonadFemale.Ydose_cont, P.value.GonadFemale.Ydose_cont, P.value.adj.GonadFemale.Ydose_cont, F, F.p.value)
+  resultlist_dose[["Xdose:Ydose"]] <- DEresults %>% dplyr::select(Coef.Xdose_cont.Ydose_cont, t.Xdose_cont.Ydose_cont, P.value.Xdose_cont.Ydose_cont, P.value.adj.Xdose_cont.Ydose_cont, F, F.p.value)
+
+  resultlist_dose <- lapply(resultlist_dose, setNames, c("logFC", "T", "P.Val", "adj.P.Val", "F", "F.P.Val"))
+  
+  save(resultlist_dose, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/Dose/", currentcell,".rda"))
+}
+```
+
+```{r}
+##full model2 (X and Y dose + gonad)
+
+dt_list <- list()
+fit_list <- list()
+for (i in 1:length(allcells)) {
+  
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + Xdose_cont + Ydose + Gonad:Xdose_cont + Gonad:Ydose, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  dt1 <- decideTests(fit, method = "separate")
+  dt2 <- decideTests(fit, method = "global")
+  
+  dt_list[["separate"]][[currentcell]] <- dt1
+  dt_list[["global"]][[currentcell]] <- dt2
+  fit_list[[currentcell]] <- fit 
+  
+  write.fit(fit, method = "global", adjust = "BH", sep = "\t", quote = FALSE, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Dose2/", currentcell, ".txt"))
+}
+
+run_venn(dt_list, "Dose2")
+summary <- get_summary(dt_list)
+summary[[2]]
+
+##process written fit file 
+for(i in 1:length(allcells)) {
+  
+  resultlist_dose2 <- list()
+  
+  currentcell <- allcells[i]
+  DEresults <- read.table(paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Dose2/", currentcell, ".txt"), sep = "\t", header = TRUE, row.names = 1)
+  head(DEresults)
+  
+  resultlist_dose2[["Ovary_vs_Testis"]] <- DEresults %>% dplyr::select(Coef.GonadFemale, t.GonadFemale, P.value.GonadFemale, P.value.adj.GonadFemale, F, F.p.value)
+  resultlist_dose2[["Xdose"]] <- DEresults %>% dplyr::select(Coef.Xdose_cont, t.Xdose_cont, P.value.Xdose_cont, P.value.adj.Xdose_cont, F, F.p.value)
+  resultlist_dose2[["Ydose1"]] <- DEresults %>% dplyr::select(Coef.Ydose1, t.Ydose1, P.value.Ydose1, P.value.adj.Ydose1, F, F.p.value)
+  resultlist_dose2[["Ydose2"]] <- DEresults %>% dplyr::select(Coef.Ydose2, t.Ydose2, P.value.Ydose2, P.value.adj.Ydose2, F, F.p.value)
+  resultlist_dose2[["Gonad:Xdose"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.Xdose_cont, t.GonadFemale.Xdose_cont, P.value.GonadFemale.Xdose_cont, P.value.adj.GonadFemale.Xdose_cont, F, F.p.value)
+  resultlist_dose2[["Gonad:Ydose1"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.Ydose1, t.GonadFemale.Ydose1, P.value.GonadFemale.Ydose1, P.value.adj.GonadFemale.Ydose1, F, F.p.value)
+  resultlist_dose2[["Gonad:Ydose2"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.Ydose2, t.GonadFemale.Ydose2, P.value.GonadFemale.Ydose2, P.value.adj.GonadFemale.Ydose2, F, F.p.value)
+  resultlist_dose2 <- lapply(resultlist_dose2, setNames, c("logFC", "T", "P.Val", "adj.P.Val", "F", "F.P.Val"))
+  
+  save(resultlist_dose2, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/Dose2/", currentcell,".rda"))
+}
+```
+
+```{r}
+##aneuploidy model
+
+dt_list <- list()
+fit_list <- list()
+for (i in 1:length(allcells)) {
+  
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + base_SexChrom + Trisomy + Gonad:Trisomy + Gonad:base_SexChrom, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  dt1 <- decideTests(fit, method = "separate")
+  dt2 <- decideTests(fit, method = "global")
+  
+  dt_list[["separate"]][[currentcell]] <- dt1
+  dt_list[["global"]][[currentcell]] <- dt2
+  fit_list[[currentcell]] <- fit 
+  
+  write.fit(fit, method = "global", adjust = "BH", sep = "\t", quote = FALSE, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Aneuploidy/", currentcell, ".txt"))
+}
+
+run_venn(dt_list, "Aneuploidy")
+summary <- get_summary(dt_list)
+summary[[2]]
+
+##process written fit file 
+for(i in 1:length(allcells)) {
+  
+  resultlist_aneuploidy <- list()
+  
+  currentcell <- allcells[i]
+  DEresults <- read.table(paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/fit_results/Aneuploidy/", currentcell, ".txt"), sep = "\t", header = TRUE, row.names = 1)
+  head(DEresults)
+  
+  resultlist_aneuploidy[["Ovary_vs_Testis"]] <- DEresults %>% dplyr::select(Coef.GonadFemale, t.GonadFemale, P.value.GonadFemale, P.value.adj.GonadFemale, F, F.p.value)
+  resultlist_aneuploidy[["XX_vs_XY"]] <- DEresults %>% dplyr::select(Coef.base_SexChromXX, t.base_SexChromXX, P.value.base_SexChromXX, P.value.adj.base_SexChromXX, F, F.p.value)
+  resultlist_aneuploidy[["Aneuploidy"]] <- DEresults %>% dplyr::select(Coef.TrisomyTrisomy, t.TrisomyTrisomy, P.value.TrisomyTrisomy, P.value.adj.TrisomyTrisomy, F, F.p.value)
+  resultlist_aneuploidy[["Gonad:Aneuploidy"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.TrisomyTrisomy, t.GonadFemale.TrisomyTrisomy, P.value.GonadFemale.TrisomyTrisomy, P.value.adj.GonadFemale.TrisomyTrisomy, F, F.p.value)
+  resultlist_aneuploidy[["Gonad:SexChrom"]] <- DEresults %>% dplyr::select(Coef.GonadFemale.base_SexChromXX, t.GonadFemale.base_SexChromXX, P.value.GonadFemale.base_SexChromXX, P.value.adj.GonadFemale.base_SexChromXX, F, F.p.value)
+  resultlist_aneuploidy <- lapply(resultlist_aneuploidy, setNames, c("logFC", "T", "P.Val", "adj.P.Val", "F", "F.P.Val"))
+  
+  save(resultlist_aneuploidy, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG_sum/global_fit/Aneuploidy/", currentcell,".rda"))
+}
+```
+
+PROCESS ALL DEGS FOR ALL MODELS INTO 1 OBJECT
+
+```{r}
+alldata <- list.dirs("~/scratch/old-scratch-julianas/medial_septum_sct/Data/Derived/Pseudobulk_DEG_sum/global_fit", recursive = FALSE)
+
+##models with interaction terms 
+alldata <- alldata[c(1, 3, 5, 7, 9, 11)]
+
+##models without interaction terms
+alldata <- alldata[c(2, 4, 6, 8, 9, 11)]
+
+topgenes <- list()
+DEG_results <- list()
+
+for(i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  
+  for(j in 1:length(alldata)) {
+    load(paste0(alldata[j], "/", currentcell, ".rda"))
+  }
+  
+  ##Normative difference
+  for(k in 1:length(resultlist_normative)) {
+ 
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_normative[k])
+    currentmodel <- "Normative"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##FCG difference
+  for(k in 1:length(resultlist_fcg)) {
+ 
+    currentframe <- resultlist_fcg[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_fcg[k])
+    currentmodel <- "FCG"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Dose difference
+  for(k in 1:length(resultlist_dose)) {
+ 
+    currentframe <- resultlist_dose[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_dose[k])
+    currentmodel <- "Dose"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Dose2 difference
+  for(k in 1:length(resultlist_dose2)) {
+ 
+    currentframe <- resultlist_dose2[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_dose2[k])
+    currentmodel <- "Dose2"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Aneuploidy difference
+  for(k in 1:length(resultlist_aneuploidy)) {
+ 
+    currentframe <- resultlist_aneuploidy[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_aneuploidy[k])
+    currentmodel <- "Aneuploidy"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Complete model 
+  for(k in 1:length(resultlist_complete)) {
+ 
+    currentframe <- resultlist_complete[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_complete[k])
+    currentmodel <- "Complete"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+}
+
+save(topgenes, DEG_results, file = paste0(data.dir, "/Results/Pseudobulk_DEG/DEG_all_models_nointeraction_results.Rda"))
+
+DEG_df <- do.call(c, unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Dose2", "Complete"))
+
+DEG_df %>% dplyr::filter(adj.P.Val < 0.05) %>% 
+ggplot(., aes(x = model, y = F, color = cell_type)) +
+  geom_boxplot(outlier.shape = NA) + 
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  ggtitle("F statistic distribution")
+
+pdf("Plots/Pseudobulk_DEG/QC/nointeraction_models_F_statistic.pdf", width = 7, height = 5)
+last_plot()
+dev.off()
+```
+
+SEPARATE FIT ANALYSIS
+
+```{r}
+
+for (i in 1:length(allcells)) {
+  
+  resultlist_dose <- list()
+
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  #keep.exprs <- filterByExpr(dge0)
+  #x <- x[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + Xdose_cont + Ydose_cont, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+    
+  resultlist_dose[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
+  resultlist_dose[["Xdose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont")
+  resultlist_dose[["Ydose"]] <- topTable(fit, n = Inf, coef = "Ydose_cont")
+  #resultlist_dose[["Ovary:Xdose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Xdose_cont")
+  #resultlist_dose[["Ovary:Ydose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose_cont")
+  #resultlist_dose[["Xdose:Ydose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont.Ydose_cont")
+  
+  save(resultlist_dose, file = paste0("Data/Derived/Pseudobulk_DEG/Dose/", currentcell,".rda"))
+}
+```
+
+```{r}
+##quadratic full model
+
+for (i in 1:length(allcells)) {
+  
+  resultlist_quad <- list()
+
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  #keep.exprs <- filterByExpr(dge0)
+  #x <- x[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+  
+  design <- model.matrix(~Gonad + Xdose_cont +  poly(Ydose_cont, degree=2), data=currentsubset@meta.data)
+  
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+    
+  resultlist_quad[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
+  resultlist_quad[["Xdose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont")
+  resultlist_quad[["Ydose"]] <- topTable(fit, n = Inf, coef = c("poly(Ydose_cont, degree = 2)1", "poly(Ydose_cont, degree = 2)2"))
+  #resultlist_quad[["Ydose^2"]] <- topTable(fit, n = Inf, coef = "poly(Ydose_cont, degree = 2)2")
+  
+  save(resultlist_quad, file = paste0("Data/Derived/Pseudobulk_DEG/Quadratic/", currentcell,".rda"))
+}
+```
+
+```{r}
+##Aneuploidy model
+ 
+for (i in 1:length(allcells)) {
+  
+  resultlist_aneuploidy <- list()
+ 
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  #keep.exprs <- filterByExpr(dge0)
+  #x <- x[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+  
+  design <- model.matrix(~Gonad + base_SexChrom + Trisomy + Gonad:base_SexChrom + Gonad:Trisomy + base_SexChrom:Trisomy, data = currentsubset@meta.data) 
+  
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+    
+  resultlist_aneuploidy[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
+  resultlist_aneuploidy[["XX_vs_XY"]] <- topTable(fit, n = Inf, coef = "base_SexChromXX")
+  resultlist_aneuploidy[["Aneuploidy"]] <- topTable(fit, n = Inf, coef = "TrisomyNon-Trisomy")
+  resultlist_aneuploidy[["Ovary:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale:base_SexChromXX")
+  resultlist_aneuploidy[["Ovary:Aneuploidy"]] <- topTable(fit, n = Inf, coef = "GonadFemale:TrisomyNon-Trisomy")
+  resultlist_aneuploidy[["SexChromXX:Aneuploidy"]] <- topTable(fit, n = Inf, coef = "base_SexChromXX:TrisomyNon-Trisomy")
+  
+  save(resultlist_aneuploidy, file = paste0("Data/Derived/Pseudobulk_DEG/Aneuploidy/", currentcell,".rda"))
+}
+```
+
+```{r}
+##Dose factor model (X and Y dose + gonad)
+
+for (i in 1:length(allcells)) {
+  
+  resultlist_dose_factor <- list()
+
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  #keep.exprs <- filterByExpr(dge0)
+  #x <- x[keep.exprs,, keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + Xdose_cont + Ydose, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+    
+  resultlist_dose_factor[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale")
+  resultlist_dose_factor[["Xdose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont")
+  resultlist_dose_factor[["Ydose1"]] <- topTable(fit, n = Inf, coef = "Ydose1")
+  resultlist_dose_factor[["Ydose2"]] <- topTable(fit, n = Inf, coef = "Ydose2")
+  #resultlist_dose[["Ovary:Xdose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Xdose_cont")
+  #resultlist_dose[["Ovary:Ydose"]] <- topTable(fit, n = Inf, coef = "GonadFemale.Ydose_cont")
+  #resultlist_dose[["Xdose:Ydose"]] <- topTable(fit, n = Inf, coef = "Xdose_cont.Ydose_cont")
+  
+  save(resultlist_dose_factor, file = paste0(data.dir, "/Data/Derived/Pseudobulk_DEG/Dose_Factor/", currentcell,".rda"))
+}
+```
+
+##Process DEG results into df 
+```{r}
+alldata <- list.dirs("Results/original_DEG/Pseudobulk_DEG_sum/separate_fit", recursive = FALSE)
+alldata <- alldata[-c(2)]
+
+topgenes <- list()
+DEG_results <- list()
+
+for(i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  for(j in 1:length(alldata)) {
+    load(paste0(alldata[j], "/", currentcell, ".rda"))
+  }
+  
+  ##normative model
+  for(k in 1:length(resultlist_normative)) {
+
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_normative[k])
+    currentmodel <- "Normative"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##FCG model 
+  for(k in 1:length(resultlist_fcg)) {
+ 
+    currentframe <- resultlist_fcg[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_fcg[k])
+    currentmodel <- "FCG"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Aneuploidy
+  for(k in 1:length(resultlist_aneuploidy)) {
+ 
+    currentframe <- resultlist_aneuploidy[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_aneuploidy[k])
+    currentmodel <- "Aneuploidy"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Dose
+  for(k in 1:length(resultlist_dose)) {
+ 
+    currentframe <- resultlist_dose[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_dose[k])
+    currentmodel <- "Dose"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Dose Factor
+  for(k in 1:length(resultlist_dose_factor)) {
+ 
+    currentframe <- resultlist_dose_factor[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_dose_factor[k])
+    currentmodel <- "Dose_Factor"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  ##Quadratic
+  for(k in 1:length(resultlist_quad)) {
+ 
+    currentframe <- resultlist_quad[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    if(nrow(currentframe) == 0) {next}
+    currentcomparison <- names(resultlist_quad[k])
+    currentmodel <- "Quadratic"
+    currentframe$cell_type <- currentcell
+    currentframe$model <- currentmodel
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+}
+
+save(topgenes, DEG_results, file = "Results/original_DEG_processed/Pseudobulk_DEG/sep_fit/DEG_results.Rda")
+```
+

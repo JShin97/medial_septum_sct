@@ -1,0 +1,227 @@
+ ---
+title: "Clustering Visualization"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(ggpubr)
+library(scCustomize)
+library(dplyr)
+library(tidyverse)
+
+source("/u/project/xyang123/jshin/medial_septum_sct/Scripts/analysis/extra/color_palette.R")
+```
+
+```{r}
+cell_seurat <- readRDS(file = "/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds")
+
+sc_seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/supercell_seurat_harmony_sampleid_filtered_annotated.Rds")
+```
+
+```{r}
+seurat <- sc_seurat 
+
+seurat@meta.data <- seurat@meta.data %>% 
+  dplyr::mutate(celltype = replace(celltype, celltype == "Inh_IMN", "Inh-IMN")) %>% 
+  dplyr::mutate(celltype = replace(celltype, celltype == "Misc_NT", "Misc-NT")) %>%
+  dplyr::mutate(celltype = replace(celltype, celltype == "GABA-Chol", "Chol"))
+
+seurat$Gonad_new <- plyr::mapvalues(seurat$Gonad, 
+                                    from = c("Female", "Male"),
+                                    to = c("Ovaries", "Testes"))
+seurat$Genotype_new <- gsub("M", "T", seurat$Genotype)
+seurat$Genotype_new <- gsub("F", "O", seurat$Genotype_new)
+
+levels(seurat$Genotype_new) <- c("XYT", "XYO", "XXT", "XXO", "XYYT", "XYYO", "XXYT", "XXYO")
+levels(seurat$Gonad_new) <- c("Testes", "Ovaries")
+
+names(genotype_hex_colors) <- gsub("M", "T", names(genotype_hex_colors))
+names(genotype_hex_colors) <- gsub("F", "O", names(genotype_hex_colors))
+names(gonad_hex_colors) <- c("Testes", "Ovaries")
+
+#Idents(seurat) <- "celltype"
+#celltype_markers <- FindAllMarkers(seurat, assay = "RNA", only.pos = TRUE)
+#write.csv(celltype_markers, "Results/complete_analysis/extra/celltype_markers.csv", row.names = TRUE, quote = FALSE)
+```
+
+```{r}
+##visualization of biological / technical variables 
+plot_settings <- theme(legend.text = element_text(size = 20),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        plot.title = element_text(size = 22)
+        )
+
+DimPlot(seurat, group.by = "celltype", cols = cell_hex_colors) + 
+  ggtitle("Cell Type") +
+  plot_settings
+# pdf("Plots/DEG_complete_RNA/UMAP/celltype.pdf", width = 7, height = 5)
+# print(last_plot())
+# dev.off()
+
+pdf("Plots/Final_Figures/UMAP/pure_metacell_celltype.pdf", width = 7, height = 5)
+print(last_plot())
+dev.off()
+
+plot1 <- DimPlot(seurat, group.by = "Genotype_new", cols = genotype_hex_colors) + ggtitle("Genotype") + plot_settings
+plot2 <- DimPlot(seurat, group.by = "Gonad_new", cols = gonad_hex_colors) + ggtitle("Gonad") + plot_settings
+plot3 <- DimPlot(seurat, group.by = "SexChrom", cols = sexchrom_hex_colors) + ggtitle("Sex Chromosome") + plot_settings
+plot4 <- DimPlot(seurat, group.by = "Trisomy", cols = trisomy_hex_colors) + ggtitle("Trisomy") + plot_settings
+
+# pdf("Plots/DEG_complete_RNA/UMAP/variables.pdf", width = 25, height = 5)
+# ggarrange(plotlist = list(plot1, plot2, plot3, plot4), nrow = 1)
+# dev.off()
+
+pdf("Plots/Final_Figures/UMAP/pure_metacell_bio_variables.pdf", width = 25, height = 5)
+ggarrange(plotlist = list(plot1, plot2, plot3, plot4), nrow = 1)
+dev.off()
+
+plot5 <- DimPlot(seurat, group.by = "Sequencing_Date") + ggtitle("Sequencing Date") + plot_settings
+#plot6 <- DimPlot(seurat, group.by = "Library_Prep") + ggtitle("Library Preparation Date") + plot_settings
+
+# pdf("Plots/DEG_complete_RNA/UMAP/tech_variables.pdf", width = 13, height = 5)
+# ggarrange(plotlist = list(plot5, plot6), nrow = 1)
+# dev.off()
+
+pdf("Plots/Final_Figures/UMAP/pure_metacell_tech_variables.pdf", width = 13, height = 5)
+ggarrange(plotlist = list(plot5), nrow = 1)
+dev.off()
+```
+
+```{r}
+##take markers from https://www.biorxiv.org/content/10.1101/2024.08.27.609593v1.full 
+
+DefaultAssay(seurat) <- "RNA"
+seurat$celltype <- factor(seurat$celltype, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Misc-NT", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))
+
+marker_genes <- list(
+  "Glut" = c("Slc17a6", "Slc17a7"),
+  "GABA" = c("Grin1", "Gad1", "Gad2", "Slc32a1"),
+  "Chol" = c("Chat", "Slc18a3", "Ache"),
+  "Astrocyte" = c("Ndrg2", "Aldh1l1", "Gja1"),
+  "Ependymal" = c("Foxj1", "Dnah12", "Myb"), #"Kif9", "Pifo", "Rsph1"
+  "Inh-IMN" = c("Dcx"),
+  "Microglia" = c("Tmem119", "Cx3cr1", "Ikzf1"),
+  "Oligo" = c("Mog", "Mobp", "Sox10"),
+  "OPC" = c("Olig1", "Olig2"),
+  "Vascular" = c("Foxc1")
+)
+marker_genes <- marker_genes[levels(seurat$celltype)]
+
+DotPlot(seurat, group.by = "celltype", features = unlist(marker_genes, use.names = FALSE)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) 
+
+pdf("Plots/Final_Figures/Dotplot/celltype_markers.pdf", width = 10, height = 4)
+print(last_plot())
+dev.off()
+
+###
+##DEGs from https://www.biorxiv.org/content/10.1101/2024.08.27.609593v1.full 
+
+seurat <- ScaleData(seurat, assay = "RNA")
+neurons <- subset(seurat, celltype %in% c("Glut", "GABA", "Chol"))
+marker_genes_new <- list(
+  "Chol" = c("Ngfr", "Ntrk1", "Hspb1"), 
+  "GABA" = c("Meis2", "Egr1", "Hpca"), 
+  "Glut" = c("Cacna2d1", "Onecut2", "Bdnf")
+)
+neurons$celltype <- factor(neurons$celltype, levels = c("GABA", "Glut", "Chol"))
+marker_genes_new <- marker_genes_new[levels(neurons$celltype)]
+
+DotPlot(neurons, group.by = "celltype", features = unlist(marker_genes_new, use.names = FALSE)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+  scale_fill_continuous(limits = c(0,2))
+
+# DoHeatmap(neurons, 
+#           features = unlist(marker_genes_new, use.names = FALSE), 
+#           group.by = "celltype", assay = "RNA")
+
+pdf("Plots/Final_Figures/Dotplot/metacell_neuron_markers.pdf", width = 5, height = 3)
+last_plot()
+dev.off()
+
+FeaturePlot(sc_seurat, features = c("Zic1", "Lhx6"))
+
+# DotPlot(neurons, group.by = "celltype", features = unlist(marker_genes_new, use.names = FALSE)) +
+#   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) 
+```
+
+### old analysis 
+
+```{r}
+##Identify trisomy M/F dominant clusters 
+
+seurat_subset <- subset(seurat, SexChrom == c("XYY", "XXY"))
+DimPlot(seurat_subset, split.by = "data.sampleName")
+
+Idents(seurat) <- "RNA_snn_res.1"
+p1 <- Cluster_Highlight_Plot(seurat_object = seurat, cluster_name = "21", highlight_color = "blue",
+background_color = "lightgray",  pt.size = 0.1)
+p2 <- Cluster_Highlight_Plot(seurat_object = seurat, cluster_name = "24", highlight_color = "blue",
+background_color = "lightgray",  pt.size = 0.1)
+p3 <- Cluster_Highlight_Plot(seurat_object = seurat, cluster_name = "32", highlight_color = "blue",
+background_color = "lightgray",  pt.size = 0.1)
+
+png("Plots/DEG_celltype2/UMAP/trisomy_clusters.png", width = 20, height = 5, res = 600, units = "in")
+ggarrange(plotlist = list(p1, p2, p3), nrow = 1)
+dev.off()
+```
+
+```{r}
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XXYM", "XXYF", "XYYM", "XYYF"))
+seurat$sample2 <- paste(seurat$data.sampleName, seurat$Genotype, sep = "_")
+seurat$sample2 <- factor(seurat$sample2, levels = c("XY-TriSeptum-6_XXYF", "XY-TriSeptum-5_XXYF", "XY-TriSeptum-16_XXYF",
+                                                    "XY-TriSeptum-24_XXYM", "XY-TriSeptum-17_XXYM", "XY-TriSeptum-12_XXYM",
+                                                    "XY-TriSeptum-4_XYYF", "XY-TriSeptum-3_XYYF", "XY-TriSeptum-14_XYYF",
+                                                    "XY-TriSeptum-20_XYYM", "XY-TriSeptum-18_XYYM", "XY-TriSeptum-10_XYYM",
+                                                    "XY-TriSeptum-23_XXF", "XY-TriSeptum-13_XXF", "XY-TriSeptum-11_XXF",
+                                                    "XY-TriSeptum-9_XXM", "XY-TriSeptum-21_XXM", "XY-TriSeptum-19_XXM",
+                                                    "XY-TriSeptum-7_XYF", "XY-TriSeptum-22_XYF", "XY-TriSeptum-2_XYF",
+                                                    "XY-TriSeptum-8_XYM", "XY-TriSeptum-15_XYM", "XY-TriSeptum-1_XYM"))
+seurat_list <- SplitObject(seurat, split.by = "Genotype")
+plotlist <- lapply(seq_along(seurat_list), function(i) {
+  
+  currentgt <- names(seurat_list[i])
+  seurat_gt <- seurat_list[[i]]
+  
+  plot <- DimPlot(seurat_gt, group.by = "RNA_snn_res.1", split.by = "data.sampleName") & ggtitle(as.character(currentgt))
+  return(plot)
+})
+
+png(filename = "Plots/UMAP/GT_Sample_RNA_snn_res.1.png", height = 35, width = 10, units = "in", res = 600)
+ggarrange(plotlist = plotlist, ncol = 1)
+dev.off()
+
+load("Data/Derived/metadata.Rda")
+metadata <- seurat@meta.data
+metadata <- metadata %>% rownames_to_column(var = "cellID") %>% 
+  mutate(Sample_ID = gsub("XY-", "", orig.ident)) %>%
+  left_join(technical_metadata[-3], by = "Sample_ID")
+seurat@meta.data <- metadata
+rownames(seurat@meta.data) <- metadata$cellID
+metadata$cellID <- NULL
+
+seurat_list <- SplitObject(seurat, split.by = "Sequencing_Date")
+plotlist <- lapply(seq_along(seurat_list), function(i) {
+  
+  currentsd <- names(seurat_list[i])
+  seurat_sd <- seurat_list[[i]]
+  
+  plot <- DimPlot(seurat_sd, group.by = "RNA_snn_res.1", split.by = "sample2") & ggtitle(as.character(currentsd))
+  return(plot)
+})
+
+png(filename = "Plots/UMAP/SD_Sample_RNA_snn_res.1.png", height = 30, width = 20, units = "in", res = 600)
+ggarrange(plotlist = plotlist[-1], ncol = 1)
+dev.off()
+```
+

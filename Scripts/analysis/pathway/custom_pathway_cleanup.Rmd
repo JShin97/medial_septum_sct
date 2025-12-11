@@ -1,0 +1,349 @@
+---
+title: "Pathway custom"
+output: html_document
+date: "2024-11-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(clusterProfiler)
+library(enrichplot)
+library(ggplot2)
+library(ggnewscale)
+library(plyr)
+library(dplyr)
+library(stringr)
+library(RColorBrewer)
+library(ggh4x)
+
+source("/u/project/xyang123/jshin/resources/scUtils/PathwayEnrichment/pathway_enrichment_functions_YZ_v2.R")
+
+```
+
+###################################################################
+###################################################################
+### Gather and clean custom pathway results (normative)  ##########
+###################################################################
+###################################################################
+
+```{r}
+output_dir <- "Results/complete_analysis/Pathway/RNA_SD/custom_script"
+results_df <- read.delim(paste0(output_dir, "/normative/all_pathways.txt"))
+
+bp_results_df <- results_df %>% dplyr::filter(PathwaySource == "GO_BP_Mm")
+cc_results_df <- results_df %>% dplyr::filter(PathwaySource == "GO_CC_Mm")
+```
+
+###################################################################
+###################################################################
+### Visualize GO:BP Pathway Results  ##############################
+###################################################################
+###################################################################
+
+```{r}
+##Select pathways for visualization 
+bp_results_df$Celltype <- stringr::str_split_fixed(bp_results_df$Module, pattern = "_", n = 2)[,1]
+bp_results_df$Direction <- stringr::str_split_fixed(bp_results_df$Module, pattern = "_", n = 2)[,2]
+
+shared_pathways_df <- bp_results_df %>% 
+  dplyr::filter(Padj < 0.05 & nOverlap > 2) %>% 
+  group_by(Pathway) %>%
+  mutate(FDR = -log10(Padj), 
+         n_celltypes = n_distinct(Celltype),
+         #avg_Enrichment = mean(Enrichment, na.rm = TRUE),
+         avg_FDR = mean(FDR, na.rm = TRUE), 
+         Pathway = gsub("GOBP_", "", Pathway), 
+         n_direction = n_distinct(Direction), 
+         pathway_module_avg_log2FC = mean(pathwaywise.avg_log2FC, na.rm = TRUE),
+         Pathway_direction = ifelse(pathway_module_avg_log2FC > 0, "Male", "Female")) %>% 
+  dplyr::filter(n_celltypes > 3) %>%
+  dplyr::select(Pathway, n_celltypes, avg_FDR, pathway_module_avg_log2FC, n_direction, Pathway_direction) %>% distinct() %>% 
+  group_by(Pathway_direction) %>% 
+  arrange(desc(n_celltypes), .by_group = TRUE)
+write.csv(shared_pathways_df, file = paste0(output_dir, "/normative_int_files/custom_ova_bp_shared_pathways.csv"))
+  
+unique_pathways_df <- bp_results_df %>%
+  dplyr::filter(Padj < 0.05 & nOverlap > 2) %>% 
+  group_by(Pathway) %>%
+  mutate(FDR = -log10(Padj),
+         n_celltypes = n_distinct(Celltype),
+         Pathway = gsub("GOBP_", "", Pathway)) %>%
+  filter(n_celltypes == 1) %>%
+  ungroup() %>%
+  arrange(Celltype, desc(FDR))
+write.csv(unique_pathways_df, file = paste0(output_dir, "/normative_int_files/custom_ova_bp_unique_pathways.csv"))
+
+```
+
+```{r}
+#####select pathways to visualize#################################
+
+shared_pathways <- c("SYNAPTIC_SIGNALING",
+                     "DENDRITE_DEVELOPMENT",
+                     "NEURON_DEVELOPMENT", 
+                     "AXON_DEVELOPMENT", 
+                     "NEUROGENESIS", 
+                     "GLIOGENESIS", 
+                     "NEURON_MIGRATION", 
+                     "CELL_PROJECTION_ORGANIZATION",
+                     "CELL_JUNCTION_ASSEMBLY",
+                     "CELL_CELL_ADHESION",
+                     "CELL_CELL_SIGNALING", 
+                     "POSITIVE_REGULATION_OF_PHOSPHORYLATION", 
+                     "RIBONUCLEOPROTEIN_COMPLEX_BIOGENESIS",
+                     "REGULATION OF POSTSYNAPTIC_MEMBRANE_POTENTIAL", 
+                     
+                     "SYNAPSE_ORGANIZATIION", 
+                     "RIBONUCLEOPROTEIN_COMPLEX_SUBUNIT_ORGANIZATION", 
+                     "PEPTIDE_BIOSYNTHESIC_PROCESS", 
+                     "PEPTIDE_METABOLIC_PROCESS", 
+                     "PROTEIN_DEPHOSPHORYLATION", 
+                     "PROTEIN_CATABOLIC_PROCESS", 
+                     "MRNA_PROCESSING", 
+                     "MRNA_METABOLIC_PROCESS", 
+                     "RNA_SPLICING", 
+                     "RECEPTOR_MEDIATED_ENDOCYTOSIS", 
+                     "REGULATION_OF_CELLULAR_LOCALIZATION", 
+                     "RESPONSE_TO_HORMONE"
+                     )
+
+unique_pathways <- c("POSITIVE_REGULATION_OF_POST_TRANSCRIPTIONAL_GENE_SILENCING", "ENERGY_HOMEOSTASIS", "RESPONSE_TO_CHOLESTEROL", "NEUROMUSCULAR_SYNAPTIC_TRANSMISSION", 
+                     "POSITIVE_REGULATION_OF_NEUROTRANSMITTER_SECRETION", "UNSATURATED_FATTY_ACID_BIOSYNTHETIC_PROCESS", 
+                     "NEGATIVE_REGULATION_OF_MEMBRANE_PERMEABILITY", "REVERSE_CHOLESTEROL_TRANSPORT", 
+                     "POSITIVE_REGULATION_OF_AMYLOID_BETA_FORMATION", "GLUTAMATE_CATABOLIC_PROCESS", "DETECTION_OF_EXTERNAL_STIMULUS", 
+                     "STEROID_METABOLIC_PROCESS", "NEGATIVE_REGULATION_OF_AMYLOID_PRECURSOR_PROTEIN_BIOSYNTHETIC_PROCESS", "RESPONSE_TO_FIBROBLAST_GROWTH_FACTOR", "NEGATIVE_REGULATION_OF_HORMONE_METABOLIC_PROCESS", 
+                     "NEURONAL_ACTION_POTENTIAL_PROPAGATION", 
+                     "INFLAMMASOME_COMPLEX_ASSEMBLY", "LIPOPOLYSACCHARIDE_MEDIATED_SIGNALING_PATHWAY", "REGULATION_OF_MAST_CELL_ACTIVATION", 
+                     "REGULATION_OF_PHAGOCYTOSIS", "POSITIVE_REGULATION_OF_SPROUTING_ANGIOGENESIS", 
+                     "POSITIVE_REGULATION_OF_MYELINATION", "ACTIN_FILAMENT_NETWORK_FORMATION", "REGULATION_OF_ENDOPLASMIC_RETICULUM_UNFOLDED_PROTEIN_RESPONSE", 
+                     "BASEMENT_MEMBRANE_ASSEMBLY", "REGULATION_OF_EXTRACELLULAR_MATRIX_ORGANIZATION",  "POSITIVE_REGULATION_OF_VASCULATURE_DEVELOPMENT"
+                     )
+
+#####modify pathway dataframes for plotting#################################
+
+shared_pathway_df <-  bp_results_df %>% 
+  dplyr::filter(Padj < 0.05) %>% 
+  dplyr::mutate(Pathway = gsub("GOBP_", "", Pathway)) %>% 
+  dplyr::filter(Pathway %in% shared_pathways) %>% 
+  mutate(Celltype = stringr::str_split_fixed(Module, pattern = "_", n = 2)[,1], 
+         Direction = stringr::str_split_fixed(Module, pattern = "_", n = 2)[,2]) %>% 
+  mutate(Direction = recode(Direction, Female = "F", Male = "M")) %>% 
+  mutate(Direction = factor(Direction, levels = c("F", "M")), 
+         Celltype = factor(Celltype, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular")))
+
+# 1. order shared pathways by celltype
+unique_pathway_df <-  bp_results_df %>% 
+  dplyr::filter(Padj < 0.05) %>% 
+  dplyr::mutate(Pathway = gsub("GOBP_", "", Pathway)) %>%
+  dplyr::filter(Pathway %in% unique_pathways) %>% 
+   mutate(Celltype = stringr::str_split_fixed(Module, pattern = "_", n = 2)[,1], 
+         Direction = stringr::str_split_fixed(Module, pattern = "_", n = 2)[,2]) %>%
+  mutate(Direction = recode(Direction, Female = "F", Male = "M")) %>% 
+  mutate(Celltype = factor(Celltype, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular")), 
+         Direction = factor(Direction, levels = c("F", "M"))) %>% 
+  arrange(Celltype, Direction, Pathway) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(unique(Pathway))))
+
+plot_df <- rbind(unique_pathway_df, shared_pathway_df)
+#plot_df <- shared_pathway_df
+
+plot_df <- plot_df %>%
+  mutate(Pathway = fct_relabel(Pathway, ~ gsub("^(POSITIVE|NEGATIVE)_REGULATION_OF_", "", .x)), 
+         Pathway = fct_relabel(Pathway, ~ gsub("REGULATION_OF_", "", .x)), 
+         Pathway = fct_relabel(Pathway, ~ gsub("ESTABLISHMENT_OF_", "", .x)))
+
+# pathways_to_remove <- c("CELL-CELL SIGNALING", 
+#                         "POSTSYNAPTIC DENSITY ASSEMBLY", 
+#                         "DEVELOPMENTAL GROWTH", 
+#                         "CELL PROJECTION ORGANIZATION")
+#plot_df <- plot_df %>% dplyr::filter(!Description %in% pathways_to_remove)
+final_pathway_order <- c("NEURON_DEVELOPMENT", "NEUROGENESIS", "GLIOGENESIS", "DENDRITE_DEVELOPMENT", "AXON_DEVELOPMENT", 
+                         "CELL_PROJECTION_ORGANIZATION", "CELL_JUNCTION_ASSEMBLY", "NEURON_MIGRATION", "SYNAPSE_ORGANIZATIION", 
+                         "SYNAPTIC_SIGNALING", "CELL_CELL_SIGNALING", "CELL_CELL_ADHESION", "REGULATION OF POSTSYNAPTIC_MEMBRANE_POTENTIAL", 
+                         "PHOSPHORYLATION", "RIBONUCLEOPROTEIN_COMPLEX_BIOGENESIS", "RIBONUCLEOPROTEIN_COMPLEX_SUBUNIT_ORGANIZATION", 
+                         "PEPTIDE_BIOSYNTHESIC_PROCESS", "PEPTIDE_METABOLIC_PROCESS", "PROTEIN_DEPHOSPHORYLATION", "PROTEIN_CATABOLIC_PROCESS", 
+                         "MRNA_PROCESSING", "MRNA_METABOLIC_PROCESS", "RNA_SPLICING", 
+                         "RECEPTOR_MEDIATED_ENDOCYTOSIS", "CELLULAR_LOCALIZATION", 
+                         "RESPONSE_TO_HORMONE")
+
+unique_pathway_order <- levels(unique_pathway_df$Pathway)
+unique_pathway_order <- gsub("^(POSITIVE|NEGATIVE)_REGULATION_OF_", "", unique_pathway_order)
+unique_pathway_order <- gsub("REGULATION_OF_", "", unique_pathway_order)
+unique_pathway_order <- gsub("ESTABLISHMENT_OF_", "", unique_pathway_order)
+
+plot_df <- plot_df %>% mutate(Pathway = factor(Pathway, levels = c(unique_pathway_order, rev(final_pathway_order))))
+
+plot <- ggplot(plot_df, aes(x = 1, y = Pathway, size = Enrichment, color = pathwaywise.avg_log2FC)) +
+  geom_point() +
+  scale_size_continuous(range = c(5, 15)) +  # Adjust the range for dot sizes
+  scale_color_gradient2(low = "blue", high = "red", limits = c(-0.5, 0.5), oob = scales::squish) +
+  facet_nested_wrap(vars(Celltype, Direction), nrow = 1) + 
+  labs(x = NULL, y = "Pathway Description", color = "Avg Log FC") +
+  #ggtitle("GO:BP Pathways") +
+  theme_bw() +
+  guides(size = guide_legend(title = "Enrichment")) +  # Set the size legend title to "FDR"
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 0),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 18),
+        axis.title.y = element_text(size = 0),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        plot.title = element_text(size = 25), 
+        strip.text = element_text(size = 18), 
+        panel.spacing.x = unit(0.5, "lines"), 
+        legend.position = "bottom", 
+        legend.box = "horizontal", 
+        legend.spacing = unit(5, "cm"),
+        legend.key.width = unit(2, "cm")) + 
+  scale_x_discrete(expand = expansion(add = c(0.5, 0.5)))
+
+png("Plots/Final_Figures/Pathway/normative_GOBP_OVA_plot.png", width = 23, height = 13.5, units = "in", res = 600) 
+print(plot)
+dev.off()
+
+```
+
+###################################################################
+###################################################################
+### Gather and clean custom pathway results (autosomal)  ##########
+###################################################################
+###################################################################
+
+```{r}
+output_dir <- "Results/complete_analysis/Pathway/RNA_SD/custom_script"
+results_df <- read.delim(paste0(output_dir, "/autosomal_modules/all_pathways.txt"))
+
+bp_results_df <- results_df %>% dplyr::filter(PathwaySource == "GO_BP_Mm")
+cc_results_df <- results_df %>% dplyr::filter(PathwaySource == "GO_CC_Mm")
+```
+
+###################################################################
+###################################################################
+### Visualize GO:BP Pathway Results  ##############################
+###################################################################
+###################################################################
+
+```{r}
+shared_pathways_df <- bp_results_df %>% 
+  dplyr::filter(Padj < 0.05 & nOverlap > 2) %>% 
+  group_by(Pathway) %>%
+  mutate(FDR = -log10(Padj), 
+         n_modules = n_distinct(Module),
+         #avg_Enrichment = mean(Enrichment, na.rm = TRUE),
+         avg_FDR = mean(FDR, na.rm = TRUE), 
+         Pathway = gsub("GOBP_", "", Pathway), 
+         pathway_module_avg_log2FC = mean(pathwaywise.avg_log2FC, na.rm = TRUE)) %>% 
+  dplyr::filter(n_modules >= 3) %>%
+  dplyr::select(Pathway, n_modules, avg_FDR, pathway_module_avg_log2FChe) %>% distinct() %>% 
+  arrange(desc(n_modules))
+write.csv(shared_pathways_df, file = paste0(output_dir, "/autosomal_modules/int_files/custom_ova_bp_shared_pathways.csv"))
+  
+unique_pathways_df <- bp_results_df %>%
+  dplyr::filter(Padj < 0.05 & nOverlap > 2) %>% 
+  group_by(Pathway) %>%
+  mutate(FDR = -log10(Padj),
+         n_modules = n_distinct(Module),
+         Pathway = gsub("GOBP_", "", Pathway)) %>%
+  dplyr::filter(n_modules == 1) %>%
+  ungroup() %>%
+  arrange(Module, desc(FDR))
+write.csv(unique_pathways_df, file = paste0(output_dir, "/autosomal_modules/int_files/custom_ova_bp_unique_pathways.csv"))
+
+```
+
+```{r}
+#####select pathways to visualize#################################
+
+shared_pathways <- c("TRANSLATION_AT_SYNAPSE", "PROTON_MOTIVE_FORCE_DRIVEN_ATP_SYNTHESIS",
+                     "CYTOPLASMIC_TRANSLATION", "SYNAPTIC_VESICLE_CLUSTERING", "RECEPTOR_LOCALIZATION_TO_SYNAPSE",
+                     "REGULATION_OF_POSTSYNAPTIC_MEMBRANE_NEUROTRANSMITTER_RECEPTOR_LEVELS", "NEUROTRANSMITTER_SECRETION", "SYNAPTIC_VESICLE_RECYCLING", 
+                     "SYNAPTIC_SIGNALING", "LONG_TERM_SYNAPTIC_POTENTIATION", 
+                     "SYNAPSE_ORGANIZATION", "NEURON_PROJECTION_ORGANIZATION", "REGULATION_OF_NEURON_PROJECTION_DEVELOPMENT", 
+                     "NEURON_DEVELOPMENT", "CELL_MORPHOGENESIS", 
+                     "ATP_BIOSYNTHETIC_PROCESS", "STEROID_HORMONE_MEDIATED_SIGNALING_PATHWAY"
+                     )
+
+unique_pathways <- c("POSITIVE_REGULATION_OF_3_UTR_MEDIATED_MRNA_STABILIZATION", "NEGATIVE_REGULATION_OF_OXIDATIVE_STRESS_INDUCED_NEURON_INTRINSIC_APOPTOTIC_SIGNALING_PATHWAY", 
+                     "POSITIVE_REGULATION_OF_SYNAPTIC_VESICLE_EXOCYTOSIS", "REGULATION_OF_GLUTAMATE_RECEPTOR_CLUSTERING", "GLUTAMATE_CATABOLIC_PROCESS", "RNA_POLYADENYLATION", 
+                     "CELL_MOTILITY", "CELL_ADHESION", "APOPTOTIC_PROCESS", "REGULATION_OF_CELL_DEVELOPMENT", "MONOATOMIC_CATION_TRANSPORT", "REGULATION_OF_INTRACELLULAR_SIGNAL_TRANSDUCTION", "REGULATION_OF_PROTEIN_MODIFICATION_PROCESS", "RESPONSE_TO_HORMONE", "PEPTIDE_HORMONE_PROCESSING", "REGULATION_OF_HORMONE_LEVELS", "EPIGENETIC_REGULATION_OF_GENE_EXPRESSION", "AMYLOID_BETA_CLEARANCE", 
+                     "TRANSLATIONAL_INITIATION", "PROTEIN_LOCALIZATION_TO_LYSOSOME", "PROTEIN_LOCALIZATION_TO_MITOCHONDRION", "PROTEIN_LOCALIZATION_TO_VACUOLE", "REGULATION_OF_ESTABLISHMENT_OF_PROTEIN_LOCALIZATION_TO_CHROMOSOME", "CHAPERONE_MEDIATED_PROTEIN_FOLDING",  "REGULATION_OF_AMYLOID_FIBRIL_FORMATION"
+                     )
+
+#####modify pathway dataframes for plotting#################################
+
+shared_pathway_df <-  bp_results_df %>% 
+  dplyr::filter(Padj < 0.05) %>% 
+  dplyr::mutate(Pathway = gsub("GOBP_", "", Pathway)) %>% 
+  dplyr::filter(Pathway %in% shared_pathways) %>%
+  mutate(Module = factor(Module, levels = c("Module_A1", "Module_A2", "Module_A3", "Module_A4", "Module_A5")))
+
+# 1. order shared pathways by celltype
+unique_pathway_df <-  bp_results_df %>% 
+  dplyr::filter(Padj < 0.05) %>% 
+  dplyr::mutate(Pathway = gsub("GOBP_", "", Pathway)) %>%
+  dplyr::filter(Pathway %in% unique_pathways) %>%
+    mutate(Module = factor(Module, levels = c("Module_A1", "Module_A2", "Module_A3", "Module_A4", "Module_A5"))) %>% 
+  arrange(Module, Pathway) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(unique(Pathway))))
+
+plot_df <- rbind(unique_pathway_df, shared_pathway_df)
+
+plot_df <- plot_df %>%
+  mutate(Pathway = fct_relabel(Pathway, ~ gsub("^(POSITIVE|NEGATIVE)_REGULATION_OF_", "", .x)), 
+         Pathway = fct_relabel(Pathway, ~ gsub("REGULATION_OF_", "", .x)), 
+         Pathway = fct_relabel(Pathway, ~ gsub("ESTABLISHMENT_OF_", "", .x)))
+
+unique_pathway_order <- levels(unique_pathway_df$Pathway)
+unique_pathway_order <- gsub("^(POSITIVE|NEGATIVE)_REGULATION_OF_", "", unique_pathway_order)
+unique_pathway_order <- gsub("REGULATION_OF_", "", unique_pathway_order)
+unique_pathway_order <- gsub("ESTABLISHMENT_OF_", "", unique_pathway_order)
+
+final_pathway_order <- c("TRANSLATION_AT_SYNAPSE", "PROTON_MOTIVE_FORCE_DRIVEN_ATP_SYNTHESIS",
+                     "CYTOPLASMIC_TRANSLATION", "SYNAPTIC_VESICLE_CLUSTERING", "RECEPTOR_LOCALIZATION_TO_SYNAPSE",
+                     "POSTSYNAPTIC_MEMBRANE_NEUROTRANSMITTER_RECEPTOR_LEVELS", "NEUROTRANSMITTER_SECRETION", "SYNAPTIC_VESICLE_RECYCLING", 
+                     "SYNAPTIC_SIGNALING", "LONG_TERM_SYNAPTIC_POTENTIATION", 
+                     "SYNAPSE_ORGANIZATION", "NEURON_PROJECTION_ORGANIZATION", "NEURON_PROJECTION_DEVELOPMENT", 
+                     "NEURON_DEVELOPMENT", "CELL_MORPHOGENESIS", 
+                     "ATP_BIOSYNTHETIC_PROCESS", "STEROID_HORMONE_MEDIATED_SIGNALING_PATHWAY"
+                     )
+
+plot_df <- plot_df %>% mutate(Pathway = factor(Pathway, levels = c(unique_pathway_order, rev(final_pathway_order))))
+
+ggplot(plot_df, aes(x = Module, y = Pathway, size = Enrichment, color = pathwaywise.avg_log2FC)) + 
+  geom_point() +
+  scale_size_continuous(range = c(5, 15)) +  # Adjust the range for dot sizes
+  scale_color_gradient2(low = "blue", high = "red", limits = c(-0.5, 0.5), oob = scales::squish)
+
+plot <- ggplot(plot_df, aes(x = 1, y = Pathway, size = Enrichment, color = pathwaywise.avg_log2FC)) +
+  geom_point() +
+  scale_size_continuous(range = c(5, 15)) +  # Adjust the range for dot sizes
+  scale_color_gradient2(low = "blue", high = "red", limits = c(-0.5, 0.5), oob = scales::squish) +
+  facet_nested_wrap(vars(Celltype, Direction), nrow = 1) + 
+  labs(x = NULL, y = "Pathway Description", color = "Avg Log FC") +
+  #ggtitle("GO:BP Pathways") +
+  theme_bw() +
+  guides(size = guide_legend(title = "Enrichment")) +  # Set the size legend title to "FDR"
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 0),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 18),
+        axis.title.y = element_text(size = 0),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        plot.title = element_text(size = 25), 
+        strip.text = element_text(size = 18), 
+        panel.spacing.x = unit(0.5, "lines"), 
+        legend.position = "bottom", 
+        legend.box = "horizontal", 
+        legend.spacing = unit(5, "cm"),
+        legend.key.width = unit(2, "cm")) + 
+  scale_x_discrete(expand = expansion(add = c(0.5, 0.5)))
+
+png("Plots/Final_Figures/Pathway/normative_GOBP_OVA_plot.png", width = 23, height = 13.5, units = "in", res = 600) 
+print(plot)
+dev.off()
+
+bp_results_df %>% dplyr::filter(Padj < 0.05 & Module == "Module_A1")
+```
+

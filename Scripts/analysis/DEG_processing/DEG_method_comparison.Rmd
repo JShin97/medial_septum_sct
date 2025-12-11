@@ -1,0 +1,71 @@
+---
+title: "DEG_comparison"
+output: html_document
+date: "2024-05-14"
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+# library(limma)
+# library(edgeR)
+# library(data.table)
+library(plyr)
+library(dplyr)
+library(Matrix)
+library(Seurat)
+#library(enrichplot)
+#library(org.Mm.eg.db)
+#library(ggplot2)
+#library(RColorBrewer)
+#library(grid)
+#library(gridExtra)
+#library(Mus.musculus)
+library(MAST)
+library(lme4)
+library(survcomp)
+library(ggplot2)
+library(UpSetR)
+library(tidyverse)
+library(ComplexUpset)
+library(ggpubr)
+library(readxl)
+```
+
+```{r}
+##load in DEG files 
+
+original_DEG <- readRDS(file = "/u/project/xyang123/jshin/medial_septum_sct/Results/original_DEG_processed/DEG/DEG_results.rds")
+original_DEG <- original_DEG %>% filter(comparison == "XXF_vs_XYM")
+
+load(file = "/u/project/xyang123/jshin/medial_septum_sct/Results/original_DEG_processed/Pseudobulk_DEG/global_fit/DEG_results.Rda")
+global_PB_DEG <- DEG_results$Normative$XXF_vs_XYM
+global_PB_DEG <- do.call("rbind", global_PB_DEG)
+rm(DEG_results, topgenes)
+
+load(file = "/u/project/xyang123/jshin/medial_septum_sct/Results/original_DEG_processed/Pseudobulk_DEG/sep_fit/DEG_results.Rda")
+sep_PB_DEG <- DEG_results$Normative$XXF_vs_XYM
+sep_PB_DEG <- do.call("rbind", sep_PB_DEG)
+rm(DEG_results, topgenes)
+
+#load(file = "/u/project/xyang123/jshin/medial_septum_sct/Results/original_DEG_processed/Supercell_DEG/DEG_results.Rda")
+#supercell_DEG <- DEG_results$Normative$XXF_vs_XYM
+#rm(DEG_results, topgenes)
+
+load(file = "/u/project/xyang123/jshin/medial_septum_sct/Results/original_DEG_processed/MASHR_DEG/Normative.Rda")
+logfc <- mashr_results[[3]]$XXF_vs_XYM$result$PosteriorMean
+pval <- mashr_results[[3]]$XXF_vs_XYM$result$lfsr
+logfc <- logfc %>% as.data.frame() %>% rownames_to_column(var = "gene") %>%
+  pivot_longer(cols = !gene, names_to = "cell_type", values_to = "logFC")
+pval <- pval %>% as.data.frame() %>% rownames_to_column(var = "gene") %>%
+  pivot_longer(cols = !gene, names_to = "cell_type", values_to = "P.Value")
+
+mashr_DEG <- left_join(logfc, pval, by = c("cell_type", "gene"))
+mashr_DEG$adj.P.Val <- p.adjust(mashr_DEG$P.Value, method = "BH")
+rm(logfc, pval)
+
+
+
+```
+

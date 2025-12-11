@@ -1,0 +1,66 @@
+Job 2544258 started on:  n6002
+Job 2544258 started on:  Thu Apr 4 17:41:42 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-10/outs/raw_feature_bc_matrix.h5 --output /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-10/TriSeptum-10.h5
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash ac9418745f)
+cellbender:remove-background: 2024-04-04 17:42:02
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-10/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 26335 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 6582
+cellbender:remove-background: Prior on counts for empty droplets is 888
+cellbender:remove-background: Excluding 6382 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 19953 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 444
+cellbender:remove-background: Using 2439 probable cell barcodes, plus an additional 7259 barcodes, and 23912 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 1326 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2544258.2.xyang123_pod.q/tmp43ej3av_
+cellbender:remove-background: Successfully unpacked tarball to /work/2544258.2.xyang123_pod.q/tmp43ej3av_
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_params.pyro
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_optim.pyro
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_train.loaderstate
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_model.torch
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_random.pyro
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_optim.torch
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_test.loaderstate
+/work/2544258.2.xyang123_pod.q/tmp43ej3av_/b3c2490864_args.npy
+cellbender:remove-background: Workflow hash does not match that of checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...
+cellbender:remove-background: [epoch 001]  average training loss: 9464.7234
+cellbender:remove-background: [epoch 002]  average training loss: 8873.4151  (133.7 seconds per epoch)
+cellbender:remove-background: Will checkpoint every 4 epochs
+cellbender:remove-background: [epoch 003]  average training loss: 8217.0364
+cellbender:remove-background: [epoch 004]  average training loss: 7691.9837
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/project/xyang123/jshin/medial_septum_sct/Scripts/cellbender_scripts/ckpt.tar.gz
+cellbender:remove-background: [epoch 005]  average training loss: 7231.1497
+cellbender:remove-background: [epoch 005] average test loss: 7508.6083
+cellbender:remove-background: [epoch 006]  average training loss: 7019.1178
+cellbender:remove-background: [epoch 007]  average training loss: 6840.6399
+cellbender:remove-background: [epoch 008]  average training loss: 6709.1584
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/project/xyang123/jshin/medial_septum_sct/Scripts/cellbender_scripts/ckpt.tar.gz
+cellbender:remove-background: [epoch 009]  average training loss: 6635.2552
+cellbender:remove-background: [epoch 010]  average training loss: 6603.5537
+cellbender:remove-background: [epoch 010] average test loss: 6570.6351
+cellbender:remove-background: [epoch 011]  average training loss: 6647.0137
+cellbender:remove-background: [epoch 012]  average training loss: 6627.2270
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/project/xyang123/jshin/medial_septum_sct/Scripts/cellbender_scripts/ckpt.tar.gz
+cellbender:remove-background: [epoch 013]  average training loss: 6617.3441
+cellbender:remove-background: [epoch 014]  average training loss: 6591.9900
+cellbender:remove-background: [epoch 015]  average training loss: 6569.8076
+cellbender:remove-background: [epoch 015] average test loss: 6576.0652
+cellbender:remove-background: [epoch 016]  average training loss: 6584.2139
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/project/xyang123/jshin/medial_septum_sct/Scripts/cellbender_scripts/ckpt.tar.gz
+cellbender:remove-background: [epoch 017]  average training loss: 6582.9047
+cellbender:remove-background: [epoch 018]  average training loss: 6613.4193
+cellbender:remove-background: [epoch 019]  average training loss: 6548.4383

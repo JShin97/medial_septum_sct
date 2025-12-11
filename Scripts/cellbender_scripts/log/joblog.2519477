@@ -1,0 +1,15 @@
+Job 2519477 started on:  n7677
+Job 2519477 started on:  Wed Apr 3 17:50:58 PDT 2024
+ 
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/base_cli.py", line 115, in main
+    args = cli_dict[args.tool].validate_args(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/cli.py", line 80, in validate_args
+    assert torch.cuda.is_available(), "Trying to use CUDA, " \
+AssertionError: Trying to use CUDA, but CUDA is not available.
+/work/UGE/8.6.4/n7677/job_scripts/2519477: line 62: --epochs: command not found
+Job 2519477 ended on:  n7677
+Job 2519477 ended on:  Wed Apr 3 17:51:05 PDT 2024
+ 

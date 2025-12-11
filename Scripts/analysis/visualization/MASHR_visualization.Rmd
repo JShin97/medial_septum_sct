@@ -1,0 +1,510 @@
+---
+title: "Mashr_DEG_analysis"
+output: html_document
+date: "2024-02-21"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/project-xyang123/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(tidyverse)
+library(Seurat)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+library(readxl)
+library(ggpubr)
+library(ggplotify)
+library(scuttle)
+library(Mus.musculus)
+library(mashr)
+library(str2str)
+library(EnhancedVolcano)
+library(dplyr)
+library(splines)
+library(ComplexUpset)
+#library(rowr)
+library(corrplot)
+library(ggplotify)
+library(GGally)
+library(cowplot)
+```
+
+OVERALL GENE COUNTS
+```{r}
+data.dir <- "/u/scratch/j/jshin/old-scratch-julianas/medial_septum_sct"
+summed_seurat <- readRDS(file.path(data.dir, "Saves/Pseudobulk_sum_sce_to_seurat.RDS"))
+
+##Edit metadata 
+allcells <- unique(summed_seurat$cell.type)
+
+summed_seurat$Xdose <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% factor(levels = c(1, 2))
+summed_seurat$Xdose_cont <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% as.character() %>% as.numeric()
+summed_seurat$Ydose <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% factor(levels = c(0, 1, 2))
+summed_seurat$Ydose_cont <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% as.character() %>% as.numeric()
+summed_seurat$base_SexChrom <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c("XX", "XY", "XY", "XY")) %>% factor(levels = c("XY", "XX"))
+summed_seurat$addX <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 0, 0)) %>% as.numeric()
+summed_seurat$addY <- plyr::mapvalues(summed_seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 0, 0, 1)) %>% as.numeric()
+
+summed_seurat$Gonad <- factor(summed_seurat$Gonad, levels = c("Male", "Female"))
+summed_seurat$SexChrom <- factor(summed_seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+summed_seurat$Genotype <- factor(summed_seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+summed_seurat$Trisomy <- factor(summed_seurat$Trisomy, levels = c("Trisomy", "Non-Trisomy"))
+```
+
+PARTIAL RESULTS 
+```{r}
+df <- list()
+for(i in 1:length(allcells)) {
+  ##Normative 
+  load(file.path(data.dir, "Results/MASHR_DEG/Normative.Rda"))
+  m <- mashr_results[[3]]
+  currentcell <- colnames(m$XXF_vs_XYM$result$PosteriorMean)[i]
+  df[["Normative"]][["XXF_vs_XYM"]][[currentcell]] <- data.frame(m$XXF_vs_XYM$result$PosteriorMean[,i], m$XXF_vs_XYM$result$lfsr[,i]) %>%
+    dplyr::mutate(cell_type = currentcell,
+                  comparison = "XXF_vs_XYM", 
+                  model = "Normative") %>%
+    tibble::rownames_to_column(var = "gene")
+  colnames(df[["Normative"]][["XXF_vs_XYM"]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+  
+  ##FCG 
+  load(file.path(data.dir, "Results/MASHR_DEG/FCG.Rda"))
+
+  for(j in 1:length(mashr_results[[1]])) {
+    
+    currentcomparison <- names(mashr_results[[1]])[j]
+    
+    df[["FCG"]][[currentcomparison]][[currentcell]] <- data.frame(mashr_results[[1]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell)),mashr_results[[2]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell))
+    ) %>%
+      dplyr::mutate(cell_type = currentcell,
+                  comparison = currentcomparison, 
+                  model = "FCG") %>%
+    tibble::rownames_to_column(var = "gene")
+    colnames(df[["FCG"]][[currentcomparison]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+    
+  }
+  
+  ##Full 
+  load(file.path(data.dir, "Results/MASHR_DEG/Full.Rda"))
+
+  for(j in 3:4) {
+    
+    currentcomparison <- names(mashr_results[[1]])[j]
+    
+    df[["Full"]][[currentcomparison]][[currentcell]] <- data.frame(mashr_results[[1]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell)),mashr_results[[2]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell))
+    ) %>%
+      dplyr::mutate(cell_type = currentcell,
+                  comparison = currentcomparison, 
+                  model = "Full") %>%
+    tibble::rownames_to_column(var = "gene")
+    colnames(df[["Full"]][[currentcomparison]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+    
+  }
+}
+
+##single df
+DEG_df <- do.call(c, unlist(df, recursive=FALSE, use.names = FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Full"))
+DEG_df$comparison <- factor(DEG_df$comparison, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX", "X", "Y"))
+#DEG_df <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05)
+```
+
+```{r}
+DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>%
+  {table(.$cell_type, .$comparison)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~Var2, ncol = 6) +
+    scale_x_discrete(labels = NULL, breaks = NULL) + labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Types"))
+  
+pdf("Plots/MASHR_DEG/barplot/DEG_counts_ct.pdf", width  = 15, height = 3)
+print(last_plot())
+dev.off()
+```
+
+DOT PLOTS
+```{r}
+sexchrom_genes <- c("Xist", "Tisx", "Eif2s3x", "Ddx3x", "Kdm5c", "Kdm6a", "Uty", "Kdm5d", "Ddx3y", "Eif2s3y")
+hormone_genes <- c("Esr1", "Esr2", "Ar", "Pgr", "Gr", "Mr", "Rarb", "Rorb", "Rxrg", "Nfix")
+sexdimorphic_genes <- c("Irs4", "Pak3", "Gpr165", "Ecel1", "Glra3", "Gabrg1", "Nnat", "Cartpt", "Greb1", "Rps6ka6", "Sytl4", "Brs3", "Cckar", "Dgkk", "Chodl")
+neurotrophin_genes <- c("Ntrk1", "Ntrk2", "Ntrk3", "Ngfr")
+disease_genes <- c("Cntnap2",	"Grin2b",	"Scn2a","Dyrk1a", "App", "Bace")
+target_genes <- c("Brinp2", "Unc5b", "Enah", "Rcn1", "Irs2", "Tle3", "Nrip1", "Nr2f1", "Nr3c1")
+
+DEG_list <- split(DEG_df, DEG_df$comparison)
+
+plot_list <- list()
+for(i in seq_along(DEG_list)){
+  
+  currentcomparison <- names(DEG_list)[i]
+  plot_df <- DEG_list[[i]] %>% as.data.frame() %>% dplyr::filter(gene %in% c(target_genes)) %>%
+    dplyr::mutate(gene = factor(gene, levels = c(target_genes)))
+  
+  table(plot_df$gene)
+  
+  plot_df$FDR <- -log10(plot_df$adj.P.Val)
+  plot_df$FDR[plot_df$FDR > 3] <- 3
+  plot_df$logFC2 <- plot_df$logFC
+  #plot_df$logFC2[plot_df$logFC2 > 3] <- 3
+  #plot_df$logFC2[plot_df$logFC2 < -3] <- -3
+  
+  plot <- ggplot(plot_df, aes(y = gene, x = cell_type)) +
+    geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle(currentcomparison) +
+    geom_point(aes(colour = logFC2, size = FDR)) +
+    scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40)) +
+    theme_bw()+theme(axis.text.y = element_text( size = 20),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+                   strip.text.x = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                   plot.title = element_text(size = 20))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                 size =guide_legend(title="-log10(FDR)"))
+  
+  plot_list[[currentcomparison]] <- plot
+}
+pdf("Plots/MASHR_DEG/dotplot/target_genes.pdf", width  = 40, height = 10)
+print(ggarrange(plotlist = plot_list, ncol = 6, nrow = 1))
+dev.off()
+
+```
+
+COMPLETE RESULTS
+ELBOW PLOTS 
+```{r}
+##Normative 
+df <- list()
+for(i in 1:length(allcells)) {
+  
+  ##Normative 
+  load(file.path(data.dir, "Results/MASHR_DEG/Normative.Rda"))
+  currentcell <- colnames(m$result$PosteriorMean)[i]
+  df[["Normative"]][["XXF_vs_XYM"]][[currentcell]] <- data.frame(m$result$PosteriorMean[,i], m$result$lfsr[,i]) %>%
+    dplyr::mutate(cell_type = currentcell,
+                  comparison = "XXF_vs_XYM", 
+                  model = "Normative") %>%
+    tibble::rownames_to_column(var = "gene")
+  colnames(df[["Normative"]][["XXF_vs_XYM"]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+  
+  ##FCG 
+  load(file.path(data.dir, "Results/MASHR_DEG/FCG.Rda"))
+  #currentcell <- colnames(m$result$PosteriorMean)[i]
+  
+  for(j in 1:length(mashr_results[[1]])) {
+    
+    currentcomparison <- names(mashr_results[[1]])[j]
+    
+    df[["FCG"]][[currentcomparison]][[currentcell]] <- data.frame(mashr_results[[1]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell)),mashr_results[[2]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell))
+    ) %>%
+      dplyr::mutate(cell_type = currentcell,
+                  comparison = currentcomparison, 
+                  model = "FCG") %>%
+    tibble::rownames_to_column(var = "gene")
+    colnames(df[["FCG"]][[currentcomparison]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+    
+  }
+  
+  ##Dose
+  load(file.path(data.dir, "Results/MASHR_DEG/Dose.Rda"))
+  #currentcell <- colnames(m$result$PosteriorMean)[i]
+  
+  for(j in 1:length(mashr_results[[1]])) {
+    
+    currentcomparison <- names(mashr_results[[1]])[j]
+    
+    df[["Dose"]][[currentcomparison]][[currentcell]] <- data.frame(mashr_results[[1]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell)),mashr_results[[2]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell))
+    ) %>%
+      dplyr::mutate(cell_type = currentcell,
+                  comparison = currentcomparison, 
+                  model = "Dose") %>%
+    tibble::rownames_to_column(var = "gene")
+    colnames(df[["Dose"]][[currentcomparison]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+    
+  }
+  
+  ##Dose Factor
+  load(file.path(data.dir, "Results/MASHR_DEG/Dose_factor.Rda"))
+  #currentcell <- colnames(m$result$PosteriorMean)[i]
+  
+  for(j in 1:length(mashr_results[[1]])) {
+    
+    currentcomparison <- names(mashr_results[[1]])[j]
+    
+    df[["Dose_Factor"]][[currentcomparison]][[currentcell]] <- data.frame(mashr_results[[1]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell)),mashr_results[[2]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell))
+    ) %>%
+      dplyr::mutate(cell_type = currentcell,
+                  comparison = currentcomparison, 
+                  model = "Dose_Factor") %>%
+    tibble::rownames_to_column(var = "gene")
+    colnames(df[["Dose_Factor"]][[currentcomparison]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+    
+  }
+  
+    ##Aneuploidy
+  load(file.path(data.dir, "Results/MASHR_DEG/Aneuploidy.Rda"))
+  #currentcell <- colnames(m$result$PosteriorMean)[i]
+  
+  for(j in 1:length(mashr_results[[1]])) {
+    
+    currentcomparison <- names(mashr_results[[1]])[j]
+    
+    df[["Aneuploidy"]][[currentcomparison]][[currentcell]] <- data.frame(mashr_results[[1]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell)),mashr_results[[2]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell))
+    ) %>%
+      dplyr::mutate(cell_type = currentcell,
+                  comparison = currentcomparison, 
+                  model = "Aneuploidy") %>%
+    tibble::rownames_to_column(var = "gene")
+    colnames(df[["Aneuploidy"]][[currentcomparison]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+  }
+  
+  ##Quadratic
+  load(file.path(data.dir, "Results/MASHR_DEG/Quadratic.Rda"))
+  #currentcell <- colnames(m$result$PosteriorMean)[i]
+  
+  for(j in 1:length(mashr_results[[1]])) {
+    
+    currentcomparison <- names(mashr_results[[1]])[j]
+    
+    df[["Quadratic"]][[currentcomparison]][[currentcell]] <- data.frame(mashr_results[[1]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell)),mashr_results[[2]][j] %>% 
+      as.data.frame() %>%
+      dplyr::select(contains(currentcell))
+    ) %>%
+      dplyr::mutate(cell_type = currentcell,
+                  comparison = currentcomparison, 
+                  model = "Quadratic") %>%
+    tibble::rownames_to_column(var = "gene")
+    colnames(df[["Quadratic"]][[currentcomparison]][[currentcell]])[2:3] <- c("logFC", "adj.P.Val")
+    
+  }
+}
+
+##single df
+DEG_df <- do.call(c, unlist(df, recursive=FALSE, use.names = FALSE)) %>% bind_rows()
+DEG_df$model <- factor(DEG_df$model, levels = c("Normative", "FCG", "Aneuploidy", "Dose", "Dose_Factor"))
+DEG_df$comparison <- factor(DEG_df$comparison)
+
+##list split by cell type
+DEG_list <- split(DEG_df, f = DEG_df$cell_type)
+```
+
+```{r}
+
+plot_list <- list()
+
+run_elbowplot <- function(x, model_var, set_vars) {
+  
+  lapply(x, function(x) {
+  
+  #x <- DEG_list[[1]]
+  
+  df_filter <- x %>% dplyr::filter(adj.P.Val < 0.05)
+  currentcell <- df_filter$cell_type %>% unique()
+  
+  gene_list <- df_filter %>% dplyr::filter(model %in% c("Normative", model_var)) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  #set_vars <- c("Ovary:SexChromXX", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  plot <- ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell)
+  
+  plot_list[[currentcell]] <- plot
+  }) 
+}
+
+plot_list <- run_elbowplot(DEG_list, "FCG", c("Ovary:SexChromXX", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM"))
+pdf("Plots/MASHR_DEG/elbow_celltype/FCG.pdf", width  = 30, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+
+plot_list <- run_elbowplot(DEG_list, "Dose", c("Ydose", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM"))
+pdf("Plots/MASHR_DEG/elbow_celltype/Dose.pdf", width  = 30, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+
+plot_list <- run_elbowplot(DEG_list, "Dose_Factor", c("Ydose2", "Ydose1", "Xdose", "Ovary_vs_Testis", "XXF_vs_XYM"))
+pdf("Plots/MASHR_DEG/elbow_celltype/Dose_Factor.pdf", width  = 30, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+
+plot_list <- run_elbowplot(DEG_list, "Aneuploidy", c("Aneuploidy", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM"))
+pdf("Plots/MASHR_DEG/elbow_celltype/Aneuploidy.pdf", width  = 30, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+```
+
+PATHWAY ENRICHMENT
+```{r}
+library(clusterProfiler)
+
+organism <- org.Mm.eg.db
+
+gene_list <- DEG_df$gene
+
+DEG_up_results <- list()
+pathway_up_results <- list()
+DEG_down_results <- list()
+pathway_down_results <- list()
+
+for(i in seq_along(DEG_list)){
+  
+  currentcomparison <- names(DEG_list)[i]
+  
+  for(j in 7) {
+    
+    currentcell <- allcells[j]
+    
+    currentsign <- "upregulated"
+    up_deg <- DEG_list[[i]] %>% as.data.frame() %>% dplyr::filter(cell_type == currentcell & logFC > 0 & adj.P.Val < 0.05)
+    genes <- up_deg %>% dplyr::select(gene) %>% unlist()
+    
+    go_enrich <- enrichGO(gene = genes,
+                      universe = gene_list,
+                      OrgDb = organism, 
+                      keyType = 'SYMBOL',
+                      ont = "BP",
+                      pvalueCutoff = 0.05,
+                      qvalueCutoff = 0.05)
+    if(is.null(go_enrich)) {next}
+    
+    fold <- NULL
+    for(r in 1:nrow(go_enrich@result)){
+      enriched_genes <- unlist(strsplit(go_enrich@result$geneID[r],"/"))
+      enriched_genes <- enriched_genes[enriched_genes %in% DEG_df$gene]
+      fold[r] <- median(DEG_df[DEG_df$gene %in% enriched_genes, "logFC"], na.rm = T) }
+    
+    currentpath <- go_enrich@result
+    currentpath$fold <- fold 
+    currentpath$sign <- currentsign
+    currentpath$cell_type <- currentcell
+
+    DEG_up_results[[currentcomparison]][[currentcell]] <- up_deg
+    pathway_up_results[[currentcomparison]][[currentcell]] <- currentpath
+    
+    ################################
+    
+    currentsign <- "downregulated"
+    down_deg <- DEG_list[[i]] %>% as.data.frame() %>% dplyr::filter(cell_type == currentcell & logFC < 0 & adj.P.Val < 0.05)
+    genes <- down_deg %>% dplyr::select(gene) %>% unlist()
+    
+    go_enrich <- enrichGO(gene = genes,
+                      universe = gene_list,
+                      OrgDb = organism, 
+                      keyType = 'SYMBOL',
+                      ont = "BP",
+                      pvalueCutoff = 0.05,
+                      qvalueCutoff = 0.05)
+    if(is.null(go_enrich)) {next}
+    
+    fold <- NULL
+    for(r in 1:nrow(go_enrich@result)){
+      enriched_genes <- unlist(strsplit(go_enrich@result$geneID[r],"/"))
+      enriched_genes <- enriched_genes[enriched_genes %in% DEG_df$gene]
+      fold[r] <- median(DEG_df[DEG_df$gene %in% enriched_genes, "logFC"], na.rm = T) }
+    
+    currentpath <- go_enrich@result
+    currentpath$fold <- fold 
+    currentpath$sign <- currentsign
+    currentpath$cell_type <- currentcell
+
+    DEG_down_results[[currentcomparison]][[currentcell]] <- down_deg
+    pathway_down_results[[currentcomparison]][[currentcell]] <- currentpath
+  }
+}
+
+for(i in seq_along(pathway_up_results)) {
+  
+  currentcomparison <- names(pathway_up_results)[i]
+  pathway_up_results[[i]][[currentcell]]$comparison <- currentcomparison
+  pathway_down_results[[i]][[currentcell]]$comparison <- currentcomparison
+
+}
+df_up <- do.call("rbind", unlist(pathway_up_results, recursive=FALSE, use.names = TRUE))
+df_down <- do.call("rbind", unlist(pathway_down_results, recursive=FALSE, use.names = FALSE))
+pathway_df <- rbind(df_up, df_down)
+
+pathway_df <- pathway_df %>% dplyr::filter(Count >= 3 & p.adjust < 0.05) %>%
+  dplyr::mutate(comparison = factor(comparison, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX", "X", "Y")))
+
+##why these steps?
+pathway_df$FDR <- -log10(pathway_df$p.adjust)
+#pathway_df$FDR[pathway_df$FDR > 3] <- 3
+#pathway_df$fold[pathway_df$fold > 1] <- 1
+#pathway_df$fold[pathway_df$fold < -1] <- -1
+
+plot_list <- list()
+for (i in 1:nlevels(pathway_df$comparison)) {
+  
+  currentcomparison <- levels(pathway_df$comparison)[i]
+  plot_df <- pathway_df %>% dplyr::filter(comparison == currentcomparison)
+  
+  plot_df <- plot_df[order(plot_df$p.adjust, decreasing = F), ]
+  
+  selectedpathway <- plot_df %>% head(n = 10) %>% dplyr::select(Description) %>% unlist(use.names = FALSE)
+  
+  plot <- ggplot(plot_df[plot_df$Description %in% selectedpathway,], aes(y = Description,x = cell_type)) +
+    geom_tile(fill = "white") +  xlab("")+ylab("")+ ggtitle(currentcomparison) +
+    geom_point(aes(colour = fold, size = FDR))  +
+    scale_color_gradientn(limits = c(-0.3,0.3),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40)) +
+    theme_bw()+theme(axis.text.y = element_text( size = 18),
+                     axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+                     strip.text.x = element_text(size = 18),
+                     plot.title = element_text(size = 18), 
+                     plot.margin = unit(c(0.5,1,0.5,1.3), "cm")) + guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                         size =guide_legend(title="-log10(FDR)"))
+  plot_list[[currentcomparison]] <- plot
+}
+
+pdf("Plots/MASHR_DEG/dotplot/neuron_pathway_results.pdf", width  = 70, height = 8)
+print(ggarrange(plotlist = plot_list, ncol = 6, nrow = 1))
+dev.off()
+```
+

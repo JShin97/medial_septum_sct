@@ -1,0 +1,271 @@
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(data.table)
+library(dplyr)
+library(plyr)
+library(Seurat)
+#library(clusterProfiler)
+#library(enrichplot)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(DoubletFinder)
+library(scCustomize)
+library(tidyverse)
+library(ggpubr)
+```
+
+```{r}
+##Load in files 
+#seurat <- readRDS("/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_new.rds")
+seurat <- readRDS("/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_clustered2.rds")
+
+samples_to_remove <- c("XY-TriSeptum-12", "XY-TriSeptum-24", "XY-TriSeptum-2")
+seurat <- subset(seurat, data.sampleName %in% samples_to_remove, invert = TRUE)
+
+seurat_list <- SplitObject(seurat, split.by = "data.sampleName")
+```
+
+```{r}
+seurat_list_df <- list()
+
+for(i in 1:length(seurat_list)) {
+  print(i)
+  
+  sample <- seurat_list[[i]]
+  # (1) Pre-process sample
+  sample <- NormalizeData(sample)
+  sample <- FindVariableFeatures(sample, selection.method = "vst", nfeatures = 2000)
+  sample <- ScaleData(sample)
+  sample <- RunPCA(sample)
+  sample <- RunUMAP(sample, dims = 1:30)
+  # (2). pK Identification (no ground-truth)
+  sweep.res.list <- paramSweep(sample, PCs = 1:30, sct = FALSE)
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  pdf(file = paste0("Plots/QC/doublet/", unique(sample$data.sampleName), ".pdf"),width=3,height=5)
+  bcmvn_sample <- find.pK(sweep.stats)
+  dev.off()
+  mpK <-as.numeric(as.vector(bcmvn_sample$pK[which.max(bcmvn_sample$BCmetric)]))
+  # (3). Run DoubletFinder
+  DoubletRate = ncol(sample)*8*1e-6 # ~1000 cells, and a multiplet rate of ~0.8% according to 10XGenomics
+  nExp_poi <- round(DoubletRate*ncol(sample))
+  sample <- doubletFinder(sample, PCs = 1:30, pN = 0.25, pK = mpK, nExp = nExp_poi, reuse.pANN = FALSE, sct = F)
+  # (4). Remove doublets
+  table(sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)])
+  sample$doubletfinder<-sample@meta.data[,paste0("DF.classifications_0.25_",mpK,"_",nExp_poi)]
+  seurat_list_df[[i]] <- sample
+}
+
+seurat_df <- merge(x = seurat_list_df[[1]], y = seurat_list_df[2:length(seurat_list)], merge.data=TRUE)
+seurat_df@meta.data[, grepl("pANN", colnames(seurat_df@meta.data))] <- NULL
+seurat_df@meta.data[, grepl("DF", colnames(seurat_df@meta.data))] <- NULL
+#seurat_df@reductions$pca <- seurat@reductions$pca
+#seurat_df@reductions$umap <- seurat@reductions$umap
+#seurat_df@reductions$tsne <- seurat@reductions$tsne
+
+saveRDS(seurat_df, file = "/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_clustered2.rds")
+```
+
+```{r}
+##Process new seurat object 
+
+seurat_df <- readRDS(file = "/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_clustered2.rds")
+
+##Recluster
+ElbowPlot(seurat_df, ndim = 50)
+seurat_df <- FindNeighbors(seurat_df, dims = 1:50)
+seurat_df <- RunUMAP(seurat_df, dims = 1:50)
+#seurat_df <- RunTSNE(seurat_df, dims = 1:50)
+seurat_df <- FindClusters(seurat_df, resolution = c(0.8, 1.0))
+
+DimPlot(seurat_df, group.by = "RNA_snn_res.1", reduction = "umap", split.by = "doubletfinder")
+DimPlot(seurat_df, group.by = "class_simplify", reduction = "umap")
+
+doublet_counts <- table(seurat_df$doubletfinder, seurat_df$RNA_snn_res.1) %>% as.data.frame.matrix()
+#total_sum <- colSums(doublet_counts)
+new_row <- doublet_counts[1, ] / doublet_counts[2, ]
+doublet_counts <- rbind(doublet_counts, new_row) %>% t()
+doublet_counts <- doublet_counts[order(-doublet_counts[, 3]), ] %>% as.data.frame()
+doublet_counts <- doublet_counts %>% rownames_to_column(var = "RNA_snn_res.1")
+colnames(doublet_counts)[4] <- c("Doublet/Singlet")
+write.csv(doublet_counts, file = "Results/QC/RNA_snn_res.1_doublet_counts.csv", row.names = FALSE, quote = FALSE)
+
+doublet_clusters <- doublet_counts %>% dplyr::filter(Doublet/Singlet >= 0.10) %>% dplyr::select(RNA_snn_res.1) %>% unlist(use.names = FALSE)
+singlet <- subset(seurat_df, doubletfinder == "Singlet")
+doublet <- subset(seurat_df, doubletfinder == "Doublet")
+
+plot_list <- list()
+for(i in 1:length(doublet_clusters)) {
+  cluster <- doublet_clusters[i]
+  Idents(seurat_df) <- "RNA_snn_res.1"
+  #plot1 <- DimPlot(seurat_df, reduction = "umap", split.by = "doubletfinder")
+  plot1 <- Cluster_Highlight_Plot(seurat_object = singlet, cluster_name = cluster, highlight_color = "red",
+  background_color = "lightgray", reduction = "umap", pt.size = 0.5) + ggtitle(paste0("Singlet_", cluster))
+  plot2 <- Cluster_Highlight_Plot(seurat_object = doublet, cluster_name = cluster, highlight_color = "red",
+  background_color = "lightgray", reduction = "umap", pt.size = 0.5) + ggtitle(paste0("Doublet_", cluster))
+  plot_list[[i]] <- plot1 + plot2
+}
+plot_list[[length(doublet_clusters) + 1]] <- DimPlot(seurat_df, reduction = "umap", split.by = "doubletfinder")
+png(file = "Plots/QC/doublet_UMAP/doublet_clusters.png", height = 20, width = 50, res = 600, units = "in")
+ggarrange(plotlist = plot_list, ncol = 6, nrow = 4)
+dev.off()
+
+##re-cluster select clusters
+recluster_clusters <- c("28", "22", "10") 
+seuratsubset1 <- subset(seurat_df, RNA_snn_res.1 == recluster_clusters[1])
+seuratsubset1 <- FindVariableFeatures(seuratsubset1)
+seuratsubset1 <- ScaleData(seuratsubset1, features = VariableFeatures(object = seuratsubset1))
+seuratsubset1 <- RunPCA(seuratsubset1, features = VariableFeatures(object = seuratsubset1))
+seuratsubset1 <- FindNeighbors(seuratsubset1, dims = 1:50)
+seuratsubset1 <- RunUMAP(seuratsubset1, dims = 1:50)
+seuratsubset1 <- FindClusters(seuratsubset1, resolution = c(0.1))
+png("Plots/QC/doublet_UMAP/cluster28_reclusterUMAP.png", height = 6, width = 10, res = 600, units = "in")
+DimPlot(seuratsubset1, group.by = "RNA_snn_res.0.1", reduction = "umap", split.by = "doubletfinder") + ggtitle("Cluster 28")
+dev.off()
+metadata <- seuratsubset1@meta.data
+metadata$doublet_cluster <- ifelse(metadata$RNA_snn_res.0.1 %in% c("0","3"), "TRUE", "FALSE")
+seuratsubset1$doublet_cluster <- metadata$doublet_cluster
+#seurat_df <- AddMetaData(seurat_df, subset(seuratsubset1@meta.data, select = c("doublet_cluster")))
+
+seuratsubset2 <- subset(seurat_df, RNA_snn_res.1 == recluster_clusters[2])
+seuratsubset2 <- FindVariableFeatures(seuratsubset2)
+seuratsubset2 <- ScaleData(seuratsubset2, features = VariableFeatures(object = seuratsubset2))
+seuratsubset2 <- RunPCA(seuratsubset2, features = VariableFeatures(object = seuratsubset2))
+seuratsubset2 <- FindNeighbors(seuratsubset2, dims = 1:50)
+seuratsubset2 <- RunUMAP(seuratsubset2, dims = 1:50)
+seuratsubset2 <- FindClusters(seuratsubset2, resolution = c(0.8))
+png("Plots/QC/doublet_UMAP/cluster22_reclusterUMAP.png", height = 6, width = 10, res = 600, units = "in")
+DimPlot(seuratsubset2, group.by = "RNA_snn_res.0.8", reduction = "umap", split.by = "doubletfinder") + ggtitle("Cluster 22")
+dev.off()
+metadata <- seuratsubset2@meta.data
+metadata$doublet_cluster <- ifelse(metadata$RNA_snn_res.0.8 %in% c("3", "4"), "FALSE", "TRUE")
+seuratsubset2$doublet_cluster <- metadata$doublet_cluster
+#seurat_df <- AddMetaData(seurat_df, subset(seuratsubset@meta.data, select = c("doublet_cluster")))
+
+##check microglia cluster 
+microglia <- subset(seurat_df, cell.type == "Microglia")
+microglia <- FindVariableFeatures(microglia)
+microglia <- ScaleData(microglia, features = VariableFeatures(object = microglia))
+microglia <- RunPCA(microglia, features = VariableFeatures(object = microglia))
+microglia <- FindNeighbors(microglia, dims = 1:50)
+microglia <- RunUMAP(microglia, dims = 1:50)
+microglia <- FindClusters(microglia, resolution = c(0.03))
+DimPlot(microglia)
+DimPlot(microglia, group.by = "doubletfinder")
+FeaturePlot(microglia, features = c("Hexb", "Tmem119", "Trem2", "C1qa", "Fcrls", "Cx3cr1"), ncol = 3)
+DotPlot(microglia, features = c("Hexb", "Tmem119", "C1qa", "Trem2", "Cx3cr1"))
+metadata <- microglia@meta.data
+metadata$doublet_cluster <- ifelse(microglia$RNA_snn_res.0.03 %in% c("0"), "FALSE", "TRUE")
+microglia$doublet_cluster <- metadata$doublet_cluster
+#seurat_df <- AddMetaData(seurat_df, subset(microglia@meta.data, select = c("doublet_cluster")))
+
+Idents(microglia) <- "RNA_snn_res.0.03"
+cells <- WhichCells(microglia, idents = c(1))
+DimPlot(seurat_df, reduction = "umap", cells.highlight = cells, raster = FALSE)
+cells <- WhichCells(seuratsubset, idents = c(0,3,4,6))
+DimPlot(seurat_df, reduction = "umap", cells.highlight = cells, raster = FALSE)
+
+clusters_remove <- c("49", "35", "44", "51", "55", "26", "60", "56", "53", "43", "48")
+metadata <- seurat_df@meta.data
+metadata$doublet_cluster <- ifelse(metadata$RNA_snn_res.1 %in% clusters_remove, "TRUE", "FALSE")
+metadata1 <- seuratsubset1@meta.data %>% rownames_to_column(var = "cellid") %>% dplyr::select(cellid, doublet_cluster)
+metadata2 <- seuratsubset2@meta.data %>% rownames_to_column(var = "cellid") %>% dplyr::select(cellid, doublet_cluster)
+metadata3 <- microglia@meta.data %>% rownames_to_column(var = "cellid") %>% dplyr::select(cellid, doublet_cluster)
+doublet_metadata <- rbind(metadata1, metadata2, metadata3)
+metadata[doublet_metadata$cellid, "doublet_cluster"] <- doublet_metadata$doublet_cluster
+seurat_df$doublet_cluster <- metadata$doublet_cluster
+
+DimPlot(seurat_df, group.by = "class_simplify")
+DimPlot(seurat_df, group.by = "class_simplify", split.by = "doublet_cluster")
+DimPlot(seuratObject, group.by = "class_simplify", split.by = "doublet_cluster")
+DimPlot(seuratObject, group.by = "subclass_simplify", split.by = "doublet_cluster")
+
+DimPlot(singlets, group.by = "class_simplify", split.by = "doubletfinder")
+
+saveRDS(seuratObject, file = "/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_clustered2.rds")
+```
+
+```{r}
+##check unfiltered seurat Object
+seuratObject2 <- readRDS(file = "/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_clustered.rds")
+seuratObject2 <- FindNeighbors(seuratObject2, dims = 1:50)
+seuratObject2 <- RunUMAP(seuratObject2, dims = 1:50)
+seuratObject2 <- FindClusters(seuratObject2, resolution = c(0.8, 1.0))
+
+seuratObject <- readRDS(file = "/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_clustered2.rds")
+seuratObject2$doublet_cluster <- seuratObject$doublet_cluster
+seuratObject2$original_cluster <- seuratObject$RNA_snn_res.1
+
+saveRDS(seuratObject2, file = "/u/scratch/j/jshin/medial_septum_sct/Saves/For_Figures_clustered.rds")
+
+##check trisomy clusters 
+mapping <- table(seuratObject2$original_cluster, seuratObject2$RNA_snn_res.1) %>% as.data.frame.array()
+
+Idents(seuratObject) <- "RNA_snn_res.1"
+Cluster_Highlight_Plot(seuratObject, cluster_name = "21")
+Cluster_Highlight_Plot(seuratObject, cluster_name = "24")
+Cluster_Highlight_Plot(seuratObject, cluster_name = "32")
+
+Idents(seuratObject2) <- "RNA_snn_res.1"
+Cluster_Highlight_Plot(seuratObject2, cluster_name = "26")
+Cluster_Highlight_Plot(seuratObject2, cluster_name = "28")
+Cluster_Highlight_Plot(seuratObject2, cluster_name = "32")
+
+xxym <- subset(seuratObject2, Genotype == "XXYM")
+DimPlot(xxym, split.by = "data.sampleName", group.by = "RNA_snn_res.1")
+
+trisomyf <- subset(seuratObject2, Genotype %in% c("XXYF", "XYYF"))
+DimPlot(trisomyf, split.by = "data.sampleName", group.by = "RNA_snn_res.1")
+
+##check Xist/Uty expression 
+xxym <- subset(seuratObject2, Genotype == "XXYM")
+xyf <- subset(seuratObject2, Genotype == "XYF")
+xxf <- subset(seuratObject2, Genotype == "XXF")
+xym <- subset(seuratObject2, Genotype == "XYM")
+
+VlnPlot(xxym, features = c("Xist", "Uty", "Sry"), pt.size = 0, group.by = "data.sampleName")
+VlnPlot(xyf, features = c("Xist", "Uty", "Sry"), pt.size = 0, group.by = "data.sampleName")
+####check Xi escape genes 
+gene_annotation <- readRDS("Data/Derived/gene_annotation.Rds")
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+escape_genes <- gene_annotation %>% filter(Escapee == "Escapee")
+
+VlnPlot(xxym, features = escape_genes$mgi_symbol[1:4], pt.size = 0, group.by = "data.sampleName", ncol = 4)
+VlnPlot(xxym, features = escape_genes$mgi_symbol[5:9], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+VlnPlot(xxym, features = escape_genes$mgi_symbol[10:14], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+
+VlnPlot(xyf, features = escape_genes$mgi_symbol[1:4], pt.size = 0, group.by = "data.sampleName", ncol = 4)
+VlnPlot(xyf, features = escape_genes$mgi_symbol[5:9], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+VlnPlot(xyf, features = escape_genes$mgi_symbol[10:14], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+
+VlnPlot(xxf, features = escape_genes$mgi_symbol[1:4], pt.size = 0, group.by = "data.sampleName", ncol = 4)
+VlnPlot(xxf, features = escape_genes$mgi_symbol[5:9], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+VlnPlot(xxf, features = escape_genes$mgi_symbol[10:14], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+
+VlnPlot(xym, features = escape_genes$mgi_symbol[1:4], pt.size = 0, group.by = "data.sampleName", ncol = 4)
+VlnPlot(xym, features = escape_genes$mgi_symbol[5:9], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+VlnPlot(xym, features = escape_genes$mgi_symbol[10:14], pt.size = 0, group.by = "data.sampleName", ncol = 5)
+
+```
+
+```{r}
+pdf("Plots/QC/UMAP/subclass_doublet_UMAP.pdf", width = 8, height = 5)
+DimPlot(seurat_df, group.by = "class_simplify", split.by = "doubletfinder")
+dev.off()
+```
+
+```{r}
+pdf("Plots/QC/UMAP/class_doublet_cluster_UMAP.pdf", width = 8, height = 5)
+DimPlot(seurat_df, group.by = "class_simplify", split.by = "doublet_cluster")
+dev.off()
+```
+
+```{r}
+DimPlot(seurat, reduction = "umap", group.by = "cell.type2", split.by = "Genotype")
+ggsave(filename = "Plots/UMAP/celltype2_genotype.pdf", plot = last_plot(), width = 16, height = 5)
+```
+

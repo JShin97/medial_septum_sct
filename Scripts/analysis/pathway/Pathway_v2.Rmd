@@ -1,0 +1,1118 @@
+---
+title: "Pathway_v2.Rmd"
+output: html_document
+date: "2024-06-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(clusterProfiler)
+library(enrichplot)
+library(ggplot2)
+library(ggnewscale)
+library(plyr)
+library(dplyr)
+library(rrvgo)
+library(tidyverse)
+
+source("/u/project/xyang123/jshin/resources/R_scripts/pathway_enrichment_clusterprofiler.R")
+```
+
+##Load DEGs 
+
+```{r}
+load(file = "Results/complete_analysis/DEG_processed/DEG_SD_original/DEG_df_RNA_SD.rda")
+DEG_df <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1)
+effect_list <- split.data.frame(DEG_df, f = DEG_df$effect)
+effect_list <- effect_list[c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")]
+celltype_list <- split.data.frame(DEG_df, f = DEG_df$cell_type)
+celltype_effect_list <- split.data.frame(DEG_df, f = list(DEG_df$effect, DEG_df$cell_type))
+
+effect_list <- effect_list["Normative"]
+```
+
+##Run Pathway Enrichment (clusterprofiler custom script)
+```{r}
+for(i in 1:length(effect_list)) {
+  
+  sexeffect <- names(effect_list)[i]
+  DEG_effect <- effect_list[[i]]
+  celltypes <- unique(DEG_effect$cell_type)
+  pathways_comb_GO <- list()
+  pathways_comb_KEGG <- list()
+
+  
+  for (j in 1:length(celltypes)){
+    currentcell <- celltypes[j]
+    
+    print(paste(sexeffect, currentcell))
+    
+    DEG_effect_cell <- DEG_effect[DEG_effect$cell_type == currentcell, ]
+    DEG_effect_cell <- DEG_effect_cell[, c("gene", "logFC")]
+    colnames(DEG_effect_cell) <- c("Gene_Name", "Log2FC")
+    
+    pathways <- pathway_enrichment(gene_vector = DEG_effect_cell$Gene_Name,
+                                   species = "Mm", # currently only support "Mm" (mouse) and "Hs" (human)
+                                   pathway_fdr_threshold = 0.05,
+                                   pathway_pval_threshold = 0.05,
+                                   pathway_qval_threshold = 0.05,
+                                   pathway_enriched_min_genes_count = 5,
+                                   GOBP = TRUE,
+                                   KEGG = TRUE,
+                                   calculate_pathwaywise_avglog2fc = TRUE,
+                                   gene_lfc_df = DEG_effect_cell,
+                                   simplify = TRUE,
+                                   save_results = FALSE) 
+    
+    if(nrow(pathways[[1]]) == 0 & nrow(pathways[[2]]) == 0) {next}
+    
+    if(nrow(pathways[["GO:BP"]]) > 0) {
+      
+      go_pathways <- pathways[["GO:BP"]]
+      go_pathways$Database <- "GO:BP"
+      go_pathways <- go_pathways[order(-go_pathways$FoldEnrichment), ]
+      go_pathways$cell_type <- currentcell 
+      go_pathways$effect <- sexeffect
+      pathways_comb_GO[[currentcell]] <- go_pathways
+    }
+    
+    if(nrow(pathways[["KEGG"]]) > 0) {
+      
+      kegg_pathways <- pathways[["GO:BP"]]
+      kegg_pathways$Database <- "KEGG"
+      kegg_pathways <- kegg_pathways[order(-kegg_pathways$FoldEnrichment), ]
+      kegg_pathways$cell_type <- currentcell 
+      kegg_pathways$effect <- sexeffect
+      pathways_comb_KEGG[[currentcell]] <- kegg_pathways
+    }
+  }
+  
+  go_pathways_all <- do.call("rbind", pathways_comb_GO)
+  kegg_pathways_all <- do.call("rbind", pathways_comb_KEGG)
+  saveRDS(go_pathways_all, paste0("Results/complete_analysis/Pathway/RNA_SD/normative_DEGs_clusterprofiler/GO_BP/", sexeffect, "_pathways.rds"))
+  saveRDS(kegg_pathways_all, paste0("Results/complete_analysis/Pathway/RNA_SD/normative_DEGs_clusterprofiler/KEGG/", sexeffect, "_pathways.rds"))
+}
+
+```
+
+##Gather results 
+```{r}
+pathway_results <- list.files("Results/complete_analysis/Pathway/RNA_SD/normative_DEGs_clusterprofiler/GO_BP/", full.names = FALSE)
+
+final_pathway_list <- list()
+for(i in 1:length(pathway_results)){
+  
+  effect <- gsub("_pathways.rds", "", pathway_results[i])
+  #effect <- strsplit(pathway_results[i], split = "_")[[1]][3]
+  pathway_df <- readRDS(paste0("Results/complete_analysis/Pathway/RNA_SD/all_DEGs_clusterprofiler/GO_BP/", pathway_results[i]))
+
+  final_pathway_list[[effect]] <- pathway_df
+}
+
+final_pathway_df <- do.call("rbind", final_pathway_list)
+saveRDS(final_pathway_df, file = "Results/complete_analysis/Pathway/RNA_SD/normative_DEGs_clusterprofiler/GO_BP_all_pathways.rds")
+```
+
+----
+
+##Visualize normative pathway results 
+```{r}
+x <- final_pathway_df %>% dplyr::filter(effect == "Normative" & cell_type != "Misc_NT")
+plot_list <- list()
+x$FDR <- -log10(x$p.adjust)
+
+##cluster pathways 
+simMatrix <- calculateSimMatrix(x$ID,
+                                orgdb="org.Mm.eg.db",
+                                ont="BP",
+                                method="Rel")
+scores <- setNames(-log10(x$qvalue), x$ID)
+reducedTerms <- reduceSimMatrix(simMatrix,
+                                scores,
+                                threshold=0.7,
+                                orgdb="org.Mm.eg.db")
+
+png("Plots/DEG_complete/RNA_SD/Pathway/normative_reduced_terms.png", width = 20, height = 10, units = "in", res = 600)
+treemapPlot(reducedTerms)
+dev.off()
+
+results_reduced <- left_join(x, reducedTerms, by = c("ID" = "go"))
+results_reduced$cell_type <- factor(results_reduced$cell_type, levels = c("GABA","Glut","GABA-Chol", "Inh_IMN", "Astrocyte","Ependymal","Oligo", "OPC", "Microglia", "Vascular"))
+
+x <- results_reduced %>% 
+    group_by(cell_type, parentTerm) %>% 
+    slice_min(p.adjust)
+
+##female-biased pathways
+currentx <- x %>% dplyr::filter(p.adjust < 0.05 & mean_log2FC > 0.01)
+
+counts <- currentx %>% 
+    group_by(ID) %>%
+    summarise(shared_cells = n_distinct(cell_type))
+  
+currentx <- left_join(currentx, counts, by=c('ID'='ID'))
+      
+toppathways1 <- currentx %>% dplyr::filter(shared_cells > 1) %>% group_by(effect, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+toppathways2 <- currentx %>% dplyr::filter(shared_cells == 1) %>% group_by(effect, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+toppathways <- rbind(toppathways1, toppathways2)
+
+toppathways_df <- toppathways %>% 
+  dplyr::arrange(desc(shared_cells), .by_group = TRUE) %>%
+  dplyr::mutate(mean_log2FC = as.numeric(mean_log2FC)) %>%
+  dplyr::mutate(cell_type = factor(cell_type, levels = c("GABA", "Glut", "GABA-Chol", "Inh_IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular")))
+
+toppathways_df$Description <- factor(toppathways_df$Description, levels = unique(toppathways_df$Description))
+
+min <- min(toppathways_df$mean_log2FC) %>% floor()
+max <- max(toppathways_df$mean_log2FC) %>% ceiling()
+        
+plot <- ggplot(toppathways_df, aes(y = Description, x = cell_type)) +
+          geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle("Female-Biased Pathways") +
+          geom_point(aes(size = FDR, colour = mean_log2FC)) +
+          #facet_wrap(~ONTOLOGY, scales = "free_y") +
+          scale_color_gradient(low = "pink", high = "darkred") +
+          scale_size(range = c(5, 12)) +
+          scale_fill_discrete(drop=FALSE) +
+          scale_x_discrete(drop=FALSE) +
+          theme_bw() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                text = element_text(size = 25)) +
+          guides(colour = guide_legend(title = "Median logFC"),
+                                       size = guide_legend(title = "-log10(FDR)"))
+
+plot_list[["Female"]] <- plot
+
+##Male-biased pathways
+currentx <- x %>% dplyr::filter(p.adjust < 0.05 & sign == "Down")
+
+counts <- currentx %>% 
+    group_by(ONTOLOGY, ID) %>%
+    summarise(shared_cells = n_distinct(cell_type))
+  
+currentx <- left_join(currentx, counts, by=c('ONTOLOGY' = 'ONTOLOGY', 'ID'='ID'))
+      
+toppathways1 <- currentx %>% dplyr::filter(shared_cells > 1) %>% group_by(comparison, ONTOLOGY, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+toppathways2 <- currentx %>% dplyr::filter(shared_cells == 1) %>% group_by(comparison, ONTOLOGY, cell_type) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+toppathways <- rbind(toppathways1, toppathways2)
+      
+toppathways_df <- toppathways %>% 
+  dplyr::group_by(ONTOLOGY) %>%
+  dplyr::arrange(desc(shared_cells), .by_group = TRUE) %>%
+  dplyr::mutate(fold = as.numeric(fold)) %>%
+  dplyr::mutate(cell_type = factor(cell_type, levels = allcells))
+
+paths_to_remove <- c("forebrain generation of neurons", "protein localization to cell periphery", "cell junction assembly", "protein−RNA complex organization", "protein−RNA complex assembly", "ribonucleoprotein complex biogenesis", "P granule", "monoatomic ion channel complex", "postsynaptic specialization membrane", "postsynaptic specialization", "asymmetric synapse","early endosome", "dystrophin−associated glycoprotein complex", "voltage−gated potassium channel complex", "modified amino acid binding",  "peptide receptor activity", "G protein−coupled receptor activity", "PDZ domain binding", "transmembrane transporter binding", "tubulin binding", "translation regulator activity, nucleic acid binding", "translation regulator activity, nucleic acid binding", "tRNA binding", "translation initiation factor activity", "protein demethylase activity", "histone demethylase activity", "protein−RNA complex assembly", "dystrophin−associated glycoprotein complex", "voltage−gated potassium channel complex", "translation factor activity, RNA binding")
+ids_to_remove <- c("GO:0071826", "GO:0022618", "GO:0016010", "GO:0008076")
+
+toppathways_df <- toppathways_df %>% dplyr::filter(!Description %in% paths_to_remove)
+toppathways_df <- toppathways_df %>% dplyr::filter(!ID %in% ids_to_remove)
+
+toppathways_df$Description <- factor(toppathways_df$Description, levels = unique(toppathways_df$Description))
+                        
+min <- min(toppathways_df$fold) %>% floor()
+max <- max(toppathways_df$fold) %>% ceiling()
+        
+plot <- ggplot(toppathways_df, aes(y = Description, x = cell_type)) +
+          geom_tile(fill = "white") + xlab("") + ylab("") + ggtitle("Male-Biased Pathways") +
+          geom_point(aes(size = FDR, colour = fold)) +
+          facet_wrap(~ONTOLOGY, scales = "free_y") +
+          scale_color_gradient(low = "darkblue", high = "lightblue") +
+          scale_size(range = c(5, 12)) +
+          scale_fill_discrete(drop=FALSE) +
+          scale_x_discrete(drop=FALSE) +
+          theme_bw() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                text = element_text(size = 25)) +
+          guides(colour = guide_legend(title = "Median logFC"),
+                                       size = guide_legend(title = "-log10(FDR)"))
+
+plot_list[["Male"]] <- plot
+  
+pdf("Plots/Pseudobulk_DEG/pathway/Normative_all_top_split.pdf", width = 35, height = 25)
+print(ggarrange(plotlist = plot_list, ncol = 1, nrow = 2, align = "v"))
+dev.off()
+ 
+```
+
+##Visualize pathway results (1 cell type)
+```{r}
+final_pathway_df <- readRDS(file = "Results/complete_analysis/Pathway/RNA_SD/all_DEGs_clusterprofiler/GO_BP_all_pathways.rds")
+
+results <- final_pathway_df %>% group_by(cell_type, effect) %>% relocate(cell_type, effect, FoldEnrichment) %>% filter(!cell_type == "Misc_NT")
+
+all_pathways <- results
+all_pathways$cell_type <- factor(all_pathways$cell_type, levels = c("GABA","Glut","GABA-Chol", "Inh_IMN", "Astrocyte","Ependymal","Oligo", "OPC", "Microglia", "Vascular"))
+all_pathways$effect <- factor(all_pathways$effect, levels = c("Normative", "Gonad", "SexChrom", "addX", "addY1", "addY2"))
+
+plot_list <- list()
+for(i in 1:nlevels(all_pathways$cell_type)) {
+  
+  currentcell <- levels(all_pathways$cell_type)[i]
+  cell_pathways <- all_pathways %>% filter(cell_type == currentcell)
+  
+  ##for visualization
+  cell_pathways$FDR <- -log10(cell_pathways$p.adjust)
+  cell_pathways$FDR[cell_pathways$FDR > 10] <- 10
+  cell_pathways$logFC2 <- cell_pathways$mean_log2FC
+  
+  floor <- min(cell_pathways$logFC2) %>% floor()
+  ceiling <- min(cell_pathways$logFC2) %>% ceiling()
+  
+  cell_pathways$logFC2[cell_pathways$logFC2 > 1] <- 1
+  cell_pathways$logFC2[cell_pathways$logFC2 < -1] <- -1
+  # cell_pathways$FDR <- -log10(cell_pathways$p.adjust)
+  # cell_pathways$FDR[cell_pathways$FDR > 3] <- 3
+  
+  ##get top pathways for each effect
+  cell_pathways <- cell_pathways %>% group_by(effect) %>% top_n(n = 5, wt = logFC2)
+
+  ##reorder pathways 
+  counts <- cell_pathways %>% 
+    group_by(ID) %>%
+    summarise(shared_paths = n_distinct(effect))
+  
+  cell_pathways <- left_join(cell_pathways, counts, by=c('ID'='ID'))
+      
+  toppathways1 <- cell_pathways %>% dplyr::filter(shared_paths > 1) %>% group_by(effect) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+  toppathways2 <- cell_pathways %>% dplyr::filter(shared_paths == 1) %>% group_by(effect) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+  toppathways <- rbind(toppathways1, toppathways2)
+  
+  toppathways$Description <- factor(toppathways$Description, levels = unique(toppathways$Description))
+
+  plot <- ggplot(toppathways, aes(x = cell_type, y = Description)) +
+    geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+    geom_point(aes(colour = logFC2, 
+                   size = FDR))  +    ## geom_point for circle illusion
+    scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40))+ 
+    facet_grid(cols = vars(effect), scales = "free_y", space = "free", labeller = label_wrap_gen(width=10)) +
+    theme_bw() + theme(axis.text.y = element_text(size = 15),
+                     axis.text.x = element_blank(),
+                     strip.text.x = element_text(size = 15),
+                     strip.text.y = element_text(size = 15),
+                     plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                     plot.title = element_text(size = 20))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                         size =guide_legend(title="-log10(FDR)")) +
+    scale_size(range = c(2,12)) +
+    labs(title = currentcell)
+  
+  plot_list[[currentcell]] <- plot
+  
+}
+
+png("Plots/DEG_complete/Pathway/celltype_top_pathways.png", width = 50, height = 20, units = "in", res = 600)
+ggarrange(plotlist = plot_list, nrow = 3, ncol = 4)
+dev.off()
+```
+
+##rrvgo pathway clustering
+```{r}
+##try rrvgo 
+library(rrvgo)
+
+final_pathway_df <- readRDS("Results/complete_analysis/Pathway/RNA_SD/normative_DEGs_clusterprofiler/GO_BP_all_pathways.rds")
+
+results <- final_pathway_df %>% filter(!cell_type == "Misc_NT") %>% group_by(cell_type, effect) %>% relocate(cell_type, effect, FoldEnrichment) 
+
+simMatrix <- calculateSimMatrix(results$ID,
+                                orgdb="org.Mm.eg.db",
+                                ont="BP",
+                                method="Rel")
+scores <- setNames(-log10(results$qvalue), results$ID)
+reducedTerms <- reduceSimMatrix(simMatrix,
+                                scores,
+                                threshold=0.7,
+                                orgdb="org.Mm.eg.db")
+
+png("Plots/DEG_complete/RNA_SD/Pathway/reduced_terms.png", width = 20, height = 10, units = "in", res = 600)
+treemapPlot(reducedTerms)
+dev.off()
+
+results_reduced <- left_join(results, reducedTerms, by = c("ID" = "go"))
+results_reduced <- results_reduced %>% 
+  mutate(cell_type = recode(cell_type, 
+                            "Inh_IMN" = "Inh-IMN",
+                            "GABA-Chol" = "Chol")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("GABA","Glut","Chol", "Inh-IMN", "Astrocyte","Ependymal","Oligo", "OPC", "Microglia", "Vascular"))) %>%
+  mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")))
+
+plot_list <- list()
+for(i in 1:nlevels(results_reduced$cell_type)) {
+  
+  currentcell <- levels(results_reduced$cell_type)[i]
+  cell_pathways <- results_reduced %>% filter(cell_type == currentcell) %>% 
+    group_by(effect, parentTerm) %>% 
+    slice_min(p.adjust) %>% 
+    dplyr::rename(avg_p = p.adjust,
+                  avg_logFC = mean_log2FC,
+                  avg_foldenrichment = FoldEnrichment)
+    
+    # summarise(
+    #   avg_p = mean(p.adjust, na.rm = TRUE),
+    #   avg_logFC = mean(mean_log2FC, na.rm = TRUE),
+    #   avg_foldenrichment = mean(FoldEnrichment, na.rm = TRUE))
+  
+  ##for visualization
+  cell_pathways$FDR <- -log10(cell_pathways$avg_p)
+  cell_pathways$FDR[cell_pathways$FDR > 5] <- 5
+  cell_pathways$logFC2 <- cell_pathways$avg_logFC
+  
+  floor <- min(cell_pathways$logFC2) %>% floor()
+  ceiling <- min(cell_pathways$logFC2) %>% ceiling()
+  
+  cell_pathways$logFC2[cell_pathways$logFC2 > 1] <- 1
+  cell_pathways$logFC2[cell_pathways$logFC2 < -1] <- -1
+  # cell_pathways$FDR <- -log10(cell_pathways$p.adjust)
+  # cell_pathways$FDR[cell_pathways$FDR > 3] <- 3
+  
+  ##get top pathways for each effect
+  cell_pathways <- cell_pathways %>% group_by(effect) %>% top_n(n = 5, wt = logFC2)
+
+  ##reorder pathways 
+  counts <- cell_pathways %>% 
+    group_by(parentTerm) %>%
+    summarise(shared_paths = n_distinct(effect))
+  
+  cell_pathways <- left_join(cell_pathways, counts, by=c('parentTerm')) %>% filter(!is.na(parentTerm))
+      
+  toppathways1 <- cell_pathways %>% dplyr::filter(shared_paths > 1) %>% group_by(effect) %>% dplyr::arrange(desc(FDR), .by_group = TRUE)
+  toppathways2 <- cell_pathways %>% dplyr::filter(shared_paths == 1) %>% group_by(effect) %>% dplyr::arrange(desc(FDR), .by_group = TRUE) %>% dplyr::slice(1:5)
+  toppathways <- rbind(toppathways1, toppathways2)
+  
+  toppathways$parentTerm <- factor(toppathways$parentTerm, levels = unique(toppathways$parentTerm))
+
+  plot <- ggplot(toppathways, aes(x = effect, y = parentTerm)) +
+    geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+    geom_point(aes(colour = logFC2, 
+                   size = FDR))  +    ## geom_point for circle illusion
+    scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40))+ 
+    facet_grid(cols = vars(effect), scales = "free_y", space = "free", labeller = label_wrap_gen(width=10)) +
+    theme_bw() + theme(axis.text.y = element_text(size = 15),
+                     axis.text.x = element_blank(),
+                     strip.text.x = element_text(size = 15),
+                     strip.text.y = element_text(size = 15),
+                     plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                     plot.title = element_text(size = 20))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                         size =guide_legend(title="-log10(FDR)")) +
+    scale_size(range = c(2,12)) +
+    labs(title = currentcell)
+  
+  plot_list[[currentcell]] <- plot
+}
+
+png("Plots/DEG_complete/Pathway/celltype_top_pathways_reduced.png", width = 50, height = 20, units = "in", res = 600)
+ggarrange(plotlist = plot_list, nrow = 3, ncol = 4)
+dev.off()
+```
+
+```{r}
+all_pathways <- results_reduced %>% 
+    group_by(cell_type, effect, parentTerm) %>% 
+    summarise(
+      avg_p = mean(p.adjust, na.rm = TRUE),
+      avg_logFC = mean(mean_log2FC, na.rm = TRUE),
+      avg_foldenrichment = mean(FoldEnrichment, na.rm = TRUE))
+
+##for visualization
+all_pathways$FDR <- -log10(all_pathways$avg_p)
+all_pathways$FDR[all_pathways$FDR > 3] <- 3
+all_pathways$logFC2 <- all_pathways$avg_logFC
+
+# all_pathways$logFC2[all_pathways$logFC2 > 0.9] <- 0.5
+# all_pathways$logFC2[all_pathways$logFC2 < -0.5] <- -0.5
+
+
+ggplot(all_pathways, aes(x = effect, y = parentTerm)) +
+  geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+  geom_point(aes(colour = logFC2, size = FDR))  +    ## geom_point for circle illusion
+  scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40))+   ## color of the corresponding aes          ## to tune the size of circles
+  facet_grid( ~ cell_type, scales = "free_y", space = "free", labeller = label_wrap_gen(width=20)) +
+  theme_bw()+theme(axis.text.y = element_text(size = 20),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+                   strip.text.x = element_text(size = 20),
+                   strip.text.y = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                   plot.title = element_text(size = 25))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                       size =guide_legend(title="-log10(FDR)")) +
+  scale_size(range = c(2,12))
+
+# png("Plots/DEG_complete/Pathway/top_pathway_groups_reduced.png", width = 40, height = 20, units = "in", res = 600)
+# last_plot()
+# dev.off()
+
+# png("Plots/Final_Figures/Pathway/top_pathway_groups_reduced_ungrouped.png", width = 40, height = 20, units = "in", res = 600)
+# print(last_plot())
+# dev.off()
+```
+
+##RNA_SD cleanup 
+```{r}
+all_pathways <- results_reduced %>% 
+  group_by(cell_type, effect, parentTerm) %>% 
+  slice_min(p.adjust) %>% 
+  dplyr::rename(avg_p = p.adjust,
+                avg_logFC = mean_log2FC,
+                avg_foldenrichment = FoldEnrichment)
+
+ATP <- all_pathways %>% filter(parentTerm %in% c("purine nucleoside triphosphate metabolic process", "cellular respiration", "mitochondrial respiratory chain complex I assembly"))
+ATP$group <- "ATP"
+
+protein <- all_pathways %>% filter(parentTerm %in% c("protein localization to cell junction", "regulation of post-translational protein modification", "protein folding", "protein localization to cell junction"))
+protein$group <- "Protein localization and modification"
+
+synapse <- all_pathways %>% filter(parentTerm %in% c("positive regulation of cell projection development", "dendrite morphogenesis", "regulation of synaptic plasticity", "cell junction assembly", "axon guidance", "maintenance of synapse structure"))
+synapse$group <- "Synaptic development and plasticity"
+
+ion_transport <- all_pathways %>% filter(parentTerm %in% c("amide transport", "regulation of monoatomic ion transmembrane transport", "monoatomic anion transport", "'transport along microtubule", "regulation of neurotransmitter transport", "caclium ion homeostasis"))
+ion_transport$group <- "Ion transport"
+
+translation_transcription <- all_pathways %>% filter(parentTerm %in% c("ribonucleoprotein complex biogenesis", "cytoplasmic translation", "mRNA processing")) 
+translation_transcription$group <- "Transcription and translation"
+
+signaling <- all_pathways %>% filter(parentTerm %in% c("regulation of binding", "regulation of TORC1 signaling", "steroid hormone mediated signaling pathway", "immune response-activating signaling pathway", "glutamate receptor signaling pathway"))
+signaling$group <- "Signaling"
+
+development <- all_pathways %>% filter(parentTerm %in% c("connective tissue development","neuron apoptotic process","regulation of ubiquitin-dependent protein catabolic process", "neuron migration"))
+development$group <- "Neuronal development and propagation"
+                                       
+
+all_pathways <- rbind(ATP, protein, synapse, ion_transport, translation_transcription, signaling, development) %>% filter(!is.na(parentTerm))
+all_pathways$cell_type <- factor(all_pathways$cell_type, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))
+all_pathways$effect <- factor(all_pathways$effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY", "addY1", "addY2"))
+
+##for visualization
+all_pathways$FDR <- -log10(all_pathways$avg_p)
+all_pathways$FDR[all_pathways$FDR > 3] <- 3
+all_pathways$logFC2 <- all_pathways$avg_logFC
+# all_pathways$logFC2[all_pathways$logFC2 > 0.5] <- 0.5
+# all_pathways$logFC2[all_pathways$logFC2 < -0.5] <- -0.5
+
+ggplot(all_pathways, aes(x = effect, y = parentTerm)) +
+  geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+  geom_point(aes(colour = logFC2, 
+                 size = FDR))  +    ## geom_point for circle illusion
+  scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40))+   ## color of the corresponding aes          ## to tune the size of circles
+  facet_grid(group ~ cell_type, scales = "free_y", space = "free", labeller = label_wrap_gen(width=20)) +
+  theme_bw()+theme(axis.text.y = element_text(size = 30),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 30),
+                   strip.text.x = element_text(size = 30),
+                   strip.text.y = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                   plot.title = element_text(size = 25),
+                   legend.text = element_text(size = 20),
+                   legend.title = element_text(size = 25))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                       size =guide_legend(title="-log10(FDR)")) +
+  scale_size(range = c(2,12))
+
+# png("Plots/DEG_complete/RNA_SD/Pathway/top_pathway_groups_reduced.png", width = 40, height = 20, units = "in", res = 600)
+# print(last_plot())
+# dev.off()
+
+pdf("Plots/Final_Figures/Pathway/top_pathway_groups_reduced.pdf", width = 43, height = 25)
+print(last_plot())
+dev.off()
+
+library(forcats)
+##normative only 
+normative_pathways <- all_pathways %>% dplyr::filter(effect == "Normative") %>% 
+  group_by(group) %>% 
+  mutate(Description = factor(Description))
+normative_pathways <- normative_pathways[order(normative_pathways$Description, normative_pathways$group),]
+
+
+ggplot(normative_pathways, aes(x = cell_type, y = parentTerm)) +
+  geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+  geom_point(aes(colour = logFC2, 
+                 size = FDR))  +    ## geom_point for circle illusion
+  scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40)) +   ## color of the corresponding aes          ## to tune the size of circles
+  facet_grid(~ group, scales = "free_x", space = "free", labeller = label_wrap_gen(width=20)) +
+  theme_bw()+theme(axis.text.y = element_text(size = 30),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 30),
+                   strip.text.x = element_text(size = 30),
+                   strip.text.y = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                   plot.title = element_text(size = 25),
+                   legend.text = element_text(size = 20),
+                   legend.title = element_text(size = 25))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                       size =guide_legend(title="-log10(FDR)")) +
+  scale_size(range = c(2,12))
+```
+
+```{r}
+##clean pathway results -- manual 
+results <- final_pathway_df %>% filter(!cell_type == "Misc_NT") %>% group_by(cell_type, effect) %>% relocate(cell_type, effect, FoldEnrichment) 
+
+##ATP generation 
+atp_synthesis <- results[grepl("ATP synthesis", results$Description), ]
+atp_synthesis$Description <- "mitochondrial ATP synthesis"
+atp_synthesis <- atp_synthesis %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+electron_transport <- results[grepl("electron transport chain", results$Description), ]
+electron_transport$Description <- "aerobic electron transport chain"
+aerobic_respiration <- results[grepl("respiration", results$Description), ]
+aerobic_respiration$Description <- "aerobic respiration"
+atp_generation <- rbind(atp_synthesis, electron_transport)
+#atp_generation <- atp_synthesis
+atp_generation$group <- "ATP"
+
+##cell projection and development
+adhesion <- results[grepl('adhesion', results$Description), ]
+adhesion <- adhesion[grepl('cell', adhesion$Description), ]
+cell_adhesion <- adhesion[!grepl('homotypic|homophilic', adhesion$Description), ]
+cell_adhesion$Description <- "cell-cell adhesion"
+cell_adhesion <- cell_adhesion %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+homotypic_adhesion <- adhesion[grepl('homophilic|homotypic', adhesion$Description), ]
+homotypic_adhesion$Description <- "homophilic cell adhesion"
+homotypic_adhesion <- homotypic_adhesion %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+dendrite_development <- results[grepl('dendrite development', results$Description), ]
+dendrite_development <- dendrite_development %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+axonogenesis <- results[grepl('axonogenesis', results$Description), ]
+axonogenesis$Description <- "axonogenesis"
+axonogenesis <- axonogenesis %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+projection_development <- results[grepl('projection development', results$Description), ]
+projection_development$Description <- "neuron projection development"
+projection_development <- projection_development %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+axon_guidance <- results[grepl('guidance', results$Description), ]
+axon_guidance$Description <- "axon guidance"
+axon_guidance <- axon_guidance %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+projection_morphogenesis <- results[grepl('cell morphogenesis', results$Description), ]
+#projection_morphogenesis <- projection_morphogenesis[grepl('dendrite|dendritic', projection_morphogenesis$Description), ]
+projection_morphogenesis$Description <- "cell morphogenesis"
+projection_morphogenesis <- projection_morphogenesis %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+migration <- results[grepl('regulation of cell migration', results$Description), ]
+
+cell_proj_and_development <- rbind(cell_adhesion, homotypic_adhesion, dendrite_development, axonogenesis, projection_development, axon_guidance, projection_morphogenesis, migration)
+#cell_proj_and_development <- rbind(projection_development, dendrite_development, axonogenesis)
+cell_proj_and_development$group <- "Cell projection and development"
+
+##cell_signaling
+# signaling <- results[grepl('kinase signaling', results$Description), ]
+# signaling$Description <- 
+
+##ion transport 
+vascular_transport <- results[grepl('transport', results$Description), ]
+vascular_transport <- vascular_transport[grepl('vesicle', vascular_transport$Description), ]
+vascular_transport$Description <- "synaptic vesicle transport"
+vascular_transport <- vascular_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+cation_transport <- results[grepl('transport', results$Description), ]
+cation_transport <- cation_transport[grepl('cation| ion', cation_transport$Description), ]
+potassium_transport <- cation_transport[grepl('potassium', cation_transport$Description), ]
+potassium_transport$Description <- "potassium ion transport"
+potassium_transport <- potassium_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+sodium_transport <- cation_transport[grepl('sodium', cation_transport$Description), ]
+sodium_transport$Description <- "sodium ion transport"
+sodium_transport <- sodium_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+calcium_transport <- cation_transport[grepl('calcium', cation_transport$Description), ]
+calcium_transport$Description <- "calcium ion transport"
+calcium_transport <- calcium_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+metal_ion_transport <- cation_transport[grepl('metal|monoatomic', cation_transport$Description), ]
+metal_ion_transport$Description <- "metal ion transport"
+metal_ion_transport <- metal_ion_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#ion_transport <- rbind(vascular_transport, potassium_transport, sodium_transport, calcium_transport, metal_ion_transport)
+ion_transport <- rbind(vascular_transport, metal_ion_transport)
+ion_transport$group <- "Ion transport"
+
+##Protein transport and modification 
+protein_phosphorylation <- results[grepl('phosphorylation', results$Description), ]
+protein_phosphorylation$Description <- "protein dephosphorylation"
+protein_phosphorylation <- protein_phosphorylation %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+protein_transport <- results[grepl('protein', results$Description), ]
+protein_transport <- protein_transport[grepl('transport|localization', protein_transport$Description), ]
+protein_transport <- protein_transport[grepl('membrane|periphery|extracellular', protein_transport$Description), ]
+protein_transport$Description <- "protein localization to membrane"
+protein_transport <- protein_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+protein_transport_synapse <- results[grepl('protein', results$Description), ]
+protein_transport_synapse <- protein_transport_synapse[grepl('transport|localization', protein_transport_synapse$Description), ]
+protein_transport_synapse <- protein_transport_synapse[grepl('synap', protein_transport_synapse$Description), ]
+protein_transport_synapse$Description <- "protein localization to synapse"
+protein_transport_synapse <- protein_transport_synapse %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+protein_polymerization <- results[grepl('protein', results$Description), ]
+protein_polymerization <- protein_polymerization[grepl('polymerization', protein_polymerization$Description), ]
+protein_polymerization$Description <- "protein polymerization"
+protein_polymerization <- protein_polymerization %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#protein_transport_and_modification <- rbind(protein_phosphorylation, protein_transport, protein_transport_synapse, protein_polymerization)
+protein_transport_and_modification <- rbind(protein_phosphorylation, protein_transport, protein_polymerization)
+protein_transport_and_modification$group <- "Protein transport and modification"
+
+##synaptic chemical transport and secretion
+synaptic_plasticity <- results[grepl('plasticity', results$Description), ]
+synaptic_plasticity$Description <- "synaptic plasticity"
+synaptic_plasticity <- synaptic_plasticity %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+glutamate_signaling <- results[grepl('NMDA|glutamate', results$Description), ]
+glutamate_signaling <- glutamate_signaling[grepl('signaling|transmission', glutamate_signaling$Description), ]
+glutamate_signaling$Description <- "glutamate receptor signaling pathway"
+glutamate_signaling <- glutamate_signaling %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter <- results[grepl('neurotransmitter', results$Description), ]
+neurotransmitter_transport <- neurotransmitter[grepl('transport', neurotransmitter$Description), ]
+neurotransmitter_transport$Description <- "neurotransmitter transport"
+neurotransmitter_transport <- neurotransmitter_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter_secretion <- neurotransmitter[grepl('secretion', neurotransmitter$Description), ]
+neurotransmitter_secretion$Description <- "neurotransmitter secretion"
+neurotransmitter_secretion <- neurotransmitter_secretion %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter_levels <- neurotransmitter[grepl('levels|internalization', neurotransmitter$Description), ]
+neurotransmitter_receptor_levels <- neurotransmitter_levels[grepl('receptor', neurotransmitter_levels$Description), ]
+neurotransmitter_receptor_levels$Description <- "postsynaptic neurotransmitter receptor levels"
+neurotransmitter_receptor_levels <- neurotransmitter_receptor_levels %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter_levels <- neurotransmitter[grepl('levels|internalization', neurotransmitter$Description), ]
+neurotransmitter_levels <- neurotransmitter_levels[!grepl('receptor', neurotransmitter_levels$Description), ]
+
+trans_synaptic <- results[grepl('trans-synaptic', results$Description), ]
+trans_synaptic$Description <- "retrograde trans-synaptic signaling"
+trans_synaptic <- trans_synaptic %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+synaptic_transmission <- results[grepl('synaptic transmission', results$Description), ]
+synaptic_transmission_glut <- synaptic_transmission[grepl('glutamatergic', synaptic_transmission$Description), ]
+synaptic_transmission_glut$Description <- "synaptic transmission, glutamatergic"
+synaptic_transmission_glut <- synaptic_transmission_glut %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+synaptic_transmission_gaba <- synaptic_transmission[grepl('GABA', synaptic_transmission$Description), ]
+
+#synaptic_transport_signaling_secretion <- rbind(synaptic_plasticity, glutamate_signaling, neurotransmitter_transport, neurotransmitter_secretion, neurotransmitter_receptor_levels, neurotransmitter_levels, trans_synaptic, synaptic_transmission_glut, synaptic_transmission_gaba)
+synaptic_transport_signaling_secretion <- rbind(synaptic_plasticity, neurotransmitter_receptor_levels,neurotransmitter_transport)
+synaptic_transport_signaling_secretion$group <- "Synaptic transport, signaling, and secretion"
+
+##Transcription and translation
+translation <- results[grepl('translation', results$Description), ]
+translation$Description <- "regulation of translation"
+translation <- translation %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+transcription <- results[grepl('transcription', results$Description), ]
+transcription <- transcription[!grepl('ncRNA|miRNA', transcription$Description), ]
+transcription$Description <- "DNA-binding transcription factor activity"
+transcription <- transcription %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+gene_expression <- results[grepl('gene expression', results$Description), ]
+epigenetic_gene_expression <- gene_expression[grepl('epigenetic', gene_expression$Description), ]
+epigenetic_gene_expression$Description <- "Epigenetic regulation of gene expression"
+
+histone <- results[grepl('histone', results$Description), ]
+histone$Description <- "histone modification"
+histone <- histone %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#transcription_and_translation <- rbind(translation, transcription, epigenetic_gene_expression, histone)
+transcription_and_translation <- rbind(translation, transcription, epigenetic_gene_expression)
+transcription_and_translation$group <- "Transcription and translation"
+
+##mitotic processes 
+mitosis <- results[grepl('mitosis|mitotic', results$Description), ]
+mitosis_cycle <- mitosis[grepl('cycle', mitosis$Description), ]
+mitosis_cycle$Description <- "G1/S transition of mitotic cell cycle"
+mitosis_cycle <- mitosis_cycle %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+mitosis_division <- results[grepl('nuclear division', results$Description), ]
+mitosis_division$Description <- "mitotic nuclear division"
+mitosis_division <- mitosis_division %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+chromatid <- results[grepl('chromatid', results$Description), ]
+chromatid$Description <- "sister chromatid segregation"
+chromatid <- chromatid %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+microtubule <- results[grepl('microtubule', results$Description), ]
+microtubule$Description <- "microtubule polymerization or depolymerization"
+microtubule <- microtubule %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+chrom_segregation <- results[grepl('chromosome', results$Description), ]
+chrom_segregation$Description <- "chromosome segregation and organization"
+chrom_segregation <- chrom_segregation %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#mitosis_processes <- rbind(mitosis_cycle, mitosis_division, chromatid, microtubule, chrom_segregation)
+mitosis_processes <- rbind(microtubule, mitosis_cycle, chromatid)
+mitosis_processes$group <- "Mitosis-related processes"
+
+##Visualize pathway results (all cells)
+all_pathways <- rbind(atp_generation, cell_proj_and_development, ion_transport, protein_transport_and_modification, synaptic_transport_signaling_secretion, transcription_and_translation, mitosis_processes)
+all_pathways$cell_type <- factor(all_pathways$cell_type, levels = c("GABA", "Glut", "GABA-Chol", "Inh_IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))
+all_pathways$effect <- factor(all_pathways$effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY", "addY1", "addY2"))
+
+##for visualization
+all_pathways$FDR <- -log10(all_pathways$p.adjust)
+all_pathways$FDR[all_pathways$FDR > 3] <- 3
+all_pathways$logFC2 <- all_pathways$mean_log2FC
+all_pathways$logFC2[all_pathways$logFC2 > 3] <- 3
+all_pathways$logFC2[all_pathways$logFC2 < -3] <- -3
+
+all_pathways$FDR <- -log10(all_pathways$p.adjust)
+all_pathways$FDR[all_pathways$FDR > 3] <- 3
+#all_pathways$fold[all_pathways$fold > 1] <- 1
+#all_pathways$fold[all_pathways$fold < -1] <- -1
+
+ggplot(all_pathways, aes(x = effect, y = Description)) +
+  geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+  geom_point(aes(colour = logFC2, 
+                 size = FDR))  +    ## geom_point for circle illusion
+  scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40))+   ## color of the corresponding aes          ## to tune the size of circles
+  facet_grid(group ~ cell_type, scales = "free_y", space = "free", labeller = label_wrap_gen(width=20)) +
+  theme_bw()+theme(axis.text.y = element_text(size = 20),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+                   strip.text.x = element_text(size = 20),
+                   strip.text.y = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                   plot.title = element_text(size = 25))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                       size =guide_legend(title="-log10(FDR)")) +
+  scale_size(range = c(2,12))
+
+png("Plots/DEG_complete/RNA_SD/Pathway/top_pathway_groups_manual.png", width = 40, height = 20, units = "in", res = 600)
+print(last_plot())
+dev.off()
+```
+
+
+##RNA_SampleID cleanup 
+
+```{r}
+##RNA_SampleID
+
+all_pathways <- results_reduced %>% 
+    group_by(cell_type, effect, parentTerm) %>% 
+    summarise(
+      avg_p = mean(p.adjust, na.rm = TRUE),
+      avg_logFC = mean(mean_log2FC, na.rm = TRUE),
+      avg_foldenrichment = mean(FoldEnrichment, na.rm = TRUE))
+
+ATP <- all_pathways %>% filter(parentTerm %in% c("ribonucleotide metabolic process", "aerobic respiration"))
+ATP$group <- "ATP"
+
+protein <- all_pathways %>% filter(parentTerm %in% c("protein localization to cell junction",
+                                                     "endosomal transport",
+                                                     "protein-RNA complex assembly", 
+                                                     "peptidyl-serine modification"))
+protein$group <- "Protein localization and modification"
+
+synapse <- all_pathways %>% filter(parentTerm %in% c("regulation of synapse organization",
+                                                     "positive regulation of cell projection organization",
+                                                     "dendrite development",
+                                                     "postsynapse organization",
+                                                     "regulation of synaptic plasticity",
+                                                     "vesicle-mediated transport in synapse"))
+synapse$group <- "Synaptic transport, signaling, and secretion"
+
+ion_transport <- all_pathways %>% filter(parentTerm %in% c("regulation of neurotransmitter receptor activity",
+                                                           "regulation of monoatomic ion transmembrane transport",
+                                                           "peptide hormone secretion",
+                                                           "positive regulation of secretion by cell",
+                                                           "establishment of organelle location"))
+ion_transport$group <- "Ion transport"
+
+translation_transcription <- all_pathways %>% filter(parentTerm %in% c("translation at postsynapase",
+                                                                       "mRNA processing",
+                                                                       "regulation of alternative mRNA splicing, via spliceosome")) 
+translation_transcription$group <- "Transcription and translation"
+
+mitosis <- all_pathways %>% filter(parentTerm %in% c("mitotic cell cycle phase transition",
+                                                     "microtubule polymerization or depolymerization",
+                                                     "actin filament organization",
+                                                     "cellular component disassembly")) 
+mitosis$group <- "Mitosis"
+
+neuron <- all_pathways %>% filter(parentTerm %in% c("neuron apoptotic process",
+                                                    "regulation of neurogenesis",
+                                                    "neuron migration"))
+neuron$group <- "Neuronal propagation"
+
+metabolism <- all_pathways %>% filter(parentTerm %in% c("mRNA catabolic process",
+                                                        "glycerolipid metabolic process",
+                                                        "regulation of small molecule metabolic process",
+                                                        "polysaccharide metabolic process",
+                                                        "carbohydrate homeostasis",
+                                                        "proteasome-mediated ubiquitin-dependent protein catabolic process",
+                                                        "ribonucleotide metabolic process",
+                                                        "ribonucleoprotein complex biogenesis"))
+metabolism$group <- "Metabolism"
+
+
+all_pathways <- rbind(ATP, protein, synapse, ion_transport, translation_transcription, mitosis, neuron, metabolism) %>% filter(!is.na(parentTerm))
+all_pathways$cell_type <- factor(all_pathways$cell_type, levels = c("GABA", "Glut", "GABA-Chol", "Inh_IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))
+all_pathways$effect <- factor(all_pathways$effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY", "addY1", "addY2"))
+
+##for visualization
+all_pathways$FDR <- -log10(all_pathways$avg_p)
+all_pathways$FDR[all_pathways$FDR > 3] <- 3
+all_pathways$logFC2 <- all_pathways$avg_logFC
+# all_pathways$logFC2[all_pathways$logFC2 > 0.5] <- 0.5
+# all_pathways$logFC2[all_pathways$logFC2 < -0.5] <- -0.5
+
+ggplot(all_pathways, aes(x = effect, y = parentTerm)) +
+  geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+  geom_point(aes(colour = logFC2, 
+                 size = FDR))  +    ## geom_point for circle illusion
+  scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40))+   ## color of the corresponding aes          ## to tune the size of circles
+  facet_grid(group ~ cell_type, scales = "free_y", space = "free", labeller = label_wrap_gen(width=20)) +
+  theme_bw()+theme(axis.text.y = element_text(size = 20),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+                   strip.text.x = element_text(size = 20),
+                   strip.text.y = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                   plot.title = element_text(size = 25))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                       size =guide_legend(title="-log10(FDR)")) +
+  scale_size(range = c(2,12))
+
+png("Plots/DEG_complete/Pathway/top_pathway_groups_reduced.png", width = 40, height = 20, units = "in", res = 600)
+print(last_plot())
+dev.off()
+```
+
+
+
+```{r}
+##clean pathway results -- manual 
+
+results <- final_pathway_df %>% filter(!cell_type == "Misc_NT") %>% group_by(cell_type, effect) %>% relocate(cell_type, effect, FoldEnrichment) 
+
+##ATP generation 
+atp_synthesis <- results[grepl("ATP synthesis", results$Description), ]
+atp_synthesis$Description <- "mitochondrial ATP synthesis"
+atp_synthesis <- atp_synthesis %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+electron_transport <- results[grepl("electron transport chain", results$Description), ]
+electron_transport$Description <- "aerobic electron transport chain"
+aerobic_respiration <- results[grepl("respiration", results$Description), ]
+aerobic_respiration$Description <- "aerobic respiration"
+atp_generation <- rbind(atp_synthesis, electron_transport)
+#atp_generation <- atp_synthesis
+atp_generation$group <- "ATP"
+
+##cell projection and development
+adhesion <- results[grepl('adhesion', results$Description), ]
+adhesion <- adhesion[grepl('cell', adhesion$Description), ]
+cell_adhesion <- adhesion[!grepl('homotypic|homophilic', adhesion$Description), ]
+cell_adhesion$Description <- "cell-cell adhesion"
+cell_adhesion <- cell_adhesion %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+homotypic_adhesion <- adhesion[grepl('homophilic|homotypic', adhesion$Description), ]
+homotypic_adhesion$Description <- "homophilic cell adhesion"
+homotypic_adhesion <- homotypic_adhesion %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+dendrite_development <- results[grepl('dendrite development', results$Description), ]
+dendrite_development <- dendrite_development %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+axonogenesis <- results[grepl('axonogenesis', results$Description), ]
+axonogenesis$Description <- "axonogenesis"
+axonogenesis <- axonogenesis %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+projection_development <- results[grepl('projection development', results$Description), ]
+projection_development$Description <- "neuron projection development"
+projection_development <- projection_development %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup()
+
+axon_guidance <- results[grepl('guidance', results$Description), ]
+axon_guidance$Description <- "axon guidance"
+axon_guidance <- axon_guidance %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+projection_morphogenesis <- results[grepl('cell morphogenesis', results$Description), ]
+#projection_morphogenesis <- projection_morphogenesis[grepl('dendrite|dendritic', projection_morphogenesis$Description), ]
+projection_morphogenesis$Description <- "cell morphogenesis"
+projection_morphogenesis <- projection_morphogenesis %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+migration <- results[grepl('regulation of cell migration', results$Description), ]
+
+cell_proj_and_development <- rbind(cell_adhesion, homotypic_adhesion, dendrite_development, axonogenesis, projection_development, axon_guidance, projection_morphogenesis, migration)
+#cell_proj_and_development <- rbind(projection_development, dendrite_development, axonogenesis)
+cell_proj_and_development$group <- "Cell projection and development"
+
+##cell_signaling
+# signaling <- results[grepl('kinase signaling', results$Description), ]
+# signaling$Description <- 
+
+##ion transport 
+vascular_transport <- results[grepl('transport', results$Description), ]
+vascular_transport <- vascular_transport[grepl('vesicle', vascular_transport$Description), ]
+vascular_transport$Description <- "synaptic vesicle transport"
+vascular_transport <- vascular_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+cation_transport <- results[grepl('transport', results$Description), ]
+cation_transport <- cation_transport[grepl('cation| ion', cation_transport$Description), ]
+potassium_transport <- cation_transport[grepl('potassium', cation_transport$Description), ]
+potassium_transport$Description <- "potassium ion transport"
+potassium_transport <- potassium_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+sodium_transport <- cation_transport[grepl('sodium', cation_transport$Description), ]
+sodium_transport$Description <- "sodium ion transport"
+sodium_transport <- sodium_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+calcium_transport <- cation_transport[grepl('calcium', cation_transport$Description), ]
+calcium_transport$Description <- "calcium ion transport"
+calcium_transport <- calcium_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+metal_ion_transport <- cation_transport[grepl('metal|monoatomic', cation_transport$Description), ]
+metal_ion_transport$Description <- "metal ion transport"
+metal_ion_transport <- metal_ion_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#ion_transport <- rbind(vascular_transport, potassium_transport, sodium_transport, calcium_transport, metal_ion_transport)
+ion_transport <- rbind(vascular_transport, metal_ion_transport)
+ion_transport$group <- "Ion transport"
+
+##Protein transport and modification 
+protein_phosphorylation <- results[grepl('phosphorylation', results$Description), ]
+protein_phosphorylation$Description <- "protein dephosphorylation"
+protein_phosphorylation <- protein_phosphorylation %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+protein_transport <- results[grepl('protein', results$Description), ]
+protein_transport <- protein_transport[grepl('transport|localization', protein_transport$Description), ]
+protein_transport <- protein_transport[grepl('membrane|periphery|extracellular', protein_transport$Description), ]
+protein_transport$Description <- "protein localization to membrane"
+protein_transport <- protein_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+protein_transport_synapse <- results[grepl('protein', results$Description), ]
+protein_transport_synapse <- protein_transport_synapse[grepl('transport|localization', protein_transport_synapse$Description), ]
+protein_transport_synapse <- protein_transport_synapse[grepl('synap', protein_transport_synapse$Description), ]
+protein_transport_synapse$Description <- "protein localization to synapse"
+protein_transport_synapse <- protein_transport_synapse %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+protein_polymerization <- results[grepl('protein', results$Description), ]
+protein_polymerization <- protein_polymerization[grepl('polymerization', protein_polymerization$Description), ]
+protein_polymerization$Description <- "protein polymerization"
+protein_polymerization <- protein_polymerization %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#protein_transport_and_modification <- rbind(protein_phosphorylation, protein_transport, protein_transport_synapse, protein_polymerization)
+protein_transport_and_modification <- rbind(protein_phosphorylation, protein_transport, protein_polymerization)
+protein_transport_and_modification$group <- "Protein transport and modification"
+
+##synaptic chemical transport and secretion
+synaptic_plasticity <- results[grepl('plasticity', results$Description), ]
+synaptic_plasticity$Description <- "synaptic plasticity"
+synaptic_plasticity <- synaptic_plasticity %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+glutamate_signaling <- results[grepl('NMDA|glutamate', results$Description), ]
+glutamate_signaling <- glutamate_signaling[grepl('signaling|transmission', glutamate_signaling$Description), ]
+glutamate_signaling$Description <- "glutamate receptor signaling pathway"
+glutamate_signaling <- glutamate_signaling %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter <- results[grepl('neurotransmitter', results$Description), ]
+neurotransmitter_transport <- neurotransmitter[grepl('transport', neurotransmitter$Description), ]
+neurotransmitter_transport$Description <- "neurotransmitter transport"
+neurotransmitter_transport <- neurotransmitter_transport %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter_secretion <- neurotransmitter[grepl('secretion', neurotransmitter$Description), ]
+neurotransmitter_secretion$Description <- "neurotransmitter secretion"
+neurotransmitter_secretion <- neurotransmitter_secretion %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter_levels <- neurotransmitter[grepl('levels|internalization', neurotransmitter$Description), ]
+neurotransmitter_receptor_levels <- neurotransmitter_levels[grepl('receptor', neurotransmitter_levels$Description), ]
+neurotransmitter_receptor_levels$Description <- "postsynaptic neurotransmitter receptor levels"
+neurotransmitter_receptor_levels <- neurotransmitter_receptor_levels %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+neurotransmitter_levels <- neurotransmitter[grepl('levels|internalization', neurotransmitter$Description), ]
+neurotransmitter_levels <- neurotransmitter_levels[!grepl('receptor', neurotransmitter_levels$Description), ]
+
+trans_synaptic <- results[grepl('trans-synaptic', results$Description), ]
+trans_synaptic$Description <- "retrograde trans-synaptic signaling"
+trans_synaptic <- trans_synaptic %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+synaptic_transmission <- results[grepl('synaptic transmission', results$Description), ]
+synaptic_transmission_glut <- synaptic_transmission[grepl('glutamatergic', synaptic_transmission$Description), ]
+synaptic_transmission_glut$Description <- "synaptic transmission, glutamatergic"
+synaptic_transmission_glut <- synaptic_transmission_glut %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+synaptic_transmission_gaba <- synaptic_transmission[grepl('GABA', synaptic_transmission$Description), ]
+
+#synaptic_transport_signaling_secretion <- rbind(synaptic_plasticity, glutamate_signaling, neurotransmitter_transport, neurotransmitter_secretion, neurotransmitter_receptor_levels, neurotransmitter_levels, trans_synaptic, synaptic_transmission_glut, synaptic_transmission_gaba)
+synaptic_transport_signaling_secretion <- rbind(synaptic_plasticity, neurotransmitter_receptor_levels,neurotransmitter_transport)
+synaptic_transport_signaling_secretion$group <- "Synaptic transport, signaling, and secretion"
+
+##Transcription and translation
+translation <- results[grepl('translation', results$Description), ]
+translation$Description <- "regulation of translation"
+translation <- translation %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+transcription <- results[grepl('transcription', results$Description), ]
+transcription <- transcription[!grepl('ncRNA|miRNA', transcription$Description), ]
+transcription$Description <- "DNA-binding transcription factor activity"
+transcription <- transcription %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+gene_expression <- results[grepl('gene expression', results$Description), ]
+epigenetic_gene_expression <- gene_expression[grepl('epigenetic', gene_expression$Description), ]
+epigenetic_gene_expression$Description <- "Epigenetic regulation of gene expression"
+
+histone <- results[grepl('histone', results$Description), ]
+histone$Description <- "histone modification"
+histone <- histone %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#transcription_and_translation <- rbind(translation, transcription, epigenetic_gene_expression, histone)
+transcription_and_translation <- rbind(translation, transcription, epigenetic_gene_expression)
+transcription_and_translation$group <- "Transcription and translation"
+
+##mitotic processes 
+mitosis <- results[grepl('mitosis|mitotic', results$Description), ]
+mitosis_cycle <- mitosis[grepl('cycle', mitosis$Description), ]
+mitosis_cycle$Description <- "G1/S transition of mitotic cell cycle"
+mitosis_cycle <- mitosis_cycle %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+mitosis_division <- results[grepl('nuclear division', results$Description), ]
+mitosis_division$Description <- "mitotic nuclear division"
+mitosis_division <- mitosis_division %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+chromatid <- results[grepl('chromatid', results$Description), ]
+chromatid$Description <- "sister chromatid segregation"
+chromatid <- chromatid %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+microtubule <- results[grepl('microtubule', results$Description), ]
+microtubule$Description <- "microtubule polymerization or depolymerization"
+microtubule <- microtubule %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+chrom_segregation <- results[grepl('chromosome', results$Description), ]
+chrom_segregation$Description <- "chromosome segregation and organization"
+chrom_segregation <- chrom_segregation %>% group_by(cell_type, effect) %>% top_n(1, wt = FoldEnrichment) %>% ungroup() 
+
+#mitosis_processes <- rbind(mitosis_cycle, mitosis_division, chromatid, microtubule, chrom_segregation)
+mitosis_processes <- rbind(microtubule, mitosis_cycle, chromatid)
+mitosis_processes$group <- "Mitosis-related processes"
+```
+
+
+```{r}
+##Visualize pathway results (all cells)
+
+all_pathways <- rbind(atp_generation, cell_proj_and_development, ion_transport, protein_transport_and_modification, synaptic_transport_signaling_secretion, transcription_and_translation, mitosis_processes)
+all_pathways$cell_type <- factor(all_pathways$cell_type, levels = c("GABA", "Glut", "GABA-Chol", "Inh_IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))
+all_pathways$effect <- factor(all_pathways$effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY", "addY1", "addY2"))
+
+##for visualization
+all_pathways$FDR <- -log10(all_pathways$p.adjust)
+all_pathways$FDR[all_pathways$FDR > 3] <- 3
+all_pathways$logFC2 <- all_pathways$mean_log2FC
+all_pathways$logFC2[all_pathways$logFC2 > 3] <- 3
+all_pathways$logFC2[all_pathways$logFC2 < -3] <- -3
+
+all_pathways$FDR <- -log10(all_pathways$p.adjust)
+all_pathways$FDR[all_pathways$FDR > 3] <- 3
+#all_pathways$fold[all_pathways$fold > 1] <- 1
+#all_pathways$fold[all_pathways$fold < -1] <- -1
+
+ggplot(all_pathways, aes(x = effect, y = Description)) +
+  geom_tile(fill = "white") +  xlab("") + ylab("") + ggtitle("") +      ## to get the rect filled
+  geom_point(aes(colour = logFC2, 
+                 size = FDR))  +    ## geom_point for circle illusion
+  scale_color_gradientn(limits = c(-1,1),colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40))+   ## color of the corresponding aes          ## to tune the size of circles
+  facet_grid(group ~ cell_type, scales = "free_y", space = "free", labeller = label_wrap_gen(width=20)) +
+  theme_bw()+theme(axis.text.y = element_text(size = 20),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+                   strip.text.x = element_text(size = 20),
+                   strip.text.y = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"),
+                   plot.title = element_text(size = 25))+ guides(colour=guide_legend(title="-log2(fold change)"),
+                                                                       size =guide_legend(title="-log10(FDR)")) +
+  scale_size(range = c(2,12))
+
+png("Plots/DEG_complete/Pathway/top_pathway_groups.png", width = 40, height = 20, units = "in", res = 600)
+print(last_plot())
+dev.off()
+```

@@ -1,0 +1,208 @@
+Job 2603334 started on:    g10
+Job 2603334 started on:    Sun Apr 7 22:41:58 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-14/outs/raw_feature_bc_matrix.h5 --output TriSeptum-14.h5 --cuda
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash 2ee49e7eb4)
+cellbender:remove-background: 2024-04-07 22:42:05
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-14/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 26170 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 6382
+cellbender:remove-background: Prior on counts for empty droplets is 727
+cellbender:remove-background: Excluding 4949 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 21221 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 363
+cellbender:remove-background: Using 1850 probable cell barcodes, plus an additional 9575 barcodes, and 70990 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 934 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq
+cellbender:remove-background: Successfully unpacked tarball to /work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_optim.pyro
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_params.pyro
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_random.cuda
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_test.loaderstate
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_train.loaderstate
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_args.npy
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_optim.torch
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_random.pyro
+/work/2603334.6.gpu_RTX2080Ti.q/tmp6q73mnhq/2ee49e7eb4_model.torch
+cellbender:remove-background: Loaded partially-trained checkpoint from ckpt.tar.gz
+cellbender:remove-background: Checkpoint loaded successfully.
+cellbender:remove-background: Running inference...
+cellbender:remove-background: 2024-04-07 22:42:26
+cellbender:remove-background: Inference procedure complete.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3
+cellbender:remove-background: Successfully unpacked tarball to /work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_optim.pyro
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_params.pyro
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_random.cuda
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_test.loaderstate
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_train.loaderstate
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_args.npy
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_optim.torch
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_random.pyro
+/work/2603334.6.gpu_RTX2080Ti.q/tmp0flv8w_3/2ee49e7eb4_model.torch
+cellbender:remove-background: Posterior not currently included in checkpoint.
+cellbender:remove-background: Computing posterior noise count probabilities in mini-batches.
+cellbender:remove-background: Working on chunk (1/87)
+cellbender:remove-background:     [0.03 mins per chunk]
+cellbender:remove-background: Working on chunk (2/87)
+cellbender:remove-background: Working on chunk (3/87)
+cellbender:remove-background: Working on chunk (4/87)
+cellbender:remove-background: Working on chunk (5/87)
+cellbender:remove-background: Working on chunk (6/87)
+cellbender:remove-background: Working on chunk (7/87)
+cellbender:remove-background: Working on chunk (8/87)
+cellbender:remove-background: Working on chunk (9/87)
+cellbender:remove-background: Working on chunk (10/87)
+cellbender:remove-background: Working on chunk (11/87)
+cellbender:remove-background: Working on chunk (12/87)
+cellbender:remove-background: Working on chunk (13/87)
+cellbender:remove-background: Working on chunk (14/87)
+cellbender:remove-background: Working on chunk (15/87)
+cellbender:remove-background: Working on chunk (16/87)
+cellbender:remove-background: Working on chunk (17/87)
+cellbender:remove-background: Working on chunk (18/87)
+cellbender:remove-background: Working on chunk (19/87)
+cellbender:remove-background: Working on chunk (20/87)
+cellbender:remove-background: Working on chunk (21/87)
+cellbender:remove-background: Working on chunk (22/87)
+cellbender:remove-background: Working on chunk (23/87)
+cellbender:remove-background: Working on chunk (24/87)
+cellbender:remove-background: Working on chunk (25/87)
+cellbender:remove-background: Working on chunk (26/87)
+cellbender:remove-background: Working on chunk (27/87)
+cellbender:remove-background: Working on chunk (28/87)
+cellbender:remove-background: Working on chunk (29/87)
+cellbender:remove-background: Working on chunk (30/87)
+cellbender:remove-background: Working on chunk (31/87)
+cellbender:remove-background: Working on chunk (32/87)
+cellbender:remove-background: Working on chunk (33/87)
+cellbender:remove-background: Working on chunk (34/87)
+cellbender:remove-background: Working on chunk (35/87)
+cellbender:remove-background: Working on chunk (36/87)
+cellbender:remove-background: Working on chunk (37/87)
+cellbender:remove-background: Working on chunk (38/87)
+cellbender:remove-background: Working on chunk (39/87)
+cellbender:remove-background: Working on chunk (40/87)
+cellbender:remove-background: Working on chunk (41/87)
+cellbender:remove-background: Working on chunk (42/87)
+cellbender:remove-background: Working on chunk (43/87)
+cellbender:remove-background: Working on chunk (44/87)
+cellbender:remove-background: Working on chunk (45/87)
+cellbender:remove-background: Working on chunk (46/87)
+cellbender:remove-background: Working on chunk (47/87)
+cellbender:remove-background: Working on chunk (48/87)
+cellbender:remove-background: Working on chunk (49/87)
+cellbender:remove-background: Working on chunk (50/87)
+cellbender:remove-background: Working on chunk (51/87)
+cellbender:remove-background: Working on chunk (52/87)
+cellbender:remove-background: Working on chunk (53/87)
+cellbender:remove-background: Working on chunk (54/87)
+cellbender:remove-background: Working on chunk (55/87)
+cellbender:remove-background: Working on chunk (56/87)
+cellbender:remove-background: Working on chunk (57/87)
+cellbender:remove-background: Working on chunk (58/87)
+cellbender:remove-background: Working on chunk (59/87)
+cellbender:remove-background: Working on chunk (60/87)
+cellbender:remove-background: Working on chunk (61/87)
+cellbender:remove-background: Working on chunk (62/87)
+cellbender:remove-background: Working on chunk (63/87)
+cellbender:remove-background: Working on chunk (64/87)
+cellbender:remove-background: Working on chunk (65/87)
+cellbender:remove-background: Working on chunk (66/87)
+cellbender:remove-background: Working on chunk (67/87)
+cellbender:remove-background: Working on chunk (68/87)
+cellbender:remove-background: Working on chunk (69/87)
+cellbender:remove-background: Working on chunk (70/87)
+cellbender:remove-background: Working on chunk (71/87)
+cellbender:remove-background: Working on chunk (72/87)
+cellbender:remove-background: Working on chunk (73/87)
+cellbender:remove-background: Working on chunk (74/87)
+cellbender:remove-background: Working on chunk (75/87)
+cellbender:remove-background: Working on chunk (76/87)
+cellbender:remove-background: Working on chunk (77/87)
+cellbender:remove-background: Working on chunk (78/87)
+cellbender:remove-background: Working on chunk (79/87)
+cellbender:remove-background: Working on chunk (80/87)
+cellbender:remove-background: Working on chunk (81/87)
+cellbender:remove-background: Working on chunk (82/87)
+cellbender:remove-background: Working on chunk (83/87)
+cellbender:remove-background: Working on chunk (84/87)
+cellbender:remove-background: Working on chunk (85/87)
+cellbender:remove-background: Working on chunk (86/87)
+cellbender:remove-background: Working on chunk (87/87)
+cellbender:remove-background: Writing full posterior to TriSeptum-14_posterior.h5
+cellbender:remove-background: Succeeded in writing posterior to file TriSeptum-14_posterior.h5
+cellbender:remove-background: Added posterior object to checkpoint file.
+cellbender:remove-background: 2024-04-07 22:47:10
+
+cellbender:remove-background: Saved summary plots as TriSeptum-14.pdf
+cellbender:remove-background: Saved cell barcodes in TriSeptum-14_cell_barcodes.csv
+cellbender:remove-background: Computing target noise counts per gene for MCKP estimator
+cellbender:remove-background: Using MCKP noise targets computed for FPR 0.01
+cellbender:remove-background: Computing denoised counts using mckp estimator
+cellbender:remove-background: Working on chunk (1/6)
+cellbender:remove-background:     [1.42 mins per chunk]
+cellbender:remove-background: Working on chunk (2/6)
+cellbender:remove-background: Working on chunk (3/6)
+cellbender:remove-background: Working on chunk (4/6)
+cellbender:remove-background: Working on chunk (5/6)
+cellbender:remove-background: Working on chunk (6/6)
+cellbender:remove-background: 2024-04-07 22:56:05 Total MCKP estimation time = 508.63 sec
+cellbender:remove-background: Succeeded in writing CellRanger format output to file TriSeptum-14.h5
+cellbender:remove-background: Succeeded in writing CellRanger format output to file TriSeptum-14_filtered.h5
+cellbender:remove-background: Saved output metrics as TriSeptum-14_metrics.csv
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/jupyter-nbconvert", line 5, in <module>
+    from nbconvert.nbconvertapp import main
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/__init__.py", line 5, in <module>
+    from .exporters import *
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/__init__.py", line 1, in <module>
+    from .asciidoc import ASCIIDocExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/asciidoc.py", line 9, in <module>
+    from .templateexporter import TemplateExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/templateexporter.py", line 25, in <module>
+    from lxml.html.clean import clean_html
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/lxml/html/clean.py", line 21, in <module>
+    ) from None
+ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+Install lxml[html_clean] or lxml_html_clean directly.
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/jupyter-nbconvert", line 5, in <module>
+    from nbconvert.nbconvertapp import main
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/__init__.py", line 5, in <module>
+    from .exporters import *
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/__init__.py", line 1, in <module>
+    from .asciidoc import ASCIIDocExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/asciidoc.py", line 9, in <module>
+    from .templateexporter import TemplateExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/templateexporter.py", line 25, in <module>
+    from lxml.html.clean import clean_html
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/lxml/html/clean.py", line 21, in <module>
+    ) from None
+ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+Install lxml[html_clean] or lxml_html_clean directly.
+mv: cannot stat 'tmp.report.nbconvert.html': No such file or directory
+rm: cannot remove 'tmp.report.nbconvert.ipynb': No such file or directory
+cellbender:remove-background: Unable to create report.
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 351, in compute_output_denoised_counts_reports_metrics
+    output=html_report_file,
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/report.py", line 82, in run_notebook_make_html
+    title=('CellBender: ' + os.path.basename(output).replace('_report.html', '')),
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/report.py", line 59, in _postprocess_html
+    with open(file, mode='r') as f:
+FileNotFoundError: [Errno 2] No such file or directory: 'TriSeptum-14_report.html'
+
+cellbender:remove-background: Completed remove-background.
+cellbender:remove-background: 2024-04-07 22:56:19
+
+Job 2603334 ended on:    g10
+Job 2603334 ended on:    Sun Apr 7 22:56:20 PDT 2024
+ 

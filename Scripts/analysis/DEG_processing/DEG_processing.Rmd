@@ -1,0 +1,278 @@
+---
+title: "DEG_processing.Rmd"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(dplyr)
+library(plyr)
+library(Seurat)
+#library(clusterProfiler)
+#library(enrichplot)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+```
+
+##DEG datasets
+```{r}
+data.dir <- "Results/complete_analysis/DEG_SD_metacell_sum_pure/"
+allfiles <- list.files(data.dir)
+allcells <- list.files(paste0(data.dir, allfiles[1])) %>% gsub(".rda", "", .)
+```
+
+```{r}
+topgenes <- list()
+DEG_results <- list()
+
+for(i in 1:length(allcells)) {
+  currentcell <- allcells[i]
+  
+  #Normative difference 
+  file.dir <- paste0(data.dir, "normative/", currentcell, ".rda")
+  load(file.dir)
+  
+  for(k in 1:length(resultlist_normative)) {
+ 
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_normative[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+    currentmodel <- "Normative"
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  #FCG
+  file.dir <- paste0(data.dir, "fcg/", currentcell, ".rda")
+  load(file.dir)
+  
+  for(k in 1:length(resultlist_fcg)) {
+ 
+    currentframe <- resultlist_fcg[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_fcg[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+    currentmodel <- "FCG"
+
+    topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  }
+  
+  #addX
+  file.dir <- paste0(data.dir, "addx/", currentcell, ".rda")
+  load(file.dir)
+  
+  currentframe <- resultlist_addx[["addX"]]
+  if(nrow(currentframe) == 0) {next}
+
+  currentframe <- tibble::rownames_to_column(currentframe, "gene")
+  currentcomparison <- names(resultlist_addx["addX"])
+  currentframe$cell_type <- currentcell
+  currentframe$comparison <- currentcomparison
+  currentframe <- currentframe %>% dplyr::arrange(-logFC)
+  currentmodel <- "addX"
+
+  topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+  DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  
+  #addY1
+  file.dir <- paste0(data.dir, "addy1/", currentcell, ".rda")
+  load(file.dir)
+
+  currentframe <- resultlist_addy1[["addY1"]]
+  if(nrow(currentframe) == 0) {next}
+  
+  currentframe <- tibble::rownames_to_column(currentframe, "gene")
+  currentcomparison <- names(resultlist_addy1["addY1"])
+  currentframe$cell_type <- currentcell
+  currentframe$comparison <- currentcomparison
+  currentframe <- currentframe %>% dplyr::arrange(-logFC)
+  currentmodel <- "addY1"
+
+  topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+  DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+  
+  #addY2
+  file.dir <- paste0(data.dir, "addy2/", currentcell, ".rda")
+  load(file.dir)
+
+  currentframe <- resultlist_addy2[["addY2"]]
+  if(nrow(currentframe) == 0) {next}
+  
+  currentframe <- tibble::rownames_to_column(currentframe, "gene")
+  currentcomparison <- names(resultlist_addy2["addY2"])
+  currentframe$cell_type <- currentcell
+  currentframe$comparison <- currentcomparison
+  currentframe <- currentframe %>% dplyr::arrange(-logFC)
+  currentmodel <- "addY2"
+
+  topgenes[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+  DEG_results[[currentmodel]][[currentcomparison]][[currentcell]] <- currentframe
+}
+
+DEG_df <- do.call("rbind", unlist(DEG_results, recursive=FALSE)) %>% bind_rows()
+DEG_df$effect <- plyr::mapvalues(DEG_df$comparison, 
+                                 from = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "Ovary:SexChromXX", "addX", "addY1", "addY2"),
+                                 to = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2"))
+
+save(topgenes, DEG_results, file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell_sum_pure/topgenes_DEGlist_RNA_SD.rda")
+save(DEG_df, file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell_sum_pure/DEG_df_RNA_SD.rda")
+```
+
+```{r}
+load("Results/complete_analysis/DEG_processed/DEG_SD_metacell_sum_pure/DEG_df_RNA_SD.rda")
+
+##plot mean number of DEGs by number of cells
+DEG_counts <- DEG_df %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  group_by(cell_type) %>% 
+  dplyr::summarize(mean_sig_degs = n(), .groups = "drop")
+cell_numbers <- as.data.frame.array(table(sc_seurat$celltype)) %>% tibble::rownames_to_column(var = "cell_type")
+DEG_counts <- left_join(DEG_counts, cell_numbers, by = "cell_type")
+colnames(DEG_counts) <- c("Celltype", "Mean_DEG", "Cell_count")
+
+ggplot(DEG_counts, aes(x = Cell_count, y = Mean_DEG, color = Celltype)) +
+  geom_point(size = 3) +
+  labs(
+    x = "Number of Cells",
+    y = "Mean Number of Significant DEGs",
+    title = "Dot Plot of Significant DEGs vs. Number of Cells"
+  ) +
+  theme_minimal()
+
+png("/u/project/xyang123/jshin/cerebellum_sct/Results/Armin/Plots/MS_downsample_DEG_by_cellcount.png", width = 7, height = 5, units = "in", res = 600)
+print(last_plot())
+dev.off()
+```
+
+####################################
+
+##Caden Original DEGs 
+```{r}
+##read in Caden's results 
+allfiles <- list.files(paste0(data.dir, "/Caden_DEG/"))
+allfiles <- allfiles[-1]
+
+normfiles <- list.files(paste0(data.dir, "/Caden_Norm_DEG/"))
+
+```
+
+```{r}
+##returns list of filtered DEGs
+simplify_results <- function(file_name, normfile_name, data_dir, norm_data_dir) {
+  load(paste0(data_dir, "/", file_name))
+  load(paste0(norm_data_dir, "/", normfile_name))
+  
+  currentcell <- gsub("limmaout_", "", file_name)
+  currentcell <- gsub(".rda", "", currentcell)
+  
+  ##Normative Effect
+  for(k in 1:length(resultlist_normative)) {
+ 
+    currentframe <- resultlist_normative[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_normative[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  ##Gonad/SexChrom Effect
+  for(k in 1:length(resultlist_sexchrom)) {
+ 
+    currentframe <- resultlist_sexchrom[[k]]
+    if(nrow(currentframe) == 0) {next}
+    
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_sexchrom[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  ##additional X effect
+  for(k in 1:length(resultlist_additionalX)) {
+ 
+    currentframe <- resultlist_additionalX[[k]]
+    if(nrow(currentframe) == 0) {next}
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_additionalX[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  ##additional Y effect
+  for(k in 1:length(resultlist_additionalY)) {
+ 
+    currentframe <- resultlist_additionalY[[k]]
+    if(nrow(currentframe) == 0) {next}
+    currentframe <- tibble::rownames_to_column(currentframe, "gene")
+    currentcomparison <- names(resultlist_additionalY[k])
+    currentframe$cell_type <- currentcell
+    currentframe$comparison <- currentcomparison
+    currentframe <- currentframe %>% dplyr::arrange(-logFC)
+
+    topgenes[[currentcomparison]] <- currentframe$gene[c(1:min(3,nrow(currentframe)))]
+    DEG_results[[currentcomparison]] <- currentframe
+  }
+  
+  return(list(DEG_results = DEG_results, top_genes = topgenes))
+}
+```
+
+```{r}
+deg_list <- list()
+topgenes_list <- list()
+for(i in 1:length(allfiles)) {
+  currentfile <- allfiles[i]
+  currentnormfile <- normfiles[i]
+  
+  cell_results <- simplify_results(currentfile, currentnormfile, data_dir = "~/scratch/medial_septum_sct/Caden_DEG", norm_data_dir = "~/scratch/medial_septum_sct/Caden_Norm_DEG")
+
+  deg_df <- do.call("rbind", cell_results$DEG_results)
+  topgenes_df <- do.call("rbind", cell_results$top_genes)
+  
+  deg_list[[currentfile]] <- deg_df
+  topgenes_list[[currentfile]] <- topgenes_df
+}
+
+DEG_df <- do.call("rbind", deg_list)
+DEG_df <- DEG_df %>% dplyr::filter(comparison %in% c("XXF_vs_XYM", "GonadFemale", "SexChromXX", "SexChromXX:GonadFemale", "additionalXTRUE", "additionalYTRUE"))
+DEG_df$effect <- plyr::mapvalues(DEG_df$comparison,
+                                 from = c("XXF_vs_XYM", "GonadFemale", "SexChromXX", "SexChromXX:GonadFemale", "additionalXTRUE", "additionalYTRUE"),
+                                 to = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY"))
+
+saveRDS(DEG_df, file = "Results/ambient_RNA/DEG/DEG_results.rds")
+```
+

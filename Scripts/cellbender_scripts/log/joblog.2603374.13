@@ -1,0 +1,513 @@
+Job 2603374 started on:    g7
+Job 2603374 started on:    Mon Apr 8 00:15:59 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-20/outs/raw_feature_bc_matrix.h5 --output TriSeptum-20.h5 --cuda
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash b1751022ff)
+cellbender:remove-background: 2024-04-08 00:16:06
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-20/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 32285 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 27067 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 4687
+cellbender:remove-background: Prior on counts for empty droplets is 982
+cellbender:remove-background: Excluding 5503 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 21564 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 491
+cellbender:remove-background: Using 7893 probable cell barcodes, plus an additional 18638 barcodes, and 52580 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 1326 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2603374.13.gpu_RTX2080Ti.q/tmpb1v7lh6j
+cellbender:remove-background: No saved checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...
+cellbender:remove-background: [epoch 001]  average training loss: 7836.0545
+cellbender:remove-background: [epoch 002]  average training loss: 6776.9791  (17.6 seconds per epoch)
+cellbender:remove-background: Will checkpoint every 24 epochs
+cellbender:remove-background: [epoch 003]  average training loss: 6285.7856
+cellbender:remove-background: [epoch 004]  average training loss: 6074.0090
+cellbender:remove-background: [epoch 005]  average training loss: 5991.3638
+cellbender:remove-background: [epoch 005] average test loss: 6055.5262
+cellbender:remove-background: [epoch 006]  average training loss: 5973.1816
+cellbender:remove-background: [epoch 007]  average training loss: 5971.5781
+cellbender:remove-background: [epoch 008]  average training loss: 5971.0465
+cellbender:remove-background: [epoch 009]  average training loss: 5942.3757
+cellbender:remove-background: [epoch 010]  average training loss: 5945.2109
+cellbender:remove-background: [epoch 010] average test loss: 5925.5337
+cellbender:remove-background: [epoch 011]  average training loss: 5939.1910
+cellbender:remove-background: [epoch 012]  average training loss: 5914.8085
+cellbender:remove-background: [epoch 013]  average training loss: 5923.2877
+cellbender:remove-background: [epoch 014]  average training loss: 5914.5585
+cellbender:remove-background: [epoch 015]  average training loss: 5907.5292
+cellbender:remove-background: [epoch 015] average test loss: 5890.1400
+cellbender:remove-background: [epoch 016]  average training loss: 5913.3939
+cellbender:remove-background: [epoch 017]  average training loss: 5924.9600
+cellbender:remove-background: [epoch 018]  average training loss: 5894.9209
+cellbender:remove-background: [epoch 019]  average training loss: 5890.1251
+cellbender:remove-background: [epoch 020]  average training loss: 5874.7189
+cellbender:remove-background: [epoch 020] average test loss: 5858.8896
+cellbender:remove-background: [epoch 021]  average training loss: 5874.6700
+cellbender:remove-background: [epoch 022]  average training loss: 5858.3289
+cellbender:remove-background: [epoch 023]  average training loss: 5853.3076
+cellbender:remove-background: [epoch 024]  average training loss: 5842.1780
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts2/TriSeptum-20/ckpt.tar.gz
+cellbender:remove-background: [epoch 025]  average training loss: 5850.3186
+cellbender:remove-background: [epoch 025] average test loss: 5827.3618
+cellbender:remove-background: [epoch 026]  average training loss: 5864.0948
+cellbender:remove-background: [epoch 027]  average training loss: 5862.6682
+cellbender:remove-background: [epoch 028]  average training loss: 5859.0296
+cellbender:remove-background: [epoch 029]  average training loss: 5851.1950
+cellbender:remove-background: [epoch 030]  average training loss: 5853.6266
+cellbender:remove-background: [epoch 030] average test loss: 5846.0300
+cellbender:remove-background: [epoch 031]  average training loss: 5848.2772
+cellbender:remove-background: [epoch 032]  average training loss: 5841.1656
+cellbender:remove-background: [epoch 033]  average training loss: 5834.4131
+cellbender:remove-background: [epoch 034]  average training loss: 5826.0076
+cellbender:remove-background: [epoch 035]  average training loss: 5825.1265
+cellbender:remove-background: [epoch 035] average test loss: 5813.9629
+cellbender:remove-background: [epoch 036]  average training loss: 5825.3871
+cellbender:remove-background: [epoch 037]  average training loss: 5821.3805
+cellbender:remove-background: [epoch 038]  average training loss: 5821.6957
+cellbender:remove-background: [epoch 039]  average training loss: 5817.7919
+cellbender:remove-background: [epoch 040]  average training loss: 5810.6111
+cellbender:remove-background: [epoch 040] average test loss: 5813.1623
+cellbender:remove-background: [epoch 041]  average training loss: 5811.5815
+cellbender:remove-background: [epoch 042]  average training loss: 5810.2481
+cellbender:remove-background: [epoch 043]  average training loss: 5805.1248
+cellbender:remove-background: [epoch 044]  average training loss: 5803.7384
+cellbender:remove-background: [epoch 045]  average training loss: 5802.8489
+cellbender:remove-background: [epoch 045] average test loss: 5811.5613
+cellbender:remove-background: [epoch 046]  average training loss: 5799.2974
+cellbender:remove-background: [epoch 047]  average training loss: 5798.1140
+cellbender:remove-background: [epoch 048]  average training loss: 5792.7967
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts2/TriSeptum-20/ckpt.tar.gz
+cellbender:remove-background: [epoch 049]  average training loss: 5786.8010
+cellbender:remove-background: [epoch 050]  average training loss: 5787.5358
+cellbender:remove-background: [epoch 050] average test loss: 5771.4734
+cellbender:remove-background: [epoch 051]  average training loss: 5788.8262
+cellbender:remove-background: [epoch 052]  average training loss: 5780.5739
+cellbender:remove-background: [epoch 053]  average training loss: 5778.7843
+cellbender:remove-background: [epoch 054]  average training loss: 5778.2981
+cellbender:remove-background: [epoch 055]  average training loss: 5774.6887
+cellbender:remove-background: [epoch 055] average test loss: 5684.7590
+cellbender:remove-background: [epoch 056]  average training loss: 5764.8393
+cellbender:remove-background: [epoch 057]  average training loss: 5772.3909
+cellbender:remove-background: [epoch 058]  average training loss: 5767.7871
+cellbender:remove-background: [epoch 059]  average training loss: 5770.2102
+cellbender:remove-background: [epoch 060]  average training loss: 5771.0105
+cellbender:remove-background: [epoch 060] average test loss: 5755.8874
+cellbender:remove-background: [epoch 061]  average training loss: 5762.6802
+cellbender:remove-background: [epoch 062]  average training loss: 5769.7993
+cellbender:remove-background: [epoch 063]  average training loss: 5763.5099
+cellbender:remove-background: [epoch 064]  average training loss: 5765.8814
+cellbender:remove-background: [epoch 065]  average training loss: 5759.6101
+cellbender:remove-background: [epoch 065] average test loss: 5750.0708
+cellbender:remove-background: [epoch 066]  average training loss: 5762.4419
+cellbender:remove-background: [epoch 067]  average training loss: 5752.5746
+cellbender:remove-background: [epoch 068]  average training loss: 5743.9707
+cellbender:remove-background: [epoch 069]  average training loss: 5752.5104
+cellbender:remove-background: [epoch 070]  average training loss: 5754.3870
+cellbender:remove-background: [epoch 070] average test loss: 5702.2667
+cellbender:remove-background: [epoch 071]  average training loss: 5748.8152
+cellbender:remove-background: [epoch 072]  average training loss: 5751.0345
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts2/TriSeptum-20/ckpt.tar.gz
+cellbender:remove-background: [epoch 073]  average training loss: 5747.2768
+cellbender:remove-background: [epoch 074]  average training loss: 5757.1349
+cellbender:remove-background: [epoch 075]  average training loss: 5742.9458
+cellbender:remove-background: [epoch 075] average test loss: 5750.6502
+cellbender:remove-background: [epoch 076]  average training loss: 5739.9927
+cellbender:remove-background: [epoch 077]  average training loss: 5747.2947
+cellbender:remove-background: [epoch 078]  average training loss: 5752.5695
+cellbender:remove-background: [epoch 079]  average training loss: 5743.7945
+cellbender:remove-background: [epoch 080]  average training loss: 5742.3097
+cellbender:remove-background: [epoch 080] average test loss: 5730.0826
+cellbender:remove-background: [epoch 081]  average training loss: 5747.2701
+cellbender:remove-background: [epoch 082]  average training loss: 5741.3137
+cellbender:remove-background: [epoch 083]  average training loss: 5738.1894
+cellbender:remove-background: [epoch 084]  average training loss: 5746.4426
+cellbender:remove-background: [epoch 085]  average training loss: 5739.1123
+cellbender:remove-background: [epoch 085] average test loss: 5698.4097
+cellbender:remove-background: [epoch 086]  average training loss: 5737.9781
+cellbender:remove-background: [epoch 087]  average training loss: 5736.1888
+cellbender:remove-background: [epoch 088]  average training loss: 5730.2803
+cellbender:remove-background: [epoch 089]  average training loss: 5740.6155
+cellbender:remove-background: [epoch 090]  average training loss: 5733.0870
+cellbender:remove-background: [epoch 090] average test loss: 5738.7889
+cellbender:remove-background: [epoch 091]  average training loss: 5736.5009
+cellbender:remove-background: [epoch 092]  average training loss: 5733.6253
+cellbender:remove-background: [epoch 093]  average training loss: 5733.6067
+cellbender:remove-background: [epoch 094]  average training loss: 5736.2281
+cellbender:remove-background: [epoch 095]  average training loss: 5726.7300
+cellbender:remove-background: [epoch 095] average test loss: 5775.6906
+cellbender:remove-background: [epoch 096]  average training loss: 5736.0575
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts2/TriSeptum-20/ckpt.tar.gz
+cellbender:remove-background: [epoch 097]  average training loss: 5734.8466
+cellbender:remove-background: [epoch 098]  average training loss: 5733.8674
+cellbender:remove-background: [epoch 099]  average training loss: 5734.6770
+cellbender:remove-background: [epoch 100]  average training loss: 5735.6898
+cellbender:remove-background: [epoch 100] average test loss: 5710.6810
+cellbender:remove-background: [epoch 101]  average training loss: 5725.5788
+cellbender:remove-background: [epoch 102]  average training loss: 5733.2462
+cellbender:remove-background: [epoch 103]  average training loss: 5729.9914
+cellbender:remove-background: [epoch 104]  average training loss: 5733.2145
+cellbender:remove-background: [epoch 105]  average training loss: 5729.4892
+cellbender:remove-background: [epoch 105] average test loss: 5705.4395
+cellbender:remove-background: [epoch 106]  average training loss: 5728.8866
+cellbender:remove-background: [epoch 107]  average training loss: 5735.2777
+cellbender:remove-background: [epoch 108]  average training loss: 5723.5994
+cellbender:remove-background: [epoch 109]  average training loss: 5724.9956
+cellbender:remove-background: [epoch 110]  average training loss: 5727.7927
+cellbender:remove-background: [epoch 110] average test loss: 5723.5092
+cellbender:remove-background: [epoch 111]  average training loss: 5723.7198
+cellbender:remove-background: [epoch 112]  average training loss: 5726.7855
+cellbender:remove-background: [epoch 113]  average training loss: 5720.3101
+cellbender:remove-background: [epoch 114]  average training loss: 5721.5435
+cellbender:remove-background: [epoch 115]  average training loss: 5723.8909
+cellbender:remove-background: [epoch 115] average test loss: 5745.5194
+cellbender:remove-background: [epoch 116]  average training loss: 5723.7687
+cellbender:remove-background: [epoch 117]  average training loss: 5728.3521
+cellbender:remove-background: [epoch 118]  average training loss: 5723.8779
+cellbender:remove-background: [epoch 119]  average training loss: 5715.4847
+cellbender:remove-background: [epoch 120]  average training loss: 5717.9295
+cellbender:remove-background: [epoch 120] average test loss: 5711.3407
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts2/TriSeptum-20/ckpt.tar.gz
+cellbender:remove-background: [epoch 121]  average training loss: 5727.8571
+cellbender:remove-background: [epoch 122]  average training loss: 5728.3179
+cellbender:remove-background: [epoch 123]  average training loss: 5723.4129
+cellbender:remove-background: [epoch 124]  average training loss: 5720.6836
+cellbender:remove-background: [epoch 125]  average training loss: 5723.1882
+cellbender:remove-background: [epoch 125] average test loss: 5733.1614
+cellbender:remove-background: [epoch 126]  average training loss: 5725.1391
+cellbender:remove-background: [epoch 127]  average training loss: 5721.3571
+cellbender:remove-background: [epoch 128]  average training loss: 5724.8800
+cellbender:remove-background: [epoch 129]  average training loss: 5723.2660
+cellbender:remove-background: [epoch 130]  average training loss: 5721.9773
+cellbender:remove-background: [epoch 130] average test loss: 5717.9056
+cellbender:remove-background: [epoch 131]  average training loss: 5721.5060
+cellbender:remove-background: [epoch 132]  average training loss: 5722.6727
+cellbender:remove-background: [epoch 133]  average training loss: 5718.3086
+cellbender:remove-background: [epoch 134]  average training loss: 5713.4275
+cellbender:remove-background: [epoch 135]  average training loss: 5719.6131
+cellbender:remove-background: [epoch 135] average test loss: 5724.3125
+cellbender:remove-background: [epoch 136]  average training loss: 5717.5192
+cellbender:remove-background: [epoch 137]  average training loss: 5720.8801
+cellbender:remove-background: [epoch 138]  average training loss: 5717.1872
+cellbender:remove-background: [epoch 139]  average training loss: 5715.5460
+cellbender:remove-background: [epoch 140]  average training loss: 5725.4302
+cellbender:remove-background: [epoch 140] average test loss: 5725.7396
+cellbender:remove-background: [epoch 141]  average training loss: 5725.1681
+cellbender:remove-background: [epoch 142]  average training loss: 5720.3490
+cellbender:remove-background: [epoch 143]  average training loss: 5717.1944
+cellbender:remove-background: [epoch 144]  average training loss: 5720.5096
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts2/TriSeptum-20/ckpt.tar.gz
+cellbender:remove-background: [epoch 145]  average training loss: 5720.3303
+cellbender:remove-background: [epoch 145] average test loss: 5721.2583
+cellbender:remove-background: [epoch 146]  average training loss: 5716.1906
+cellbender:remove-background: [epoch 147]  average training loss: 5717.5225
+cellbender:remove-background: [epoch 148]  average training loss: 5720.9375
+cellbender:remove-background: [epoch 149]  average training loss: 5720.2469
+cellbender:remove-background: [epoch 150]  average training loss: 5720.9806
+cellbender:remove-background: [epoch 150] average test loss: 5718.0721
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Saved checkpoint as /u/scratch/j/jshin/medial_septum_sct/Data/Raw/Cellbender_counts2/TriSeptum-20/ckpt.tar.gz
+cellbender:remove-background: 2024-04-08 01:08:26
+cellbender:remove-background: Inference procedure complete.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t
+cellbender:remove-background: Successfully unpacked tarball to /work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_test.loaderstate
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_optim.torch
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_optim.pyro
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_args.npy
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_params.pyro
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_model.torch
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_random.cuda
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_train.loaderstate
+/work/2603374.13.gpu_RTX2080Ti.q/tmpv3ed8e5t/b1751022ff_random.pyro
+cellbender:remove-background: Posterior not currently included in checkpoint.
+cellbender:remove-background: Computing posterior noise count probabilities in mini-batches.
+cellbender:remove-background: Working on chunk (1/207)
+cellbender:remove-background:     [0.05 mins per chunk]
+cellbender:remove-background: Working on chunk (2/207)
+cellbender:remove-background: Working on chunk (3/207)
+cellbender:remove-background: Working on chunk (4/207)
+cellbender:remove-background: Working on chunk (5/207)
+cellbender:remove-background: Working on chunk (6/207)
+cellbender:remove-background: Working on chunk (7/207)
+cellbender:remove-background: Working on chunk (8/207)
+cellbender:remove-background: Working on chunk (9/207)
+cellbender:remove-background: Working on chunk (10/207)
+cellbender:remove-background: Working on chunk (11/207)
+cellbender:remove-background: Working on chunk (12/207)
+cellbender:remove-background: Working on chunk (13/207)
+cellbender:remove-background: Working on chunk (14/207)
+cellbender:remove-background: Working on chunk (15/207)
+cellbender:remove-background: Working on chunk (16/207)
+cellbender:remove-background: Working on chunk (17/207)
+cellbender:remove-background: Working on chunk (18/207)
+cellbender:remove-background: Working on chunk (19/207)
+cellbender:remove-background: Working on chunk (20/207)
+cellbender:remove-background: Working on chunk (21/207)
+cellbender:remove-background: Working on chunk (22/207)
+cellbender:remove-background: Working on chunk (23/207)
+cellbender:remove-background: Working on chunk (24/207)
+cellbender:remove-background: Working on chunk (25/207)
+cellbender:remove-background: Working on chunk (26/207)
+cellbender:remove-background: Working on chunk (27/207)
+cellbender:remove-background: Working on chunk (28/207)
+cellbender:remove-background: Working on chunk (29/207)
+cellbender:remove-background: Working on chunk (30/207)
+cellbender:remove-background: Working on chunk (31/207)
+cellbender:remove-background: Working on chunk (32/207)
+cellbender:remove-background: Working on chunk (33/207)
+cellbender:remove-background: Working on chunk (34/207)
+cellbender:remove-background: Working on chunk (35/207)
+cellbender:remove-background: Working on chunk (36/207)
+cellbender:remove-background: Working on chunk (37/207)
+cellbender:remove-background: Working on chunk (38/207)
+cellbender:remove-background: Working on chunk (39/207)
+cellbender:remove-background: Working on chunk (40/207)
+cellbender:remove-background: Working on chunk (41/207)
+cellbender:remove-background: Working on chunk (42/207)
+cellbender:remove-background: Working on chunk (43/207)
+cellbender:remove-background: Working on chunk (44/207)
+cellbender:remove-background: Working on chunk (45/207)
+cellbender:remove-background: Working on chunk (46/207)
+cellbender:remove-background: Working on chunk (47/207)
+cellbender:remove-background: Working on chunk (48/207)
+cellbender:remove-background: Working on chunk (49/207)
+cellbender:remove-background: Working on chunk (50/207)
+cellbender:remove-background: Working on chunk (51/207)
+cellbender:remove-background: Working on chunk (52/207)
+cellbender:remove-background: Working on chunk (53/207)
+cellbender:remove-background: Working on chunk (54/207)
+cellbender:remove-background: Working on chunk (55/207)
+cellbender:remove-background: Working on chunk (56/207)
+cellbender:remove-background: Working on chunk (57/207)
+cellbender:remove-background: Working on chunk (58/207)
+cellbender:remove-background: Working on chunk (59/207)
+cellbender:remove-background: Working on chunk (60/207)
+cellbender:remove-background: Working on chunk (61/207)
+cellbender:remove-background: Working on chunk (62/207)
+cellbender:remove-background: Working on chunk (63/207)
+cellbender:remove-background: Working on chunk (64/207)
+cellbender:remove-background: Working on chunk (65/207)
+cellbender:remove-background: Working on chunk (66/207)
+cellbender:remove-background: Working on chunk (67/207)
+cellbender:remove-background: Working on chunk (68/207)
+cellbender:remove-background: Working on chunk (69/207)
+cellbender:remove-background: Working on chunk (70/207)
+cellbender:remove-background: Working on chunk (71/207)
+cellbender:remove-background: Working on chunk (72/207)
+cellbender:remove-background: Working on chunk (73/207)
+cellbender:remove-background: Working on chunk (74/207)
+cellbender:remove-background: Working on chunk (75/207)
+cellbender:remove-background: Working on chunk (76/207)
+cellbender:remove-background: Working on chunk (77/207)
+cellbender:remove-background: Working on chunk (78/207)
+cellbender:remove-background: Working on chunk (79/207)
+cellbender:remove-background: Working on chunk (80/207)
+cellbender:remove-background: Working on chunk (81/207)
+cellbender:remove-background: Working on chunk (82/207)
+cellbender:remove-background: Working on chunk (83/207)
+cellbender:remove-background: Working on chunk (84/207)
+cellbender:remove-background: Working on chunk (85/207)
+cellbender:remove-background: Working on chunk (86/207)
+cellbender:remove-background: Working on chunk (87/207)
+cellbender:remove-background: Working on chunk (88/207)
+cellbender:remove-background: Working on chunk (89/207)
+cellbender:remove-background: Working on chunk (90/207)
+cellbender:remove-background: Working on chunk (91/207)
+cellbender:remove-background: Working on chunk (92/207)
+cellbender:remove-background: Working on chunk (93/207)
+cellbender:remove-background: Working on chunk (94/207)
+cellbender:remove-background: Working on chunk (95/207)
+cellbender:remove-background: Working on chunk (96/207)
+cellbender:remove-background: Working on chunk (97/207)
+cellbender:remove-background: Working on chunk (98/207)
+cellbender:remove-background: Working on chunk (99/207)
+cellbender:remove-background: Working on chunk (100/207)
+cellbender:remove-background: Working on chunk (101/207)
+cellbender:remove-background: Working on chunk (102/207)
+cellbender:remove-background: Working on chunk (103/207)
+cellbender:remove-background: Working on chunk (104/207)
+cellbender:remove-background: Working on chunk (105/207)
+cellbender:remove-background: Working on chunk (106/207)
+cellbender:remove-background: Working on chunk (107/207)
+cellbender:remove-background: Working on chunk (108/207)
+cellbender:remove-background: Working on chunk (109/207)
+cellbender:remove-background: Working on chunk (110/207)
+cellbender:remove-background: Working on chunk (111/207)
+cellbender:remove-background: Working on chunk (112/207)
+cellbender:remove-background: Working on chunk (113/207)
+cellbender:remove-background: Working on chunk (114/207)
+cellbender:remove-background: Working on chunk (115/207)
+cellbender:remove-background: Working on chunk (116/207)
+cellbender:remove-background: Working on chunk (117/207)
+cellbender:remove-background: Working on chunk (118/207)
+cellbender:remove-background: Working on chunk (119/207)
+cellbender:remove-background: Working on chunk (120/207)
+cellbender:remove-background: Working on chunk (121/207)
+cellbender:remove-background: Working on chunk (122/207)
+cellbender:remove-background: Working on chunk (123/207)
+cellbender:remove-background: Working on chunk (124/207)
+cellbender:remove-background: Working on chunk (125/207)
+cellbender:remove-background: Working on chunk (126/207)
+cellbender:remove-background: Working on chunk (127/207)
+cellbender:remove-background: Working on chunk (128/207)
+cellbender:remove-background: Working on chunk (129/207)
+cellbender:remove-background: Working on chunk (130/207)
+cellbender:remove-background: Working on chunk (131/207)
+cellbender:remove-background: Working on chunk (132/207)
+cellbender:remove-background: Working on chunk (133/207)
+cellbender:remove-background: Working on chunk (134/207)
+cellbender:remove-background: Working on chunk (135/207)
+cellbender:remove-background: Working on chunk (136/207)
+cellbender:remove-background: Working on chunk (137/207)
+cellbender:remove-background: Working on chunk (138/207)
+cellbender:remove-background: Working on chunk (139/207)
+cellbender:remove-background: Working on chunk (140/207)
+cellbender:remove-background: Working on chunk (141/207)
+cellbender:remove-background: Working on chunk (142/207)
+cellbender:remove-background: Working on chunk (143/207)
+cellbender:remove-background: Working on chunk (144/207)
+cellbender:remove-background: Working on chunk (145/207)
+cellbender:remove-background: Working on chunk (146/207)
+cellbender:remove-background: Working on chunk (147/207)
+cellbender:remove-background: Working on chunk (148/207)
+cellbender:remove-background: Working on chunk (149/207)
+cellbender:remove-background: Working on chunk (150/207)
+cellbender:remove-background: Working on chunk (151/207)
+cellbender:remove-background: Working on chunk (152/207)
+cellbender:remove-background: Working on chunk (153/207)
+cellbender:remove-background: Working on chunk (154/207)
+cellbender:remove-background: Working on chunk (155/207)
+cellbender:remove-background: Working on chunk (156/207)
+cellbender:remove-background: Working on chunk (157/207)
+cellbender:remove-background: Working on chunk (158/207)
+cellbender:remove-background: Working on chunk (159/207)
+cellbender:remove-background: Working on chunk (160/207)
+cellbender:remove-background: Working on chunk (161/207)
+cellbender:remove-background: Working on chunk (162/207)
+cellbender:remove-background: Working on chunk (163/207)
+cellbender:remove-background: Working on chunk (164/207)
+cellbender:remove-background: Working on chunk (165/207)
+cellbender:remove-background: Working on chunk (166/207)
+cellbender:remove-background: Working on chunk (167/207)
+cellbender:remove-background: Working on chunk (168/207)
+cellbender:remove-background: Working on chunk (169/207)
+cellbender:remove-background: Working on chunk (170/207)
+cellbender:remove-background: Working on chunk (171/207)
+cellbender:remove-background: Working on chunk (172/207)
+cellbender:remove-background: Working on chunk (173/207)
+cellbender:remove-background: Working on chunk (174/207)
+cellbender:remove-background: Working on chunk (175/207)
+cellbender:remove-background: Working on chunk (176/207)
+cellbender:remove-background: Working on chunk (177/207)
+cellbender:remove-background: Working on chunk (178/207)
+cellbender:remove-background: Working on chunk (179/207)
+cellbender:remove-background: Working on chunk (180/207)
+cellbender:remove-background: Working on chunk (181/207)
+cellbender:remove-background: Working on chunk (182/207)
+cellbender:remove-background: Working on chunk (183/207)
+cellbender:remove-background: Working on chunk (184/207)
+cellbender:remove-background: Working on chunk (185/207)
+cellbender:remove-background: Working on chunk (186/207)
+cellbender:remove-background: Working on chunk (187/207)
+cellbender:remove-background: Working on chunk (188/207)
+cellbender:remove-background: Working on chunk (189/207)
+cellbender:remove-background: Working on chunk (190/207)
+cellbender:remove-background: Working on chunk (191/207)
+cellbender:remove-background: Working on chunk (192/207)
+cellbender:remove-background: Working on chunk (193/207)
+cellbender:remove-background: Working on chunk (194/207)
+cellbender:remove-background: Working on chunk (195/207)
+cellbender:remove-background: Working on chunk (196/207)
+cellbender:remove-background: Working on chunk (197/207)
+cellbender:remove-background: Working on chunk (198/207)
+cellbender:remove-background: Working on chunk (199/207)
+cellbender:remove-background: Working on chunk (200/207)
+cellbender:remove-background: Working on chunk (201/207)
+cellbender:remove-background: Working on chunk (202/207)
+cellbender:remove-background: Working on chunk (203/207)
+cellbender:remove-background: Working on chunk (204/207)
+cellbender:remove-background: Working on chunk (205/207)
+cellbender:remove-background: Working on chunk (206/207)
+cellbender:remove-background: Working on chunk (207/207)
+cellbender:remove-background: Writing full posterior to TriSeptum-20_posterior.h5
+cellbender:remove-background: Succeeded in writing posterior to file TriSeptum-20_posterior.h5
+cellbender:remove-background: Added posterior object to checkpoint file.
+cellbender:remove-background: 2024-04-08 01:23:57
+
+cellbender:remove-background: Saved summary plots as TriSeptum-20.pdf
+cellbender:remove-background: Saved cell barcodes in TriSeptum-20_cell_barcodes.csv
+cellbender:remove-background: Computing target noise counts per gene for MCKP estimator
+cellbender:remove-background: Using MCKP noise targets computed for FPR 0.01
+cellbender:remove-background: Computing denoised counts using mckp estimator
+cellbender:remove-background: Working on chunk (1/6)
+cellbender:remove-background:     [6.07 mins per chunk]
+cellbender:remove-background: Working on chunk (2/6)
+cellbender:remove-background: Working on chunk (3/6)
+cellbender:remove-background: Working on chunk (4/6)
+cellbender:remove-background: Working on chunk (5/6)
+cellbender:remove-background: Working on chunk (6/6)
+cellbender:remove-background: 2024-04-08 02:03:44 Total MCKP estimation time = 2265.04 sec
+cellbender:remove-background: Succeeded in writing CellRanger format output to file TriSeptum-20.h5
+cellbender:remove-background: Succeeded in writing CellRanger format output to file TriSeptum-20_filtered.h5
+cellbender:remove-background: Saved output metrics as TriSeptum-20_metrics.csv
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/jupyter-nbconvert", line 5, in <module>
+    from nbconvert.nbconvertapp import main
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/__init__.py", line 5, in <module>
+    from .exporters import *
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/__init__.py", line 1, in <module>
+    from .asciidoc import ASCIIDocExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/asciidoc.py", line 9, in <module>
+    from .templateexporter import TemplateExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/templateexporter.py", line 25, in <module>
+    from lxml.html.clean import clean_html
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/lxml/html/clean.py", line 21, in <module>
+    ) from None
+ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+Install lxml[html_clean] or lxml_html_clean directly.
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/jupyter-nbconvert", line 5, in <module>
+    from nbconvert.nbconvertapp import main
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/__init__.py", line 5, in <module>
+    from .exporters import *
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/__init__.py", line 1, in <module>
+    from .asciidoc import ASCIIDocExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/asciidoc.py", line 9, in <module>
+    from .templateexporter import TemplateExporter
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/nbconvert/exporters/templateexporter.py", line 25, in <module>
+    from lxml.html.clean import clean_html
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/lxml/html/clean.py", line 21, in <module>
+    ) from None
+ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+Install lxml[html_clean] or lxml_html_clean directly.
+mv: cannot stat 'tmp.report.nbconvert.html': No such file or directory
+rm: cannot remove 'tmp.report.nbconvert.ipynb': No such file or directory
+cellbender:remove-background: Unable to create report.
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/run.py", line 351, in compute_output_denoised_counts_reports_metrics
+    output=html_report_file,
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/report.py", line 82, in run_notebook_make_html
+    title=('CellBender: ' + os.path.basename(output).replace('_report.html', '')),
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.7/site-packages/cellbender/remove_background/report.py", line 59, in _postprocess_html
+    with open(file, mode='r') as f:
+FileNotFoundError: [Errno 2] No such file or directory: 'TriSeptum-20_report.html'
+
+cellbender:remove-background: Completed remove-background.
+cellbender:remove-background: 2024-04-08 02:04:45
+
+Job 2603374 ended on:    g7
+Job 2603374 ended on:    Mon Apr 8 02:04:47 PDT 2024
+ 

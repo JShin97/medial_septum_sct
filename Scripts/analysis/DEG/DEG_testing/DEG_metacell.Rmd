@@ -1,0 +1,450 @@
+---
+title: "DEG Supercell"
+output: html_document
+date: "2024-05-18"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(tidyverse)
+library(Seurat)
+library(RColorBrewer)
+library(SingleCellExperiment)
+library(ggpubr)
+library(dplyr)
+library(SuperCell)
+library(hdWGCNA)
+library(metacell)
+
+#https://github.com/GfellerLab/SIB_workshop/blob/main/workbooks/Workbook_2__COVID19_integration.Rmd
+```
+
+```{r, eval = FALSE}
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds") %>% DietSeurat(counts = TRUE)
+
+##previous analysis
+seurat$GenotypeaddX <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XYM", "XYF", "XXYM", "XXYF"),
+                                       to = c("XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF"))
+seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XXY"),
+                                       to = c(0, 1)) %>% as.numeric()
+seurat$GenotypeaddY <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XXM", "XXF", "XXYM", "XXYF", "XYM", "XYF", "XYYM", "XYYF"),
+                                       to = c("XXM", "XXF", "XXM", "XXF", "XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF", "XXM", "XXF"))
+seurat$addY <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 2)) %>% factor(., levels = c(0, 1, 2))
+seurat$addY1 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 0)) %>% as.character %>% as.numeric()
+seurat$addY2 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 0, 0, 1)) %>% as.character %>% as.numeric()
+
+seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
+seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+seurat$SampleID <- gsub("-", "", seurat$SampleID)
+seurat$Sequencing_Date <- factor(seurat$Sequencing_Date) %>% gsub("-", "_", .)
+
+gt_list <- SplitObject(seurat, split.by = "Genotype")
+sample_list <- SplitObject(seurat, split.by = "SampleID")
+```
+
+```{r}
+##construction of metacells
+gamma <- 20 # Graining level
+
+##sample-wise construction 
+makeSeuratMC <- function(seurat_object, 
+                         genes = NULL, 
+                         metaFields = c("SampleID", "celltype", "Genotype", "Gonad", "SexChrom", "Trisomy", "GenotypeaddX", "GenotypeaddY", "addX", "addY1", "addY2", "Sequencing_Date"), 
+                         returnMC = T) {
+  
+  if(is.null(genes)) {
+    genes <- VariableFeatures(seurat_object)
+  }
+  
+  MC <- SCimplify(GetAssayData(seurat_object, slot = "data"), 
+                  n.pc = 20, 
+                  k.knn = 5, 
+                  gamma = 20, 
+                  genes.use = genes, 
+                  cell.annotation = seurat_object$celltype)
+  
+  MC$purity <- supercell_purity(clusters = seurat_object$celltype, 
+                                supercell_membership = MC$membership) 
+
+  for(m in metaFields) {
+    MC[[m]] <- supercell_assign(clusters = seurat_object@meta.data[, m], 
+                                supercell_membership = MC$membership, 
+                                method = "absolute") 
+  }
+  
+  # GE <- supercell_GE(as.matrix(GetAssayData(seurat_object, slot = "data")), 
+  #                    groups = MC$membership)
+  
+  Counts <- supercell_GE(as.matrix(GetAssayData(seurat_object, slot = "counts")), 
+                     groups = MC$membership, mode = "sum")
+  GE <- Seurat::LogNormalize(Counts, verbose = FALSE)
+  
+  seuratMC <- supercell_2_Seurat(SC.GE = Counts, MC, fields = c(metaFields, "purity"), is.log.normalized = FALSE)
+  
+  res <- seuratMC
+  if(returnMC) {
+    res <- list(seuratMC = seuratMC, 
+                SC = MC) 
+  }
+  return(res)
+}
+
+supercells <- lapply(sample_list, makeSeuratMC)
+
+seuratMC <- supercells[[1]]$seuratMC
+ggplot(seuratMC@meta.data,aes(x=orig.ident,y=purity)) + geom_boxplot() + 
+  ggplot(seuratMC@meta.data,aes(x=orig.ident,y=size)) + geom_boxplot() 
+
+################################################################################
+
+MC.list <- list()
+for(i in 1:length(sample_list)) {
+  st <- sample_list[[i]]
+  sample <- unique(st$SampleID)
+  
+  seuratMC <- makeSeuratMC(st, returnMC = F)
+  seuratMC <- subset(seuratMC, purity >= 1.0)
+  
+  MC.list[[sample]] <- seuratMC
+}
+
+features <- Seurat::SelectIntegrationFeatures(object.list = MC.list, nfeatures = 2000)
+nSingleCells <- 0
+for (i in 1:length(MC.list)) {
+  MC.list[[i]] <- RenameCells(MC.list[[i]],add.cell.id = unique(MC.list[[i]]$SampleID))
+  MC.list[[i]] <- ScaleData(MC.list[[i]],features = features)
+  MC.list[[i]] <- RunPCA(MC.list[[i]] ,features = features,npcs = 20)
+  nSingleCells <- nSingleCells + sum(MC.list[[i]]$size)
+}
+nSingleCells
+
+integrated <- scCustomize::Merge_Seurat_List(MC.list)
+DefaultAssay(integrated) <- "RNA"
+integrated <- ScaleData(integrated, features = features)
+integrated <- RunPCA(integrated, npcs = 20, verbose = FALSE,features = features)
+integrated <- RunHarmony(integrated, c("Sequencing_Date"), theta = 1)
+integrated <- RunUMAP(integrated, reduction = "harmony",
+                      reduction.name = "umap.harmony",
+                      dims = 1:20)
+
+DimPlot(integrated, group.by = "SampleID", reduction = "umap.harmony")
+DimPlot(integrated, group.by = "Genotype", reduction = "umap.harmony")
+DimPlot(integrated, group.by = "Sequencing_Date", reduction = "umap.harmony")
+DimPlot(integrated, group.by = "celltype", reduction = "umap.harmony")
+
+Idents(integrated) <- "celltype"
+scCustomize::Cluster_Highlight_Plot(integrated, cluster_name = "GABA-Chol", reduction = "umap.harmony")
+
+saveRDS(integrated, "/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/sum_pure_supercell_seurat_harmony_sampleid_filtered_annotated_unfiltered.Rds")
+
+##### make purity by metacell number plot
+sc_seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/sum_pure_supercell_seurat_harmony_sampleid_filtered_annotated_unfiltered.Rds")
+
+
+cutoffs <- c(0.5, 0.6, 0.7, 0.8, 0.9, 1.0) 
+metacell_df <- data.frame(purity_cutoff = 0, 
+                          metacell_count = ncol(sc_seurat))
+for(cutoff in cutoffs) {
+  
+  metacell_subset <- subset(sc_seurat, purity >= cutoff) 
+  metacell_number <- ncol(metacell_subset)
+  
+  subset_df <- data.frame(purity_cutoff = cutoff, 
+                            metacell_count = metacell_number)
+  metacell_df <- rbind(metacell_df, subset_df)
+}
+
+metacell_df %>% 
+  ggplot(., aes(x = purity_cutoff, y = metacell_count)) + 
+  geom_point()
+
+##### make a sc_seurat subset 
+sc_seurat_subset <- subset(sc_seurat, purity == 1)
+
+DimPlot(sc_seurat, group.by = "celltype", reduction = "umap.harmony") + 
+DimPlot(sc_seurat_subset, group.by = "celltype", reduction = "umap.harmony")
+
+saveRDS(sc_seurat_subset, "/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/subset_supercell_seurat_harmony_sampleid_filtered_annotated_unfiltered.Rds")
+
+```
+
+```{r}
+##make metacells with hdWGCNA -- very slow and error prone (ignore)
+
+##setup seuratobject for hdWGCNA 
+seurat <- SetupForWGCNA(
+  seurat,
+  gene_select = "fraction", # the gene selection approach
+  fraction = 0.05, # fraction of cells that a gene needs to be expressed in order to be included
+  wgcna_name = "MS_SCT" # the name of the hdWGCNA experiment
+)
+
+##construct Metacells with hdWGCNA 
+seurat <- hdWGCNA::MetacellsByGroups(
+  seurat_obj = seurat,
+  group.by = c("celltype", "SampleID"), # specify the columns in seurat_obj@meta.data to group by
+  reduction = 'umap', # select the dimensionality reduction to perform KNN on
+  k = 10, # nearest-neighbors parameter
+  max_shared = 10, # maximum number of shared cells between two metacells
+  ident.group = 'celltype', # set the Idents of the metacell seurat object
+  min_cells = 20,
+  assay = "RNA",
+  slot = "counts"
+)
+
+#metacells <- GetMetacellObject(seurat)
+```
+
+```{r}
+##summarize metacell object 
+
+##average number of expressed genes
+sc_seurat$type <- "Metacell"
+seurat$type <- "Single Cells"
+p1 <- VlnPlot(sc_seurat, features = c("nFeature_RNA"), group.by = "type", pt.size = 0, y.max = 18000) + 
+  theme(legend.position = "none")
+p2 <- VlnPlot(seurat, features = c("nFeature_RNA"), group.by = "type", pt.size = 0, y.max = 18000) + 
+  theme(legend.position = "none")
+
+sc_seurat@meta.data %>% 
+  group_by(type) %>% 
+  summarise(Average_Genes = mean(nFeature_RNA))
+seurat@meta.data %>% 
+  group_by(type) %>% 
+  summarise(Average_Genes = mean(nFeature_RNA))
+
+png("Plots/Final_Figures/VlnPlot/expressed_genes_metacell.png", width = 8, height = 5, units = "in", res = 600)
+ggarrange(plotlist = list(p1, p2), ncol = 2)
+dev.off()
+
+##purity across celltypes 
+VlnPlot(sc_seurat, features = c("purity"), group.by = "type", pt.size = 0)
+
+png("Plots/Final_Figures/VlnPlot/purity_metacell.png", width = 4, height = 4, units = "in", res = 600)
+last_plot()
+dev.off()
+
+##purity across celltypes by genotype
+sc_seurat$Genotype_new <- gsub("M", "T", sc_seurat$Genotype)
+sc_seurat$Genotype_new <- gsub("F", "O", sc_seurat$Genotype_new)
+
+VlnPlot(sc_seurat, features = c("purity"), group.by = "Genotype_new", pt.size = 0)
+
+png("Plots/Final_Figures/VlnPlot/purity_metacell_genotype.png", width = 8, height = 4, units = "in", res = 600)
+last_plot()
+dev.off()
+
+
+##expression of marker genes 
+DefaultAssay(sc_seurat) <- "RNA"
+sc_seurat@meta.data <- sc_seurat@meta.data %>% 
+  dplyr::mutate(celltype = replace(celltype, celltype == "Inh_IMN", "Inh-IMN")) %>% 
+  dplyr::mutate(celltype = replace(celltype, celltype == "Misc_NT", "Misc-NT")) %>%
+  dplyr::mutate(celltype = replace(celltype, celltype == "GABA-Chol", "Chol"))
+sc_seurat$celltype <- factor(sc_seurat$celltype, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Misc-NT", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))
+
+marker_genes <- list(
+  "Glut" = c("Slc17a6", "Slc17a7"),
+  "GABA" = c("Grin1", "Gad1", "Gad2", "Slc32a1"),
+  "Chol" = c("Chat", "Slc18a3", "Ache"),
+  "Astrocyte" = c("Ndrg2", "Aldh1l1", "Gja1"),
+  "Ependymal" = c("Foxj1", "Dnah12", "Myb"), #"Kif9", "Pifo", "Rsph1"
+  "Inh-IMN" = c("Dcx"),
+  "Microglia" = c("Tmem119", "Cx3cr1", "Ikzf1"),
+  "Oligo" = c("Mog", "Mobp", "Sox10"),
+  "OPC" = c("Olig1", "Olig2"),
+  "Vascular" = c("Foxc1")
+)
+marker_genes <- marker_genes[levels(sc_seurat$celltype)]
+
+DotPlot(sc_seurat, group.by = "celltype", features = unlist(marker_genes, use.names = FALSE), scale = TRUE) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) 
+
+pdf("Plots/Final_Figures/Dotplot/metacell_celltype_markers.pdf", width = 10, height = 4)
+print(last_plot())
+dev.off()
+
+```
+
+##DEG analysis with metacells 
+```{r}
+sc_seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/sum_pure_supercell_seurat_harmony_sampleid_filtered_annotated.Rds")
+
+sc_seurat <- NormalizeData(sc_seurat)
+sc_seurat_list <- SplitObject(sc_seurat, split.by = "celltype")
+sc_seurat_list <- sc_seurat_list[!names(sc_seurat_list) %in% "Misc_NT"]
+assay_to_use <- "RNA" 
+```
+
+```{r}
+##normative analysis (XYM vs XXM) 
+for(i in seq_along(sc_seurat_list)) {
+  
+  resultlist_normative <- list()
+  currentcell <- names(sc_seurat_list[i])
+  currentsubset <- sc_seurat_list[[i]]
+  
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts > 0) >= 0.15) #genes that have at least 1 count in >= 10% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~0 + Genotype + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  contrasts <- makeContrasts(XXF_vs_XYM = GenotypeXXF - GenotypeXYM, levels = design)
+  fit <- contrasts.fit(fit, contrasts)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  results <- topTable(fit, n = Inf, coef = "XXF_vs_XYM", adjust.method = "BH")
+  resultlist_normative[["XXF_vs_XYM"]] <- results
+  save(resultlist_normative, file = paste0("Results/complete_analysis/DEG_SD_metacell_sum_pure/normative/", currentcell,".rda"))
+  
+}
+```
+
+```{r}
+##sexchrom and gonad analysis (FCG)
+
+for(i in seq_along(sc_seurat_list)) {
+  
+  resultlist_fcg <- list()
+  currentcell <- names(sc_seurat_list[i])
+  currentsubset <- sc_seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XXM", "XYM", "XXF", "XYF"))
+  currentsubset$Genotype <- factor(currentsubset$Genotype, levels = c("XYM", "XYF", "XXM", "XXF"))
+  currentsubset$SexChrom <- factor(currentsubset$SexChrom, levels = c("XY", "XX"))
+  currentsubset$Gonad <- factor(currentsubset$Gonad, levels = c("Male", "Female"))
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts > 0) >= 0.15) #genes that have at least 1 count in >= 10% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~Gonad + SexChrom + Gonad:SexChrom + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_fcg[["Ovary_vs_Testis"]] <- topTable(fit, n = Inf, coef = "GonadFemale", adjust.method = "BH")
+  resultlist_fcg[["XX_vs_XY"]] <- topTable(fit, n = Inf, coef = "SexChromXX", adjust.method = "BH")
+  resultlist_fcg[["Ovary:SexChromXX"]] <- topTable(fit, n = Inf, coef = "GonadFemale:SexChromXX", adjust.method = "BH")
+  
+  save(resultlist_fcg, file = paste0("Results/complete_analysis/DEG_SD_metacell_sum_pure/fcg/", currentcell,".rda"))
+}
+```
+
+```{r}
+##addX analysis 
+for(i in seq_along(sc_seurat_list)) {
+  
+  resultlist_addx <- list()
+  currentcell <- names(sc_seurat_list[i])
+  currentsubset <- sc_seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XYM", "XXYM", "XYF", "XXYF"))
+  currentsubset$addX <- as.numeric(currentsubset$addX)
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts > 0) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~GenotypeaddX + addX + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  #resultlist_addx[["XYF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddXXYF", adjust.method = "BH")
+  resultlist_addx[["addX"]] <- topTable(fit, n = Inf, coef = "addX", adjust.method = "BH")
+
+  save(resultlist_addx, file = paste0("Results/complete_analysis/DEG_SD_metacell_sum_pure/addx/", currentcell,".rda"))
+}
+```
+
+```{r}
+##addY1 analysis 
+for(i in seq_along(sc_seurat_list)) {
+  
+  resultlist_addy1 <- list()
+  currentcell <- names(sc_seurat_list[i])
+  currentsubset <- sc_seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XXM", "XXYM", "XXF", "XXYF"))
+  currentsubset$addY1 <- as.numeric(currentsubset$addY1)
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts > 0) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~GenotypeaddY + addY1 + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  #resultlist_addy1[["XYF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXYF", adjust.method = "BH")
+  #resultlist_addy1[["XXM_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXM", adjust.method = "BH")
+  #resultlist_addy1[["XXF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXF", adjust.method = "BH")
+  resultlist_addy1[["addY1"]] <- topTable(fit, n = Inf, coef = "addY1", adjust.method = "BH")
+
+  save(resultlist_addy1, file = paste0("Results/complete_analysis/DEG_SD_metacell_sum_pure/addy1/", currentcell,".rda"))
+}
+```
+
+```{r}
+##addY2 analysis 
+for(i in seq_along(sc_seurat_list)) {
+  
+  resultlist_addy2 <- list()
+  currentcell <- names(sc_seurat_list[i])
+  currentsubset <- sc_seurat_list[[i]]
+  currentsubset <- subset(currentsubset, Genotype %in% c("XYM", "XYYM", "XYF", "XYYF"))
+  currentsubset$addY2 <- as.numeric(currentsubset$addY2)
+
+  gene_counts <- currentsubset[[assay_to_use]]@counts
+  gene_data <- currentsubset[[assay_to_use]]@data
+  
+  genes_to_keep <- which(Matrix::rowMeans(gene_counts > 0) >= 0.15) #genes that have at least 1 count in >= 15% of cells 
+  gene_data <- gene_data[genes_to_keep,]
+
+  design <- model.matrix(~GenotypeaddY + addY2 + Sequencing_Date, data = currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- gene_data ##supply seurat's normalized values b/c scalefactor is more appropriate than cpm  
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  #resultlist_addy2[["XYF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXYF", adjust.method = "BH")
+  #resultlist_addy2[["XXM_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXM", adjust.method = "BH")
+  #resultlist_addy2[["XXF_vs_XYM"]] <- topTable(fit, n = Inf, coef = "GenotypeaddYXXF", adjust.method = "BH")
+  resultlist_addy2[["addY2"]] <- topTable(fit, n = Inf, coef = "addY2", adjust.method = "BH")
+
+  save(resultlist_addy2, file = paste0("Results/complete_analysis/DEG_SD_metacell_sum_pure/addy2/", currentcell,".rda"))
+}
+```

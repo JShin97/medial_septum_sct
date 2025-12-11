@@ -1,0 +1,127 @@
+---
+title: "DEG_comparison between cell-level, metacell-level, and PB DEG results using limma-trend"
+output: html_document
+date: "2025-09-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(tidyverse)
+library(Seurat)
+library(RColorBrewer)
+library(SingleCellExperiment)
+library(ggpubr)
+library(dplyr)
+library(SuperCell)
+library(hdWGCNA)
+library(metacell)
+```
+
+##load Seurat object 
+```{r}
+seurat <- readRDS("/u/home/j/jshin/scratch/medial_septum_sct/Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds") %>% DietSeurat(counts = TRUE)
+
+##previous analysis
+seurat$GenotypeaddX <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XYM", "XYF", "XXYM", "XXYF"),
+                                       to = c("XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF"))
+seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XXY"),
+                                       to = c(0, 1)) %>% as.numeric()
+seurat$GenotypeaddY <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XXM", "XXF", "XXYM", "XXYF", "XYM", "XYF", "XYYM", "XYYF"),
+                                       to = c("XXM", "XXF", "XXM", "XXF", "XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF", "XXM", "XXF"))
+seurat$addY <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 2)) %>% factor(., levels = c(0, 1, 2))
+seurat$addY1 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 0)) %>% as.character %>% as.numeric()
+seurat$addY2 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 0, 0, 1)) %>% as.character %>% as.numeric()
+
+seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
+seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+seurat$SampleID <- gsub("-", "", seurat$SampleID)
+seurat$Sequencing_Date <- factor(seurat$Sequencing_Date) %>% gsub("-", "_", .)
+```
+
+##load DEG results 
+```{r}
+load("Results/complete_analysis/DEG_processed/DEG_SD_original/DEG_df_RNA_SD.rda")
+original_DEG <- DEG_df %>% 
+  dplyr::mutate(cell_type = gsub("_", "-", cell_type), 
+                method = "cell")
+
+load("Results/complete_analysis/DEG_processed/DEG_SD_metacell_subset/DEG_df_RNA_SD.rda")
+metacell_DEG <- DEG_df %>% 
+    dplyr::mutate(cell_type = gsub("_", "-", cell_type), 
+                method = "metacell")
+
+load("Results/complete_analysis/DEG_processed/DEG_SD_PB/DEG_df_RNA_SD.rda")
+PB_DEG <- DEG_df %>% 
+  dplyr::mutate(method = "pseudobulk")
+```
+
+##create merged DEG file
+```{r}
+effect_to_test <- "addY1"
+effect_logFC <- rbind(original_DEG[original_DEG$effect == effect_to_test, ], 
+                       metacell_DEG[metacell_DEG$effect == effect_to_test, ], 
+                       PB_DEG[PB_DEG$effect == effect_to_test, ]) %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(gene, logFC, method, cell_type, adj.P.Val) %>% 
+  pivot_wider(names_from = method, values_from = logFC, id_cols = c(gene, cell_type)) %>% 
+  dplyr::mutate(effect = effect_to_test) %>% 
+  dplyr::filter(gene %in% c("Xist", "Uty", "Ddx3x", "Ddx3y", "Eif2s3x", "Eif2s3y", "Kdm5d", "Kdm6a", "Kdm5c")) %>% 
+  dplyr::filter(!cell_type == "Misc-NT") 
+
+effect_se <- rbind(original_DEG[original_DEG$effect == effect_to_test, ], 
+                       metacell_DEG[metacell_DEG$effect == effect_to_test, ], 
+                       PB_DEG[PB_DEG$effect == effect_to_test, ]) %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(gene, logFC, method, cell_type, adj.P.Val) %>% 
+  pivot_wider(names_from = method, values_from = adj.P.Val, id_cols = c(gene, cell_type)) %>% 
+  dplyr::mutate(effect = effect_to_test) %>% 
+  dplyr::filter(gene %in% c("Xist", "Uty", "Ddx3x", "Ddx3y", "Eif2s3x", "Eif2s3y", "Kdm5d", "Kdm6a", "Kdm5c")) %>% 
+  dplyr::filter(!cell_type == "Misc-NT") 
+
+effect_deg <- rbind(original_DEG[original_DEG$effect == effect_to_test, ], 
+                       metacell_DEG[metacell_DEG$effect == effect_to_test, ], 
+                       PB_DEG[PB_DEG$effect == effect_to_test, ]) %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(gene, logFC, method, cell_type, adj.P.Val) %>% 
+  dplyr::mutate(effect = effect_to_test) %>% 
+  dplyr::filter(!cell_type == "Misc-NT") 
+
+effect_deg %>% 
+  dplyr::filter(gene %in% c("Xist", "Uty", "Ddx3x", "Ddx3y", "Eif2s3x", "Eif2s3y", "Kdm5d", "Kdm6a", "Kdm5c")) %>% 
+    dplyr::mutate(
+    # Replace any p-value of 0 with the machine's smallest representable number
+    adj.P.Val = ifelse(adj.P.Val == 0, .Machine$double.xmin, adj.P.Val), 
+    gene = factor(gene, levels = c("Uty", "Eif2s3y", "Ddx3y", "Kdm5d", "Kdm6a", "Kdm5c", "Ddx3x", "Eif2s3x", "Xist"))
+  ) %>%
+  ggplot(., aes(x = method, y = gene, color = logFC, size = -log10(adj.P.Val))) + 
+  geom_point() + 
+  facet_wrap(~ cell_type, ncol = 5) + 
+  scale_color_gradientn(
+    colors = c("blue", "white", "red"),
+    values = scales::rescale(c(-5, -0.5, 0.5, 5)), # These are your transition points
+    limits = c(-5, 5), # Sets the overall range of the color scale
+    oob = scales::squish # Ensures values outside the limits are clamped to the nearest color
+  ) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+png("Scripts/analysis/DEG/comparison_plots/YCD1.png", width = 8, height = 6, res = 600, units = "in")
+last_plot()
+dev.off()
+
+
+```

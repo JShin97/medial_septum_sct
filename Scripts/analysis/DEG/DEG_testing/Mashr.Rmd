@@ -1,0 +1,1240 @@
+---
+title: "mashr"
+output: html_document
+date: "2024-01-19"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/project-xyang123/medial_septum_sct")
+
+library(limma)
+library(edgeR)
+library(data.table)
+library(tidyverse)
+library(Seurat)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(SingleCellExperiment)
+library(magrittr)
+library(readxl)
+library(ggpubr)
+library(ggplotify)
+library(scuttle)
+library(mashr)
+library(str2str)
+library(dplyr)
+library(ComplexUpset)
+library(corrplot)
+library(ggplotify)
+library(cowplot)
+```
+
+```{r}
+data.dir <- "/u/scratch/j/jshin/medial_septum_sct"
+seurat <- readRDS(file.path(data.dir, "Saves/MS_cellbender_complete_saves/seurat_harmony_sampleid_filtered_annotated.Rds"))
+
+sample_metadata <- seurat@meta.data %>% 
+  dplyr::select(SampleID, Genotype, Gonad, SexChrom, Sequencing_Date) %>% 
+  distinct()
+rownames(sample_metadata) <- NULL
+
+summed_seurat <- AverageExpression(seurat, return.seurat = TRUE, group.by = c('SampleID','celltype'))
+summed_seurat@meta.data <- summed_seurat@meta.data %>% 
+  rownames_to_column(var = "rowname") %>% 
+  left_join(sample_metadata, by = c("orig.ident" = "SampleID")) %>% 
+  column_to_rownames(var = "rowname")
+summed_seurat$celltype <- str_split_fixed(rownames(summed_seurat@meta.data), pattern = "_", n = 2)[,2]
+summed_seurat$Sequencing_Date <- gsub("-", "_", summed_seurat$Sequencing_Date)
+
+##Edit metadata 
+allcells <- unique(summed_seurat$celltype)
+
+##previous analysis
+seurat$GenotypeaddX <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XYM", "XYF", "XXYM", "XXYF"),
+                                       to = c("XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF"))
+seurat$addX <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XY", "XXY"),
+                                       to = c(0, 1)) %>% as.numeric()
+seurat$GenotypeaddY <- plyr::mapvalues(seurat$Genotype,
+                                       from = c("XXM", "XXF", "XXYM", "XXYF", "XYM", "XYF", "XYYM", "XYYF"),
+                                       to = c("XXM", "XXF", "XXM", "XXF", "XYM", "XYF", "XYM", "XYF")) %>% factor(levels = c("XYM", "XYF", "XXM", "XXF"))
+seurat$addY <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 2)) %>% factor(., levels = c(0, 1, 2))
+seurat$addY1 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 1, 0, 0)) %>% as.character %>% as.numeric()
+seurat$addY2 <- plyr::mapvalues(seurat$SexChrom,
+                                       from = c("XX", "XXY", "XY", "XYY"),
+                                       to = c(0, 0, 0, 1)) %>% as.character %>% as.numeric()
+
+seurat$Gonad <- factor(seurat$Gonad, levels = c("Male", "Female"))
+seurat$SexChrom <- factor(seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+seurat$Genotype <- factor(seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+#seurat$Trisomy <- factor(seurat$Trisomy, levels = c("Non-Trisomy", "Trisomy"))
+seurat$SampleID <- gsub("-", "", seurat$SampleID)
+seurat$Sequencing_Date <- factor(seurat$Sequencing_Date) %>% gsub("-", "_", .)
+
+
+summed_seurat$Gonad <- factor(summed_seurat$Gonad, levels = c("Male", "Female"))
+summed_seurat$SexChrom <- factor(summed_seurat$SexChrom, levels = c("XY", "XX", "XYY", "XXY"))
+summed_seurat$Genotype <- factor(summed_seurat$Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+#summed_seurat$Trisomy <- factor(summed_seurat$Trisomy, levels = c("Trisomy", "Non-Trisomy"))
+```
+
+```{r}
+seurat$SampleID <- seurat$Sample
+sce <- as.SingleCellExperiment(seurat)
+
+# keep genes with sufficient reads
+sce_filter <- sce[rowSums(counts(sce) > 0) > 0, ]
+
+# compute QC metrics 
+qc <- perCellQCMetrics(sce_filter)
+
+# remove cells with few or many detected genes 
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce_filter <- sce_filter[, !ol]
+
+
+########################################################################
+# aggregate to pseudobulk with dreamlet 
+# sce_filter$id <- paste(sce_filter$SampleID, sce_filter$celltype, sep = "_")
+# 
+# pb <- dreamlet::aggregateToPseudoBulk(sce_filter, 
+#                                       assay = "counts", 
+#                                       cluster_id = "celltype", 
+#                                       sample_id = "id", 
+#                                       verbose = FALSE)
+# 
+# res.proc <- processAssays(pb, ~Genotype + Sequencing_Date, min.cells = 30, min.count = 5)
+# plotVoom(res.proc, ncol = 5)
+# 
+# vp.lst <- fitVarPart(res.proc, ~Genotype + Sequencing_Date)
+# plotVarPart(vp.lst, label.angle = 90, ncol = 4)
+# 
+# res.dl <- dreamlet(res.proc, ~Genotype + Sequencing_Date)
+# 
+# plotVolcano(res.dl, coef = "GenotypeXXF", ncol = 4)
+########################################################################
+## aggregate to pseudobulk manually
+sce_filter$celltype <- gsub("_", "-", sce_filter$celltype)
+
+# Get metrics for count aggregations 
+# Named vector of cluster names
+kids <- purrr::set_names(unique(sce_filter$celltype))
+kids
+
+# Total number of clusters
+nk <- length(kids)
+nk
+
+# Named vector of sample names
+sids <- purrr::set_names(unique(sce_filter$SampleID))
+
+# Total number of samples 
+ns <- length(sids)
+ns
+
+# Generate sample level metadata
+
+## Turn named vector into a numeric vector of number of cells per sample
+n_cells <- as.numeric(table(sce_filter$SampleID))
+
+## Determine how to reoder the samples (rows) of the metadata to match the order of sample names in sids vector
+m <- match(sids, sce_filter$SampleID)
+
+## Create the sample level metadata by combining the reordered metadata with the number of cells corresponding to each sample.
+ei <- data.frame(colData(sce_filter)[m, ], 
+                  n_cells, row.names = NULL) %>% 
+  dplyr::select(SampleID, Sequencing_Date, Genotype, Gonad, SexChrom, GenotypeaddX, addX, GenotypeaddY, addY1, addY2)
+
+groups <- colData(sce_filter)[, c("celltype", "SampleID")]
+
+pb <- Matrix.utils::aggregate.Matrix(t(counts(sce_filter)), 
+                       groupings = groups, fun = "sum") 
+
+splitf <- sapply(stringr::str_split(rownames(pb), 
+                                    pattern = "_",  
+                                    n = 2), `[`, 1)
+
+pb <- split.data.frame(pb, 
+                       factor(splitf)) %>%
+        lapply(function(u) 
+                set_colnames(t(u), 
+                             #stringr::str_extract(rownames(u), "(?<=_)[:alnum:]+")))
+                             stringr::str_extract(rownames(u), "XY.*")))
+
+table(sce_filter$celltype, sce_filter$SampleID)
+
+## get sample-level metadata 
+get_sample_ids <- function(x){
+        pb[[x]] %>% colnames()
+}
+
+de_samples <- map(1:length(kids), get_sample_ids) %>%
+        unlist()
+
+# Get cluster IDs for each of the samples
+
+samples_list <- map(1:length(kids), get_sample_ids)
+
+get_cluster_ids <- function(x){
+        rep(names(pb)[x], 
+            each = length(samples_list[[x]]))
+}
+
+de_cluster_ids <- map(1:length(kids), get_cluster_ids) %>%
+        unlist()
+
+# Create a data frame with the sample IDs, cluster IDs and condition
+
+gg_df <- data.frame(celltype = de_cluster_ids,
+                    SampleID = de_samples)
+
+gg_df <- left_join(gg_df, ei, by = c("SampleID")) 
+
+metadata <- gg_df 
+
+# Generate vector of cluster IDs
+clusters <- unique(metadata$celltype)
+clusters
+
+# Count number of cells per celltype and sample
+cell_counts <- as.data.frame.matrix(table(sce_filter$celltype, sce_filter$SampleID))
+
+# Create an empty list to store the samples to keep for each cell type
+samples_to_keep <- list()
+sample_df_list <- list()
+
+# Get the list of unique cell types
+celltypes <- unique(sce_filter$celltype)
+
+# Loop through each cell type
+for (ct in celltypes) {
+  # Get the vector of cell counts for the current cell type across all samples
+  counts_for_celltype <- cell_counts[ct, ]
+  
+  # Identify samples with >= 30 cells for this cell type
+  keep_samples <- colnames(counts_for_celltype[, counts_for_celltype >= 10])
+  
+  # Store the list of valid sample names for this cell type
+  samples_to_keep[[ct]] <- keep_samples
+  
+  sample_metadata$SampleID <- gsub("-", "", sample_metadata$SampleID)
+  
+  if(length(keep_samples) == 0) {next}
+  
+  sample_df = data.frame(celltype = ct, 
+                         SampleID = keep_samples) %>% 
+    left_join(sample_metadata, by = c("SampleID"))
+  
+  sample_df_list[[ct]] <- sample_df
+  
+}
+
+# Get count of Genotypes for each celltype 
+
+sample_dfs <- do.call("rbind", sample_df_list)
+
+head(sample_dfs)
+
+sample_dfs %>% 
+  dplyr::count(celltype, Genotype) %>% 
+  dplyr::filter(Genotype %in% c("XXF", "XYM"))
+```
+
+##Normative DE Analysis
+```{r}
+clusters <- clusters[!clusters %in% c("Inh-IMN", "Misc-NT")]
+clusters <- clusters[!clusters %in% c("Dmbx1", "Golgi", "Purkinje", "UBC")]
+
+
+DE_results <- list()
+for(i in 1:length(clusters)) {
+  
+  # Subset the metadata to only the B cells
+  cluster_metadata <- metadata[which(metadata$celltype == clusters[i]), ]
+  head(cluster_metadata)
+  
+  # Remove samples with not enough cells 
+  cluster_metadata <- cluster_metadata %>% dplyr::filter(SampleID %in% samples_to_keep[[clusters[i]]])
+  
+  # Assign the rownames of the metadata to be the sample IDs
+  rownames(cluster_metadata) <- cluster_metadata$SampleID
+  head(cluster_metadata)
+  
+  # Subset the counts to only the B cells
+  counts <- pb[[clusters[i]]]
+  
+  cluster_counts <- data.frame(counts[, which(colnames(counts) %in% (cluster_metadata$SampleID))], check.names = FALSE)
+  
+  # Check that all of the row names of the metadata are the same and in the same order as the column names of the counts in order to use as input to DESeq2
+  all(rownames(cluster_metadata) == colnames(cluster_counts))      
+  
+  dge <- DGEList(counts = cluster_counts, samples = cluster_metadata, groups = cluster_metadata$Genotype)
+  dge <- calcNormFactors(dge, method = "TMM")
+  
+  # Filter out lowly expressed genes based on CPM 
+  cpm_matrix <- edgeR::cpm(dge)
+  # Calculate the mean CPM for each gene across all samples
+  mean_cpm <- rowMeans(cpm_matrix)
+  # Use the logical test to filter out genes with mean CPM < 5
+  # The logical vector indicates which rows (genes) to keep
+  genes_to_keep <- mean_cpm >= 5
+  
+  dge <- dge[genes_to_keep, ]
+  
+  ##For Normative effect
+  design <- model.matrix(~Genotype + Sequencing_Date, data = cluster_metadata)
+  
+  #pdf(paste0("voom_trends/normative/", clusters[i], ".DE.trend.pdf"), width = 7, height = 4)
+  v <- voomWithQualityWeights(dge, design = design, plot = TRUE)
+  #dev.off()
+  
+  fit <- lmFit(v, design)
+  fit_eb = eBayes(fit, trend = FALSE)
+  results <- topTable(fit_eb, n = Inf, coef = "GenotypeXXF", confint = TRUE)
+  ses <- sqrt(fit_eb$s2.post) * fit_eb$stdev.unscaled 
+  ses <- ses[, "GenotypeXXF", drop = FALSE]
+  colnames(ses) <- gsub('^', 'slope_se_', colnames(ses))
+
+  coefs <- fit_eb$coefficients
+  coefs <- coefs[, "GenotypeXXF", drop = FALSE]
+  colnames(coefs) <- gsub('^', 'slope_', colnames(coefs))
+  
+ modelResultsNORMATIVE <- cbind(results,
+                           coefs = coefs[rownames(results), ],
+                           ses = ses[rownames(results), ], 
+                           celltype = clusters[i], 
+                           effect = "Normative") %>% 
+   rownames_to_column(var = "gene")
+  
+
+  DE_results[[clusters[i]]] <- modelResultsNORMATIVE
+  
+}
+
+normative_results <- do.call("rbind", DE_results)
+rownames(normative_results) <- NULL
+
+normative_results %>% dplyr::filter(adj.P.Val < 0.05)
+normative_results %>% dplyr::filter(adj.P.Val < 0.05) %>% group_by(celltype) %>% tally()
+
+write.csv(normative_results, file = "Scripts/analysis/DEG/DEG_testing/voom_results/CB_normative_DEG.csv", row.names = FALSE, col.names = TRUE)
+
+```
+
+##FCG DE Analysis 
+```{r}
+clusters <- clusters[!clusters %in% c("Inh-IMN", "Misc-NT")]
+
+DE_results_gonad <- list()
+DE_results_sexchrom <- list()
+DE_results_interaction <- list()
+for(i in 1:length(clusters)) {
+  
+  # Subset the metadata to only the B cells
+  cluster_metadata <- metadata[which(metadata$celltype == clusters[i]), ]
+  head(cluster_metadata)
+  
+  # Remove samples with not enough cells 
+  cluster_metadata <- cluster_metadata %>% dplyr::filter(SampleID %in% samples_to_keep[[clusters[i]]])
+  
+  # Retain FCG samples only 
+  cluster_metadata <- cluster_metadata %>% 
+    dplyr::filter(Genotype %in% c("XYM", "XYF", "XXM", "XXF")) %>% 
+    dplyr::mutate(SexChrom = factor(SexChrom, levels = c("XY", "XX")))
+  
+  # Assign the rownames of the metadata to be the sample IDs
+  rownames(cluster_metadata) <- cluster_metadata$SampleID
+  head(cluster_metadata)
+  
+  # Subset the counts to only the B cells
+  counts <- pb[[clusters[i]]]
+  
+  cluster_counts <- data.frame(counts[, which(colnames(counts) %in% rownames(cluster_metadata))])
+  
+  # Check that all of the row names of the metadata are the same and in the same order as the column names of the counts in order to use as input to DESeq2
+  all(rownames(cluster_metadata) == colnames(cluster_counts))      
+  
+  dge <- DGEList(counts = cluster_counts, samples = cluster_metadata, groups = cluster_metadata$Genotype)
+  dge <- calcNormFactors(dge, method = "TMM")
+  
+  # Filter out lowly expressed genes based on CPM 
+  cpm_matrix <- edgeR::cpm(dge)
+  # Calculate the mean CPM for each gene across all samples
+  mean_cpm <- rowMeans(cpm_matrix)
+  # Use the logical test to filter out genes with mean CPM < 5
+  # The logical vector indicates which rows (genes) to keep
+  genes_to_keep <- mean_cpm >= 5
+  
+  dge <- dge[genes_to_keep, ]
+  
+  ##For FCG effects
+  design <- model.matrix(~Gonad + SexChrom + Gonad:SexChrom + Sequencing_Date, data = cluster_metadata)
+  
+  #pdf(paste0("voom_trends/fcg/", clusters[i], ".DE.trend.pdf"), width = 7, height = 4)
+  v <- voomWithQualityWeights(dge, design = design, plot = TRUE)
+  #dev.off()
+  
+  fit <- lmFit(v, design)
+  #fit_eb = eBayes(fit, trend = FALSE)
+  tryCatch({    
+    fit_eb <- eBayes(fit, trend = FALSE)
+  }, error = function(e) {
+    
+    # This is the 'error' block that runs if eBayes fails
+    # Print a message indicating which iteration failed
+    message("An error occurred in eBayes for iteration ", clusters[i], ": ", e$message)
+  })
+  
+  ##save DE results 
+  results <- topTable(fit_eb, n = Inf, coef = "GonadFemale", confint = TRUE)
+  ses <- sqrt(fit_eb$s2.post) * fit_eb$stdev.unscaled 
+  ses <- ses[, "GonadFemale", drop = FALSE]
+  colnames(ses) <- gsub('^', 'slope_se_', colnames(ses))
+
+  coefs <- fit_eb$coefficients
+  coefs <- coefs[, "GonadFemale", drop = FALSE]
+  colnames(coefs) <- gsub('^', 'slope_', colnames(coefs))
+  
+  modelResultsGONAD <- cbind(results,
+                           coefs = coefs[rownames(results), ],
+                           ses = ses[rownames(results), ], 
+                           celltype = clusters[i], 
+                           effect = "Gonad") %>% 
+   rownames_to_column(var = "gene")
+ 
+  results <- topTable(fit_eb, n = Inf, coef = "SexChromXX", confint = TRUE)
+  ses <- sqrt(fit_eb$s2.post) * fit_eb$stdev.unscaled 
+  ses <- ses[, "SexChromXX", drop = FALSE]
+  colnames(ses) <- gsub('^', 'slope_se_', colnames(ses))
+
+  coefs <- fit_eb$coefficients
+  coefs <- coefs[, "SexChromXX", drop = FALSE]
+  colnames(coefs) <- gsub('^', 'slope_', colnames(coefs))
+  
+  modelResultsSEXCHROM <- cbind(results,
+                           coefs = coefs[rownames(results), ],
+                           ses = ses[rownames(results), ], 
+                           celltype = clusters[i], 
+                           effect = "SexChrom") %>% 
+   rownames_to_column(var = "gene")
+ 
+  results <- topTable(fit_eb, n = Inf, coef = "GonadFemale:SexChromXX", confint = TRUE)
+  ses <- sqrt(fit_eb$s2.post) * fit_eb$stdev.unscaled 
+  ses <- ses[, "GonadFemale:SexChromXX", drop = FALSE]
+  colnames(ses) <- gsub('^', 'slope_se_', colnames(ses))
+
+  coefs <- fit_eb$coefficients
+  coefs <- coefs[, "GonadFemale:SexChromXX", drop = FALSE]
+  colnames(coefs) <- gsub('^', 'slope_', colnames(coefs))
+  
+  modelResultsINTERACTION <- cbind(results,
+                           coefs = coefs[rownames(results), ],
+                           ses = ses[rownames(results), ], 
+                           celltype = clusters[i], 
+                           effect = "Gonad:SexChrom") %>% 
+   rownames_to_column(var = "gene")
+
+  DE_results_gonad[[clusters[i]]] <- modelResultsGONAD
+  DE_results_sexchrom[[clusters[i]]] <- modelResultsSEXCHROM
+  DE_results_interaction[[clusters[i]]] <- modelResultsINTERACTION
+}
+
+gonad_results <- do.call("rbind", DE_results_gonad)
+rownames(gonad_results) <- NULL
+
+sexchrom_results <- do.call("rbind", DE_results_sexchrom)
+rownames(sexchrom_results) <- NULL
+
+interaction_results <- do.call("rbind", DE_results_interaction)
+rownames(interaction_results) <- NULL
+
+write.csv(gonad_results, file = "voom_results/gonad_DEG.csv", row.names = FALSE, col.names = TRUE)
+write.csv(sexchrom_results, file = "voom_results/sexchrom_DEG.csv", row.names = FALSE, col.names = TRUE)
+write.csv(interaction_results, file = "voom_results/interaction_DEG.csv", row.names = FALSE, col.names = TRUE)
+
+gonad_results %>% dplyr::filter(adj.P.Val < 0.05)
+gonad_results %>% dplyr::filter(adj.P.Val < 0.05) %>% group_by(celltype) %>% tally()
+sexchrom_results %>% dplyr::filter(adj.P.Val < 0.05) %>% group_by(celltype) %>% tally()
+interaction_results %>% dplyr::filter(adj.P.Val < 0.05) %>% group_by(celltype) %>% tally()
+```
+
+##run Mashr on Normative DE results
+```{r}
+working_dir <- "/u/project/xyang123/jshin/medial_septum_sct/Scripts/analysis/DEG/DEG_testing"
+normative_results <- read.csv(file.path(working_dir, "voom_results/CB_normative_DEG.csv"))
+gonad_results <- read.csv(file.path(working_dir, "voom_results/gonad_DEG.csv"))
+sexchrom_results <- read.csv(file.path(working_dir, "voom_results/sexchrom_DEG.csv"))
+interaction_results <- read.csv(file.path(working_dir, "voom_results/interaction_DEG.csv"))
+
+normative_results <- normative_results %>% 
+  dplyr::mutate(condition = paste(celltype, effect, sep = "_"))
+fcg_results <- rbind(gonad_results, sexchrom_results, interaction_results) %>% 
+  dplyr::mutate(condition = paste(celltype, effect, sep = "_")) %>% 
+  dplyr::mutate(condition = gsub(":", "x", condition))
+
+deg_df <- normative_results 
+
+mash_data_beta = deg_df %>% 
+  dplyr::select(gene, coefs, ses, condition) %>% 
+  pivot_wider(names_from = condition, 
+              values_from = coefs, values_fill = 0, 
+              id_cols = gene) %>% 
+  column_to_rownames(var = "gene") %>% as.matrix()
+all(mash_data_beta > 0)
+
+mash_data_se = deg_df %>% 
+  dplyr::select(gene, coefs, ses, condition) %>% 
+  pivot_wider(names_from = condition, 
+              values_from = ses, values_fill = 1e6, 
+              id_cols = gene) %>% 
+  column_to_rownames(var = "gene")  %>% as.matrix()
+all(mash_data_se > 0)
+
+simdata <- list(Bhat = mash_data_beta, 
+                Shat = mash_data_se)
+
+##run mashr
+library(ashr)
+library(mashr)
+library(flashier)
+
+#data = mash_set_data(mash_data_beta, mash_data_beta, zero_Bhat_Shat_reset = 1e-8)
+data = mash_set_data(simdata$Bhat, simdata$Shat)
+
+#identity subset of strong tests 
+m.1by1 = mash_1by1(data)
+strong.subset = get_significant_results(m.1by1, 0.02)
+
+# identify a random subset of 5000 tests
+random.subset = sample(1:nrow(simdata$Bhat), 5000)
+data.temp = mash_set_data(simdata$Bhat[random.subset,],simdata$Shat[random.subset,])
+Vhat = estimate_null_correlation_simple(data.temp)
+rm(data.temp)
+
+data.random = mash_set_data(simdata$Bhat[random.subset,],simdata$Shat[random.subset,], V=Vhat)
+data.strong = mash_set_data(simdata$Bhat[strong.subset,],simdata$Shat[strong.subset,], V=Vhat)
+
+#save(simdata, m.1by1, strong.subset, random.subset, Vhat, data.random, data.strong, file = file.path(working_dir, "mash_files/fcg_mash.Rda"))
+#load(file = file.path(working_dir, "mash_files/fcg_mash.Rda"))
+#working_dir <- "/u/project/xyang123/jshin/medial_septum_sct/Scripts/analysis/DEG/DEG_testing"
+
+U.f = cov_flash(data.strong, factors="nonneg", tag="non_neg")
+
+U.pca = cov_pca(data.strong, n = ncol(simdata$Bhat))
+U.c = cov_canonical(data.random)
+
+U.ed = cov_ed(data.strong, c(U.f, U.pca), maxiter = 10)
+
+# V.em = mash_estimate_corr_em(data.strong, c(U.c, U.ed), details = TRUE, max_iter = 5)
+# m.Vem = V.em$mash.model
+
+m = mash(data.random, Ulist = c(U.ed,U.c), outputlevel = 1)
+m2 = mash(data, g=get_fitted_g(m), fixg=TRUE)
+
+save(m.1by1, strong.subset, random.subset, Vhat, data.random, data.strong, U.f, U.pca, U.c, U.ed, m, m2, file = file.path(working_dir, "mash_files/CB_normative_mash.Rda"))
+
+head(get_lfsr(m2))
+head(get_pm(m2))
+head(get_psd(m2))
+
+head(get_significant_results(m2))
+barplot(get_estimated_pi(m2),las = 2)
+
+get_lfsr(m2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column(var = "gene") %>% 
+  pivot_longer(cols = !gene, 
+               names_to = "condition", 
+               values_to = "lfsr") %>% 
+  dplyr::filter(lfsr < 0.05) %>% 
+  group_by(condition) %>% tally()
+
+get_lfsr(m2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column(var = "gene") %>% 
+  pivot_longer(cols = !gene, 
+               names_to = "condition", 
+               values_to = "lfsr") %>% 
+  dplyr::filter(lfsr < 0.05) %>% 
+  dplyr::filter(condition == "Astrocyte_Normative")
+```
+
+PSEUDOBULK WITH MASHR ANALYSIS
+
+```{r}
+##normative difference 
+SE_list <- list()
+EffectSize_list <- list()
+#resultlist_normative <- list()
+
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, celltype == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$Genotype)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  #keep.exprs <- filterByExpr(dge)
+  #x <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge, method =  "TMM")
+  
+  design <- model.matrix(~0 + Genotype + Sequencing_Date, data = currentsubset@meta.data)
+  
+  vv <- voomWithQualityWeights(dge, design, plot = TRUE)
+  corfit <- duplicateCorrelation(vv, design, block = currentsubset$orig.ident)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  contrasts <- makeContrasts(XXF_vs_XYM = GenotypeXXF - GenotypeXYM,
+                             levels = design)
+  fit <- contrasts.fit(fit, contrasts)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  results <- topTable(fit, n = Inf, coef = "XXF_vs_XYM", confint = TRUE)
+  results$SE <- results$logFC / results$t
+  
+  #SE <- sqrt(fit$s2.post) * fit$stdev.unscaled
+  SE <- results %>% dplyr::select(SE)
+  colnames(SE) <- currentcell
+  EffectSize <- results %>% dplyr::select(logFC)
+  colnames(EffectSize) <- currentcell
+  
+  SE_list[[currentcell]] <- SE
+  EffectSize_list[[currentcell]] <- EffectSize
+}
+
+SE_all <- do.call("cbind_fill", SE_list)
+SE_all[is.na(SE_all)] <- 1
+EffectSize_all <- do.call("cbind_fill", EffectSize_list)
+EffectSize_all[is.na(EffectSize_all)] <- 0
+
+data = mash_set_data(as.matrix(EffectSize_all), as.matrix(SE_all))
+
+##cavariance matrices (canonical and data-driven) 
+U.c = cov_canonical(data)  
+m.1by1 = mash_1by1(data)
+strong = get_significant_results(m.1by1, 0.05)
+U.pca = cov_pca(data,5,subset=strong)
+U.ed = cov_ed(data, U.pca, subset=strong)
+
+##run mashr
+m   = mash(data, c(U.c,U.ed))
+
+##view results 
+length(get_significant_results(m))
+head(get_significant_results(m, conditions="Glut"))
+barplot(get_estimated_pi(m),las = 2)
+mash_plot_meta(m,get_significant_results(m)[1])
+
+PM <- get_pm(m) 
+Pval <- get_lfsr(m)
+
+volcano_list <- list()
+for(i in 1:ncol(PM)) {
+  
+  currentcell <- colnames(PM)[i]
+  input <- data.frame(PM[, i], Pval[, i])
+  colnames(input) <- c("logFC", "adj.P.Val")
+  
+  volcano_list[[currentcell]] <- EnhancedVolcano(input,
+                lab = rownames(input), 
+                x = 'logFC',
+                y = 'adj.P.Val',
+                subtitle = "XXF_vs_XYM",
+                pCutoff = 0.05,
+                titleLabSize = 14,
+                title = currentcell,
+                drawConnectors = TRUE
+                )
+}
+volcano_list$Astrocyte
+
+save(m, file = file.path(data.dir, "Results/MASHR_DEG/Normative.Rda"))
+
+pdf("Plots/MASHR_DEG/volcano/Normative.pdf", width  = 20, height = 12)
+print(ggarrange(plotlist = volcano_list, ncol = 4, nrow = 2))
+dev.off()
+```
+
+```{r}
+##FUNCTIONS
+
+run_mashr <- function(x) {
+  
+  PM <- list()
+  Pval <- list()
+  m_list <- list()
+  
+  for (j in 1:length(x)) {
+    
+    currentcomparison <- names(x[j])
+    
+    if(any(unlist(lapply(x[[j]], function(y) all(is.na(y[,'logFC'])))))) {next}
+    
+    EffectSize_all <- lapply(x[[j]], function(x) x %>% dplyr::select(logFC)) %>%
+      do.call("cbind_fill", .)
+    SE <- lapply(x[[j]], function(x) x %>% dplyr::select("CI.L", "CI.R"))
+    SE <- lapply(SE, function(x) {x[,3] <- (x[,2] - x[,1]) / 3.92;x})
+    SE_all <- lapply(SE, function(x) x %>% dplyr::select(V3)) %>%
+      do.call("cbind_fill", .)
+    
+    colnames(EffectSize_all) <- names(x[[j]])
+    colnames(SE_all) <- names(x[[j]])
+    
+    data = mash_set_data(as.matrix(EffectSize_all), as.matrix(SE_all))
+    
+    ##cavariance matrices 
+    U.c = cov_canonical(data)  
+    m.1by1 = mash_1by1(data)
+    strong = get_significant_results(m.1by1, 0.05)
+    
+    if(length(strong) < ncol(EffectSize_all)) { 
+      m   = mash(data, c(U.c))
+      
+    } else {
+      U.pca = cov_pca(data,5,subset=strong)
+      U.ed = cov_ed(data, U.pca, subset=strong)
+      
+      ##run mashr
+      m   = mash(data, c(U.c,U.ed))
+    }
+    
+    m_list[[currentcomparison]] <- m
+    PM[[currentcomparison]] <- get_pm(m) 
+    Pval[[currentcomparison]] <- get_lfsr(m)
+  }
+  return(list(PM, Pval, m_list))
+}
+
+run_volcano <- function(x, y) {
+  
+  volcano_list <- list()
+  for(i in 1:length(x)) {
+    
+    currentPM <- x[[i]]
+    currentPval <- y[[i]]
+    currentcomparison <- names(x[i])
+    
+    padj <- -log10(currentPval + 1)
+    
+    
+    
+    for(j in 1:ncol(currentPM)) {
+      
+      currentcell <- colnames(currentPM)[j]
+      input <- data.frame(currentPM[, j], currentPval[, j])
+      colnames(input) <- c("logFC", "adj.P.Val")
+      
+      volcano_list[[currentcell]][[currentcomparison]] <- EnhancedVolcano(input,
+                  lab = rownames(input), 
+                  x = 'logFC',
+                  y = 'adj.P.Val',
+                  subtitle = currentcomparison,
+                  pCutoff = 0.05,
+                  FCcutoff = 0.3,
+                  titleLabSize = 14,
+                  title = currentcell,
+                  drawConnectors = TRUE
+                  )
+    }
+  }
+  return(volcano_list)
+}
+
+run_barplot <- function(x, model_name) {
+  
+  barplot_list <- list()
+  for(i in seq_along(x)) {
+  currentcomparison <- names(x)[i]
+  df <- get_estimated_pi(x[[i]]) %>% as.data.frame() %>%
+    tibble::rownames_to_column(var = "covariances") %>%
+    dplyr::mutate(covariances = factor(covariances, levels = covariances))
+  colnames(df)[2] <- "estimated_pi"
+
+  
+  plot <- ggplot(df, aes(x = covariances, y = estimated_pi)) + 
+    geom_bar(stat = "identity") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+    ggtitle(label = paste(model_name, currentcomparison, sep = " - ")) + 
+    xlab("covariances") + 
+    ylab("Estimated Mixture Proportions")
+    
+  
+  barplot_list[[currentcomparison]] <- plot
+  }
+  return(barplot_list)
+}
+
+run_scatter <- function(x, model_name) {
+  
+  scatter_list <- list()
+  for(i in seq_along(x)) {
+    currentcomparison <- names(x)[i]
+    df <- x[[i]] %>% as.data.frame()
+    colnames(df) <- c("Astrocyte", "Endothelial", "Ependymal", "Intermediate.Progenitor", "Microglia", "Myelinating.Oligodendrocyte", "Neuron", "Oligodendrocyte.Progenitor")
+  
+    plot <- ggpairs(df, columns = c(1:8), title = paste(model_name, currentcomparison, sep = " - "), 
+                    columnLabels = gsub('.', ' ', colnames(df), fixed = T),
+                    labeller = label_wrap_gen(10))
+    
+    scatter_list[[currentcomparison]] <- plot
+  }
+  return(scatter_list)
+}
+```
+
+```{r}
+##Normative
+resultlist_normative <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Genotype, data = currentsubset@meta.data)
+  #design <- model.matrix(~0 + Genotype, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  #cont.matrix <- makeContrasts(GenotypeXXF-GenotypeXYM, levels=design)
+  #fit <- contrasts.fit(fit, cont.matrix)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  topTable(fit, n = 10)
+    
+  resultlist_normative[["XXF_vs_XYM"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GenotypeXXF", confint = TRUE)
+  #resultlist_normative[["XXF_vs_XYM"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GenotypeXXF - GenotypeXYM", confint = TRUE)
+}
+
+mashr_results <- run_mashr(resultlist_normative)
+save(mashr_results, file = file.path(data.dir, "Results/MASHR_DEG/Normative.Rda"))
+
+##barplots
+plot_list <- run_barplot(mashr_results[[3]], "Normative")
+pdf("Plots/MASHR_DEG/barplot/Normative.pdf", width  = 15, height = 5)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+##volcanoplots
+plot_list <- run_volcano(mashr_results[[1]], mashr_results[[2]])
+plot_list <- unlist(plot_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/MASHR_DEG/volcano/Normative.pdf", width  = 20, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+
+##logFC correlation plot
+plot_list <- list()
+for(i in seq_along(resultlist_normative)) {
+  
+  deg_list <- resultlist_normative[[i]]
+  currentcomparison <- names(resultlist_normative)[i]
+  deg_df <- lapply(gonad_list, function(x) { x %>% dplyr::select(logFC)}) %>% do.call("cbind_fill", .)
+  colnames(deg_df) <- c("Astrocyte", "Endothelial", "Ependymal", "Intermediate.Progenitor", "Microglia", "Myelinating.Oligodendrocyte", "Neuron", "Oligodendrocyte.Progenitor")
+  
+  plot <- ggpairs(deg_df, columns = c(1:8), title = paste("FCG", currentcomparison, sep = " - "), 
+                    columnLabels = gsub('.', ' ', colnames(deg_df), fixed = T),
+                    labeller = label_wrap_gen(10))
+    
+  plot_list[[currentcomparison]] <- plot
+}
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), nrow = 1, ncol = 1)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/Normative_premashr.pdf", plot = plot, width = 10, height = 10)
+
+
+plot_list <- run_scatter(mashr_results[[1]], "Normative")
+pdf("Plots/MASHR_DEG/logfc_scatter/Normative_mashr.pdf", width  = 10, height = 10, onefile = FALSE)
+cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), nrow = 1, ncol = 1)
+dev.off()
+```
+
+```{r}
+##FCG Model
+resultlist_fcg <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell & Genotype %in% c("XYM","XXF","XXM" ,"XYF"))
+  currentsubset@meta.data <- currentsubset@meta.data %>%
+  dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM","XXF","XXM" ,"XYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")))
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + SexChrom + Gonad:SexChrom, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_fcg[["Ovary_vs_Testis"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale", confint = TRUE, adjust.method = "BH", p.value = 0.05)
+  resultlist_fcg[["XX_vs_XY"]][[currentcell]] <- topTable(fit, n = Inf, coef = "SexChromXX", confint = TRUE, adjust.method = "BH", p.value = 0.05)
+  resultlist_fcg[["Ovary:SexChromXX"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale:SexChromXX", confint = TRUE)
+}
+
+mashr_results <- run_mashr(resultlist_fcg)
+save(mashr_results, file = file.path(data.dir, "Results/MASHR_DEG/FCG.Rda"))
+
+##barplots
+plot_list <- run_barplot(mashr_results[[3]], "FCG")
+pdf("Plots/MASHR_DEG/barplot/FCG.pdf", width  = 15, height = 5)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+##volcanoplots
+plot_list <- run_volcano(mashr_results[[1]], mashr_results[[2]])
+plot_list <- unlist(plot_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/MASHR_DEG/volcano/FCG.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+##logFC correlation plot
+plot_list <- list()
+for(i in seq_along(resultlist_fcg)) {
+  
+  deg_list <- resultlist_fcg[[i]]
+  currentcomparison <- names(resultlist_fcg)[i]
+  deg_df <- lapply(gonad_list, function(x) { x %>% dplyr::select(logFC)}) %>% do.call("cbind_fill", .)
+  colnames(deg_df) <- c("Astrocyte", "Endothelial", "Ependymal", "Intermediate.Progenitor", "Microglia", "Myelinating.Oligodendrocyte", "Neuron", "Oligodendrocyte.Progenitor")
+  
+  plot <- ggpairs(deg_df, columns = c(1:8), title = paste("FCG", currentcomparison, sep = " - "), 
+                    columnLabels = gsub('.', ' ', colnames(deg_df), fixed = T),
+                    labeller = label_wrap_gen(10))
+    
+  plot_list[[currentcomparison]] <- plot
+}
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), ggmatrix_gtable(plot_list[[2]]), ggmatrix_gtable(plot_list[[3]]), nrow = 1, ncol = 3)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/FCG_premashr.pdf", plot = plot, width = 30, height = 10)
+
+plot_list <- run_scatter(mashr_results[[1]], "FCG")
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), ggmatrix_gtable(plot_list[[2]]), ggmatrix_gtable(plot_list[[3]]), nrow = 1, ncol = 3)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/FCG_mashr.pdf", plot = plot, width = 30, height = 10)
+
+##logFC correlation between terms 
+plot_list <- list()
+for(i in 1:length(allcells)) {
+  
+  currentcell <- allcells[i]
+  ct_logfc <- lapply(mashr_results[[1]], function(x) {x %>% as.data.frame() %>% dplyr::select(one_of(currentcell))}) %>% 
+    do.call("cbind_fill", .)
+  colnames(ct_logfc) <- names(mashr_results[[1]])
+  
+  plot <- ggpairs(ct_logfc, columns = c(1:3), title = paste("FCG", currentcell, sep = " - "), labeller = label_wrap_gen(10))
+  plot_list[[currentcell]] <- plot
+}
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), ggmatrix_gtable(plot_list[[2]]), ggmatrix_gtable(plot_list[[3]]), ggmatrix_gtable(plot_list[[4]]),
+                           ggmatrix_gtable(plot_list[[5]]), ggmatrix_gtable(plot_list[[6]]), ggmatrix_gtable(plot_list[[7]]), ggmatrix_gtable(plot_list[[8]]), nrow = 2, ncol = 4)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/FCG_mashr_ct.pdf", plot = plot, width = 20, height = 10)
+```
+
+```{r}
+##full model (X and Y dose + gonad)
+
+resultlist_dose <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + Xdose_cont + Ydose_cont, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_dose[["Ovary_vs_Testis"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale", confint = TRUE)
+  resultlist_dose[["Xdose"]][[currentcell]] <- topTable(fit, n = Inf, coef = "Xdose_cont", confint = TRUE)
+  resultlist_dose[["Ydose"]][[currentcell]] <- topTable(fit, n = Inf, coef = "Ydose_cont", confint = TRUE)
+}
+
+mashr_results <- run_mashr(resultlist_dose)
+save(mashr_results, file = file.path(data.dir, "Results/MASHR_DEG/Dose.Rda"))
+
+##barplots
+plot_list <- run_barplot(mashr_results[[3]], "Dose")
+pdf("Plots/MASHR_DEG/barplot/Dose.pdf", width  = 15, height = 5)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+##volcanoplots
+plot_list <- run_volcano(mashr_results[[1]], mashr_results[[2]])
+plot_list <- unlist(plot_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/MASHR_DEG/volcano/Dose.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+##logFC correlation plot
+plot_list <- run_scatter(mashr_results[[1]], "Dose")
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), ggmatrix_gtable(plot_list[[2]]), ggmatrix_gtable(plot_list[[3]]), nrow = 1, ncol = 3)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/Dose_mashr.pdf", plot = plot, width = 30, height = 10)
+```
+
+```{r}
+##Aneuploidy model
+resultlist_aneuploidy <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+  
+  design <- model.matrix(~Gonad + base_SexChrom + Trisomy + Gonad:base_SexChrom + Gonad:Trisomy + base_SexChrom:Trisomy, data = currentsubset@meta.data) 
+  
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+    
+  resultlist_aneuploidy[["Ovary_vs_Testis"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale", confint = TRUE)
+  resultlist_aneuploidy[["XX_vs_XY"]][[currentcell]] <- topTable(fit, n = Inf, coef = "base_SexChromXX", confint = TRUE)
+  resultlist_aneuploidy[["Aneuploidy"]][[currentcell]] <- topTable(fit, n = Inf, coef = "TrisomyNon-Trisomy", confint = TRUE)
+  #resultlist_aneuploidy[["Ovary:SexChromXX"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale:base_SexChromXX", confint = TRUE)
+  #resultlist_aneuploidy[["Ovary:Aneuploidy"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale:TrisomyNon-Trisomy", confint = TRUE)
+  #resultlist_aneuploidy[["SexChromXX:Aneuploidy"]][[currentcell]] <- topTable(fit, n = Inf, coef = "base_SexChromXX:TrisomyNon-Trisomy", confint = TRUE)
+}
+
+mashr_results <- run_mashr(resultlist_aneuploidy)
+save(mashr_results, file = file.path(data.dir, "Results/MASHR_DEG/Aneuploidy.Rda"))
+    
+##barplots
+plot_list <- run_barplot(mashr_results[[3]], "Aneuploidy")
+pdf("Plots/MASHR_DEG/barplot/Aneuploidy.pdf", width  = 15, height = 5)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+##volcanoplots
+plot_list <- run_volcano(mashr_results[[1]], mashr_results[[2]])
+plot_list <- unlist(plot_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/MASHR_DEG/volcano/Aneuploidy.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+##logFC correlation plot
+plot_list <- run_scatter(mashr_results[[1]], "Aneuploidy")
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), ggmatrix_gtable(plot_list[[2]]), ggmatrix_gtable(plot_list[[3]]), nrow = 1, ncol = 3)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/Aneuploidy_mashr.pdf", plot = plot, width = 30, height = 10)
+```
+
+```{r}
+##Quadratic Model with splines 
+resultlist_quad <- list()
+fit_list <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+  
+  metadata <- currentsubset@meta.data
+  metadata$X <- ns(metadata$Ydose_cont, df = 2)
+  
+  design <- model.matrix(~Gonad + Xdose_cont + X, data = metadata)
+  #design <- model.matrix(~Gonad + Xdose_cont + poly(Ydose_cont, degree=2), data=currentsubset@meta.data)
+
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+    
+  resultlist_quad[["Ovary_vs_Testis"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale", confint = TRUE)
+  resultlist_quad[["Xdose"]][[currentcell]] <- topTable(fit, n = Inf, coef = "Xdose_cont", confint = TRUE)
+  resultlist_quad[["Ydose"]][[currentcell]] <- topTable(fit, n = Inf, coef = c("X1", "X2"), confint = TRUE)
+  #resultlist_quad[["Ydose"]][[currentcell]] <- topTable(fit, n = Inf, coef = "poly(Ydose_cont, degree = 2)1", confint = TRUE)
+  #resultlist_quad[["Ydose^2"]][[currentcell]] <- topTable(fit, n = Inf, coef = "poly(Ydose_cont, degree = 2)2", confint = TRUE)
+  
+  fit_list[[currentcell]] <- fit
+  
+  #save(resultlist_quad, file = paste0("Data/Derived/Pseudobulk_DEG/Quadratic/", currentcell,".rda"))
+}
+
+mashr_results <- run_mashr(resultlist_quad[1:2])
+
+##to-do: figure out how to run mashr with multiple coefficients for Ydose
+##use logFC from dose model and adjusted P value from quadratic? 
+
+currentcomparison <- names(resultlist_quad[3])
+
+logfc <- list()
+for(i in seq_along(resultlist_dose$Ydose)) {
+  ct_logfc <- resultlist_dose$Ydose[[i]] %>% dplyr::select(logFC)
+  colnames(ct_logfc) <- names(resultlist_dose$Ydose[i])
+  logfc[[i]] <- ct_logfc
+}
+logfc <- do.call("cbind_fill", logfc)
+logfc
+
+SE_list <- lapply(fit_list, function(x) {
+  sqrt(x$s2.post) / sqrt(21)
+})
+
+SE <- do.call("cbind_fill", SE_list)
+colnames(SE) <- names(SE_list)
+SE <- SE[match(rownames(logfc), rownames(SE)),]
+
+data = mash_set_data(as.matrix(logfc), as.matrix(SE))
+    
+##cavariance matrices 
+U.c = cov_canonical(data)  
+m.1by1 = mash_1by1(data)
+strong = get_significant_results(m.1by1, 0.05)
+
+if(length(strong) < ncol(logfc)) { 
+  m   = mash(data, c(U.c))
+  
+} else {
+  U.pca = cov_pca(data,5,subset=strong)
+  U.ed = cov_ed(data, U.pca, subset=strong)
+  
+  ##run mashr
+  m   = mash(data, c(U.c,U.ed))
+  }
+
+mashr_results[[1]][[currentcomparison]] <- get_pm(m)
+mashr_results[[2]][[currentcomparison]] <- get_lfsr(m)
+
+plot_list <- run_volcano(mashr_results[[1]], mashr_results[[2]])
+plot_list <- unlist(plot_list, recursive = FALSE, use.names = FALSE)
+
+save(mashr_results, file = file.path(data.dir, "Results/MASHR_DEG/Quadratic.Rda"))
+
+pdf("Plots/MASHR_DEG/volcano/Quadratic.pdf", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+```
+
+```{r}
+##full model (X and Y dose + gonad) - Y dose factor
+
+resultlist_dose_factor <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + Xdose_cont + Ydose, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_dose_factor[["Ovary_vs_Testis"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale", confint = TRUE)
+  resultlist_dose_factor[["Xdose"]][[currentcell]] <- topTable(fit, n = Inf, coef = "Xdose_cont", confint = TRUE)
+  resultlist_dose_factor[["Ydose1"]][[currentcell]] <- topTable(fit, n = Inf, coef = "Ydose1", confint = TRUE)
+  resultlist_dose_factor[["Ydose2"]][[currentcell]] <- topTable(fit, n = Inf, coef = "Ydose2", confint = TRUE)
+}
+
+mashr_results <- run_mashr(resultlist_dose_factor)
+save(mashr_results, file = file.path(data.dir, "Results/MASHR_DEG/Dose_factor.Rda"))
+
+##barplots
+plot_list <- run_barplot(mashr_results[[3]], "Dose_factor")
+pdf("Plots/MASHR_DEG/barplot/Dose_factor.pdf", width  = 15, height = 5)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+##volcanoplots
+plot_list <- run_volcano(mashr_results[[1]], mashr_results[[2]])
+plot_list <- unlist(plot_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/MASHR_DEG/volcano/Dose_factor", width  = 15, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 2))
+dev.off()
+
+##logFC correlation plot
+plot_list <- run_scatter(mashr_results[[1]], "Dose_factor")
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), ggmatrix_gtable(plot_list[[2]]), ggmatrix_gtable(plot_list[[3]]), ggmatrix_gtable(plot_list[[4]]), nrow = 2, ncol = 2)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/Dose_factor_mashr.pdf", plot = plot, width = 20, height = 20)
+```
+
+```{r}
+##full model 
+
+resultlist_full <- list()
+for (i in 1:length(allcells)) {
+  currentcell <- as.character(allcells[i])
+  currentsubset <- subset(summed_seurat, cell.type == currentcell)
+  
+  dge0 <- DGEList(currentsubset@assays$RNA@counts, group = currentsubset$data.sampleName)
+  dge <- dge0[!rowSums(dge0$counts==0)==ncol(dge0$counts), ]
+  keep.exprs <- filterByExpr(dge)
+  dge <- dge[keep.exprs,,keep.lib.sizes=FALSE]
+  dge <- calcNormFactors(dge)
+    
+  design <- model.matrix(~Gonad + base_SexChrom + addX + addY, data = currentsubset@meta.data)
+    
+  y <- new("EList")
+  y$E <- edgeR::cpm(dge, log = TRUE, prior.count = 3) 
+  fit <- lmFit(y, design = design)
+  fit <- eBayes(fit, trend = TRUE, robust = TRUE)
+  
+  resultlist_full[["Ovary_vs_Testis"]][[currentcell]] <- topTable(fit, n = Inf, coef = "GonadFemale", confint = TRUE)
+  resultlist_full[["XX_vs_XY"]][[currentcell]] <- topTable(fit, n = Inf, coef = "base_SexChromXX", confint = TRUE)
+  resultlist_full[["X"]][[currentcell]] <- topTable(fit, n = Inf, coef = "addX", confint = TRUE)
+  resultlist_full[["Y"]][[currentcell]] <- topTable(fit, n = Inf, coef = "addY", confint = TRUE)
+}
+
+mashr_results <- run_mashr(resultlist_full)
+save(mashr_results, file = file.path(data.dir, "Results/MASHR_DEG/Full.Rda"))
+
+m <- mashr_results[[3]]
+
+##barplots
+plot_list <- run_barplot(mashr_results[[3]], "Full")
+pdf("Plots/MASHR_DEG/barplot/Full.pdf", width  = 20, height = 5)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 1))
+dev.off()
+
+##volcanoplots
+plot_list <- run_volcano(mashr_results[[1]], mashr_results[[2]])
+plot_list <- unlist(plot_list, recursive = FALSE, use.names = FALSE)
+
+pdf("Plots/MASHR_DEG/volcano/Full.pdf", width  = 20, height = 12)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+
+##logFC correlation plot
+plot_list <- run_scatter(mashr_results[[1]], "Full")
+plot <- cowplot::plot_grid(ggmatrix_gtable(plot_list[[1]]), ggmatrix_gtable(plot_list[[2]]), ggmatrix_gtable(plot_list[[3]]), ggmatrix_gtable(plot_list[[4]]), nrow = 2, ncol = 2)
+ggsave(filename = "Plots/MASHR_DEG/logfc_scatter/Full_mashr.pdf", plot = plot, width = 20, height = 20)
+```

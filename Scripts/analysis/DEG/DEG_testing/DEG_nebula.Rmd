@@ -1,0 +1,479 @@
+---
+title: "DEG_NEBULA"
+output: html_document
+date: "2024-02-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/project-xyang123/medial_septum_sct") ##change later
+
+library(tidyverse)
+library(reshape2)
+library(data.table)
+library(knitr)
+#library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+library(stringr)
+library(RColorBrewer)
+library(MAST)
+library(Seurat)
+library(scuttle)
+library(magrittr)
+library(scater)
+library(rsvd)
+library(muscat)
+library(nebula)
+```
+
+```{r}
+data.dir <- "/u/scratch/j/jshin/old-scratch-julianas/medial_septum_sct"
+seurat <- readRDS(file.path(data.dir, "Saves/For_Figures.rds")) %>% DietSeurat(counts = TRUE)
+samples_to_remove <- c("XY-TriSeptum-12", "XY-TriSeptum-24", "XY-TriSeptum-2")
+seurat <- subset(seurat, subset = cell.type == "Unknown", invert = TRUE)
+seurat <- subset(seurat, subset = data.sampleName %in% samples_to_remove, invert = TRUE)
+seurat$cell.type <- gsub(" ", "_", seurat$cell.type)
+
+seurat$Xdose <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% factor(levels = c(1, 2))
+seurat$Xdose_cont <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% as.character() %>% as.numeric()
+seurat$Ydose <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% factor(levels = c(0, 1, 2))
+seurat$Ydose_cont <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% as.character() %>% as.numeric()
+seurat$base_SexChrom <- plyr::mapvalues(seurat$SexChrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c("XX", "XY", "XY", "XY")) %>% factor(levels = c("XY", "XX"))
+```
+
+```{r}
+sce <- as.SingleCellExperiment(seurat)
+
+# remove undetected genes
+sce <- sce[rowSums(counts(sce) > 0) > 0, ]
+# remove cells with few or many detected genes
+qc <- perCellQCMetrics(sce)
+ol <- isOutlier(metric = qc$detected, nmads = 2, log = TRUE)
+sce <- sce[, !ol]
+# remove lowly expressed genes
+sce <- sce[rowSums(counts(sce) > 1) >= 10, ]
+dim(sce)
+
+# compute sum-factors & normalize
+sce <- computeLibraryFactors(sce)
+sce <- logNormCounts(sce)
+```
+
+```{r}
+sce2 <- prepSCE(sce, 
+    kid = "cell.type", # subpopulation assignments
+    gid = "Genotype",  # group IDs (ctrl/stim)
+    sid = "data.sampleName",   # sample IDs (ctrl/stim.1234)
+    drop = TRUE)
+```
+
+```{r}
+pb <- aggregateData(sce2,
+    assay = "counts", fun = "sum",
+    by = c("cluster_id", "sample_id"))
+
+assayNames(pb)
+```
+
+```{r}
+colData(pb)$sexchrom <- str_sub(colData(pb)$group_id, 1, str_length(colData(pb)$group_id) - 1)
+colData(pb)$gonad <- str_sub(colData(pb)$group_id, str_length(colData(pb)$group_id) )
+
+colData(pb)$Xdose_cont <- plyr::mapvalues(colData(pb)$sexchrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(2, 2, 1 ,1)) %>% as.character() %>% as.numeric()
+colData(pb)$Ydose_cont <- plyr::mapvalues(colData(pb)$sexchrom,
+                                from = c("XX", "XXY", "XY", "XYY"),
+                                to = c(0, 1, 1 ,2)) %>% as.character() %>% as.numeric()
+
+colData(pb)$group_id <- factor(colData(pb)$group_id, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF"))
+colData(pb)$sexchrom <- factor(colData(pb)$sexchrom, levels = c("XY", "XX", "XYY", "XXY"))
+colData(pb)$gonad <- factor(colData(pb)$gonad, levels = c("M", "F"))
+
+design <- model.matrix(~gonad + Xdose_cont + Ydose_cont, data = colData(pb))
+
+res <- pbDS(pb,
+            method = "limma-trend", 
+            design = design)
+```
+
+NEBULA
+
+```{r}
+allcells <- unique(seurat$cell.type)[-9]
+i = 1
+currentcell <- allcells[i]
+
+##Normative 
+subset <- subset(seurat, cell.type == currentcell & Genotype %in% c("XYM", "XXF"))
+subset@meta.data <- subset@meta.data %>%
+    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XXF")))
+seuratdata <- scToNeb(obj = subset, assay = "RNA", id = "data.sampleName", pred = c("Genotype"), offset = "nCount_RNA")
+df <- model.matrix(~Genotype, data = seuratdata$pred)
+re = nebula(seuratdata$count, seuratdata$id, pred=df, ncore=1)
+re_normative <- re
+
+##FCG 
+fcg_subset <- subset(seurat, cell.type == currentcell & Genotype %in% c("XYM","XXF","XXM" ,"XYF"))
+fcg_subset@meta.data <- fcg_subset@meta.data %>%
+    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM","XXF","XXM" ,"XYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")))
+#counts <- fcg_subset@assays$RNA@counts
+#id <- fcg_subset$data.sampleName
+
+seuratdata <- scToNeb(obj = fcg_subset, assay = "RNA", id = "data.sampleName", pred = c("Gonad", "SexChrom"), offset = "nCount_RNA")
+df = model.matrix(~Gonad+SexChrom+Gonad:SexChrom, data=seuratdata$pred)
+#data_g = group_cell(count=seuratdata$count,id=seuratdata$id,pred=df)
+re = nebula(seuratdata$count, seuratdata$id, pred=df, ncore=1)
+re_fcg <- re
+
+#save(re, file = file.path(data.dir, "Results/NEBULA_DEG/FCG_Neuron.rds"))
+
+##Dose
+subset <- subset(seurat, cell.type == currentcell)
+subset@meta.data <- subset@meta.data %>%
+    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX", "XYY", "XXY")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")))
+seuratdata <- scToNeb(obj = subset, assay = "RNA", id = "data.sampleName", pred = c("Gonad", "Xdose_cont", "Ydose_cont"), offset = "nCount_RNA")
+df <- model.matrix(~Gonad + Xdose_cont + Ydose_cont, data = seuratdata$pred)
+re = nebula(seuratdata$count, seuratdata$id, pred=df, ncore=1)
+re_dose <- re
+
+#save(re, file = file.path(data.dir, "Results/NEBULA_DEG/Dose_Neuron.rds"))
+
+##Dose Factor
+subset <- subset(seurat, cell.type == currentcell)
+subset@meta.data <- subset@meta.data %>%
+    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX", "XYY", "XXY")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")))
+seuratdata <- scToNeb(obj = subset, assay = "RNA", id = "data.sampleName", pred = c("Gonad", "Xdose_cont", "Ydose"), offset = "nCount_RNA")
+df <- model.matrix(~Gonad + Xdose_cont + Ydose, data = seuratdata$pred)
+re = nebula(seuratdata$count, seuratdata$id, pred=df, ncore=1)
+re_dose_factor <- re
+
+#save(re, file = file.path(data.dir, "Results/NEBULA_DEG/Dose_Factor_Neuron.rds"))
+
+##Aneuploidy
+subset <- subset(seurat, cell.type == currentcell)
+subset@meta.data <- subset@meta.data %>%
+    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX", "XYY", "XXY")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")),
+                Trisomy = factor(Trisomy, levels = c("Non-Trisomy", "Trisomy")))
+seuratdata <- scToNeb(obj = subset, assay = "RNA", id = "data.sampleName", pred = c("Gonad", "base_SexChrom", "Trisomy"), offset = "nCount_RNA")
+df <- model.matrix(~Gonad + base_SexChrom + Trisomy, data = seuratdata$pred)
+re = nebula(seuratdata$count, seuratdata$id, pred=df, ncore=1)
+re_aneuploidy <- re
+
+##Quadratic
+subset <- subset(seurat, cell.type == currentcell)
+subset@meta.data <- subset@meta.data %>%
+    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX", "XYY", "XXY")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")),
+                Trisomy = factor(Trisomy, levels = c("Non-Trisomy", "Trisomy")))
+seuratdata <- scToNeb(obj = subset, assay = "RNA", id = "data.sampleName", pred = c("Gonad", "Xdose_cont", "Ydose_cont"), offset = "nCount_RNA")
+df <- model.matrix(~Gonad + Xdose_cont + poly(Ydose_cont, degree = 2), data = seuratdata$pred)
+re = nebula(seuratdata$count, seuratdata$id, pred=df, ncore=1)
+re_quad <- re
+
+#save(re_aneuploidy, file = file.path(data.dir, "Results/NEBULA_DEG/Aneuploidy_Neuron.rda"))
+
+save(re_normative, re_fcg, re_dose, re_dose_factor, re_aneuploidy, file = file.path(data.dir, "Results/NEBULA_DEG/Neuron.rda"))
+```
+
+```{r}
+##Visualization (volcano plot)
+load(file = file.path(data.dir, "Results/NEBULA_DEG/Neuron.rda"))
+
+normative_results <- data.frame(re_normative$summary$logFC_GenotypeXXF, re_normative$summary$p_GenotypeXXF, re_normative$summary$gene)
+rownames(normative_results) <- normative_results[,3]
+normative_results <- normative_results[, -3]
+colnames(normative_results) <- c("logFC", "raw_pVal")
+normative_results$adj.P.Val <- p.adjust(normative_results$raw_pVal, method = "BH", n = nrow(normative_results))
+
+nrow(normative_results[normative_results$adj.P.Val < 0.05, ]) ##1290 
+
+plot <- EnhancedVolcano::EnhancedVolcano(normative_results, 
+                                 lab = rownames(normative_results),
+                                 x = 'logFC',
+                                 y = 'adj.P.Val',
+                                 subtitle = "Normative",
+                                 pCutoff = 0.001,
+                                 FCcutoff = 0.5,
+                                 titleLabSize = 14,
+                                 title = currentcell,
+                                 drawConnectors = TRUE
+                                 )
+
+pdf("Plots/NEBULA_DEG/volcano/normative.pdf", width = 5, height = 6)
+print(ggarrange(plot, ncol = 1, nrow = 1))
+dev.off()
+
+fcg_results <- list()
+fcg_results[["GonadFemale"]] <- re_fcg$summary %>% 
+  dplyr::select(logFC_GonadFemale, p_GonadFemale, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_GonadFemale, method = "BH", n = nrow(re_fcg$summary)),
+                comparison = "O_vs_T") %>%
+  dplyr::rename(logFC = logFC_GonadFemale,
+                raw_pVal = p_GonadFemale)
+fcg_results[["SexChromXX"]] <- re_fcg$summary %>% 
+  dplyr::select(logFC_SexChromXX, p_SexChromXX, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_SexChromXX, method = "BH", n = nrow(re_fcg$summary)),
+                comparison = "XX_vs_XY") %>%
+  dplyr::rename(logFC = logFC_SexChromXX,
+                raw_pVal = p_SexChromXX)
+fcg_results[["GonadFemale:SexChromXX"]] <- re_fcg$summary %>% 
+  dplyr::select(`logFC_GonadFemale:SexChromXX`, `p_GonadFemale:SexChromXX`, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(`p_GonadFemale:SexChromXX`, method = "BH", n = nrow(re_fcg$summary)),
+                comparison = "GonadFemale:SexChromXX") %>%
+  dplyr::rename(logFC = `logFC_GonadFemale:SexChromXX`,
+                raw_pVal = `p_GonadFemale:SexChromXX`)
+
+lapply(fcg_results, function(x) {
+  
+  nrow(x[x$adj.P.Val < 0.05, ])
+  
+})
+
+plot_list <- list()
+plot_list <- lapply(fcg_results, function(x) {
+  EnhancedVolcano::EnhancedVolcano(x,
+                  lab = x$gene,
+                  x = 'logFC',
+                  y = 'adj.P.Val',
+                  pCutoff = 0.05,
+                  subtitle = x$comparison,
+                  titleLabSize = 14,
+                  title = currentcell,
+                  drawConnectors = TRUE)
+})
+
+pdf("Plots/NEBULA_DEG/volcano/FCG.pdf", width = 15, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+dose_results <- list()
+dose_results[["GonadFemale"]] <- re_dose$summary %>% 
+  dplyr::select(logFC_GonadFemale, p_GonadFemale, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_GonadFemale, method = "BH", n = nrow(re_dose$summary)),
+                comparison = "O_vs_T") %>%
+  dplyr::rename(logFC = logFC_GonadFemale,
+                raw_pVal = p_GonadFemale)
+dose_results[["Xdose"]] <- re_dose$summary %>% 
+  dplyr::select(logFC_Xdose_cont, p_Xdose_cont, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_Xdose_cont, method = "BH", n = nrow(re_dose$summary)),
+                comparison = "Xdose") %>%
+  dplyr::rename(logFC = logFC_Xdose_cont,
+                raw_pVal = p_Xdose_cont)
+dose_results[["Ydose"]] <- re_dose$summary %>% 
+  dplyr::select(logFC_Ydose_cont, p_Ydose_cont, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_Ydose_cont, method = "BH", n = nrow(re_dose$summary)),
+                comparison = "Ydose") %>%
+  dplyr::rename(logFC = logFC_Ydose_cont,
+                raw_pVal = p_Ydose_cont)
+
+lapply(dose_results, function(x) {
+  
+  nrow(x[x$adj.P.Val < 0.05, ])
+  
+})
+
+plot_list <- lapply(dose_results, function(x) {
+  EnhancedVolcano::EnhancedVolcano(x,
+                  lab = x$gene,
+                  x = 'logFC',
+                  y = 'adj.P.Val',
+                  pCutoff = 0.05,
+                  subtitle = x$comparison,
+                  titleLabSize = 14,
+                  title = currentcell,
+                  drawConnectors = TRUE)
+})
+
+pdf("Plots/NEBULA_DEG/volcano/Dose.pdf", width = 15, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+
+dose_factor_results <- list()
+dose_factor_results[["GonadFemale"]] <- re_dose_factor$summary %>% 
+  dplyr::select(logFC_GonadFemale, p_GonadFemale, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_GonadFemale, method = "BH", n = nrow(re_dose_factor$summary)),
+                comparison = "O_vs_T") %>%
+  dplyr::rename(logFC = logFC_GonadFemale,
+                raw_pVal = p_GonadFemale)
+dose_factor_results[["Xdose"]] <- re_dose_factor$summary %>% 
+  dplyr::select(logFC_Xdose_cont, p_Xdose_cont, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_Xdose_cont, method = "BH", n = nrow(re_dose_factor$summary)),
+                comparison = "Xdose") %>%
+  dplyr::rename(logFC = logFC_Xdose_cont,
+                raw_pVal = p_Xdose_cont)
+dose_factor_results[["Ydose1"]] <- re_dose_factor$summary %>% 
+  dplyr::select(logFC_Ydose1, p_Ydose1, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_Ydose1, method = "BH", n = nrow(re_dose_factor$summary)),
+                comparison = "Ydose1_vs_0") %>%
+  dplyr::rename(logFC = logFC_Ydose1,
+                raw_pVal = p_Ydose1)
+dose_factor_results[["Ydose2"]] <- re_dose_factor$summary %>% 
+  dplyr::select(logFC_Ydose2, p_Ydose2, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_Ydose2, method = "BH", n = nrow(re_dose_factor$summary)),
+                comparison = "Ydose2_vs_0") %>%
+  dplyr::rename(logFC = logFC_Ydose2,
+                raw_pVal = p_Ydose2)
+
+lapply(dose_factor_results, function(x) {
+  
+  nrow(x[x$adj.P.Val < 0.05, ])
+  
+})
+
+plot_list <- lapply(dose_factor_results, function(x) {
+  EnhancedVolcano::EnhancedVolcano(x,
+                  lab = x$gene,
+                  x = 'logFC',
+                  y = 'adj.P.Val',
+                  pCutoff = 0.05,
+                  subtitle = x$comparison,
+                  titleLabSize = 14,
+                  title = currentcell,
+                  drawConnectors = TRUE)
+})
+
+pdf("Plots/NEBULA_DEG/volcano/Dose_factor.pdf", width = 18, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 1))
+dev.off()
+
+aneuploidy_results <- list()
+aneuploidy_results[["GonadFemale"]] <- re_aneuploidy$summary %>% 
+  dplyr::select(logFC_GonadFemale, p_GonadFemale, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_GonadFemale, method = "BH", n = nrow(re_aneuploidy$summary)),
+                comparison = "O_vs_T") %>%
+  dplyr::rename(logFC = logFC_GonadFemale,
+                raw_pVal = p_GonadFemale)
+aneuploidy_results[["XX_vs_XY"]] <- re_aneuploidy$summary %>% 
+  dplyr::select(logFC_base_SexChromXX, p_base_SexChromXX, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_base_SexChromXX, method = "BH", n = nrow(re_aneuploidy$summary)),
+                comparison = "XX_vs_XY") %>%
+  dplyr::rename(logFC = logFC_base_SexChromXX,
+                raw_pVal = p_base_SexChromXX)
+aneuploidy_results[["Aneuploidy"]] <- re_aneuploidy$summary %>% 
+  dplyr::select(logFC_TrisomyTrisomy, p_TrisomyTrisomy, gene) %>%
+  dplyr::mutate(adj.P.Val = p.adjust(p_TrisomyTrisomy, method = "BH", n = nrow(re_aneuploidy$summary)),
+                comparison = "Aneuploidy") %>%
+  dplyr::rename(logFC = logFC_TrisomyTrisomy,
+                raw_pVal = p_TrisomyTrisomy)
+
+lapply(aneuploidy_results, function(x) {
+  
+  nrow(x[x$adj.P.Val < 0.05, ])
+  
+})
+
+plot_list <- lapply(aneuploidy_results, function(x) {
+  EnhancedVolcano::EnhancedVolcano(x,
+                  lab = x$gene,
+                  x = 'logFC',
+                  y = 'adj.P.Val',
+                  subtitle = x$comparison,
+                  pCutoff = 0.05,
+                  titleLabSize = 14,
+                  title = currentcell,
+                  drawConnectors = TRUE)
+})
+
+pdf("Plots/NEBULA_DEG/volcano/Aneuploidy.pdf", width = 15, height = 6)
+print(ggarrange(plotlist = plot_list, ncol = 3, nrow = 1))
+dev.off()
+```
+
+```{r}
+normative_results <- normative_results %>% 
+  dplyr::mutate(model = "Normative",
+                comparison = "XXF_vs_XYM") %>%
+  tibble::rownames_to_column(var = "gene")
+  
+
+for(i in seq_along(fcg_results)) {
+  
+  fcg_results[[i]]$model <- "FCG"
+  fcg_results[[i]] <- fcg_results[[i]] %>% dplyr::select(gene, logFC, raw_pVal, adj.P.Val, model, comparison)
+  
+}
+for(i in seq_along(dose_results)) {
+  
+  dose_results[[i]]$model <- "Dose"
+  dose_results[[i]] <- dose_results[[i]] %>% dplyr::select(gene, logFC, raw_pVal, adj.P.Val, model, comparison)
+  
+}
+for(i in seq_along(dose_factor_results)) {
+  
+  dose_factor_results[[i]]$model <- "Dose_Factor"
+  dose_factor_results[[i]] <- dose_factor_results[[i]] %>% dplyr::select(gene, logFC, raw_pVal, adj.P.Val, model, comparison)
+  
+}
+for(i in seq_along(aneuploidy_results)) {
+  
+  aneuploidy_results[[i]]$model <- "Aneuploidy"
+  aneuploidy_results[[i]] <- aneuploidy_results[[i]] %>% dplyr::select(gene, logFC, raw_pVal, adj.P.Val, model, comparison)
+  
+}
+
+run_elbow <- function(x, set_vars) {
+  
+  DEG_df <- do.call("rbind", x) %>% rbind(normative_results)
+  rownames(DEG_df) <- NULL 
+  currentcell <- "Neuron"
+  
+  gene_list <- DEG_df %>% dplyr::filter(adj.P.Val < 0.05) %>% dplyr::select(gene, comparison)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$comparison))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+  #set_vars <- c("Ovary:SexChromXX", "XX_vs_XY", "Ovary_vs_Testis", "XXF_vs_XYM")
+  gene_list <- gene_list %>% dplyr::select(Var1, all_of(set_vars))
+  
+  ComplexUpset::upset(gene_list, names(gene_list)[-1], sort_sets = FALSE, sort_intersections = FALSE, name = currentcell)
+}
+
+plot_list <- list()
+plot_list[[1]] <- run_elbow(fcg_results, c("GonadFemale:SexChromXX", "XX_vs_XY", "O_vs_T", "XXF_vs_XYM"))
+plot_list[[2]] <- run_elbow(dose_results, c("Ydose", "Xdose", "O_vs_T", "XXF_vs_XYM"))
+plot_list[[3]] <- run_elbow(dose_factor_results, c("Ydose2_vs_0", "Ydose1_vs_0", "Xdose", "O_vs_T", "XXF_vs_XYM"))
+plot_list[[4]] <- run_elbow(aneuploidy_results, c("Aneuploidy", "XX_vs_XY", "O_vs_T", "XXF_vs_XYM"))
+
+pdf("Plots/NEBULA_DEG/elbow_celltype/Neuron.pdf", width = 20, height = 12)
+ggarrange(plotlist = plot_list, ncol = 2, nrow = 2)
+dev.off()
+
+```
+
+```{r}
+
+run_nebula <- function(x, vars, design, ct) {
+  
+  subset <- subset(x, cell.type == ct)
+  subset@meta.data <- subset@meta.data %>%
+    dplyr::mutate(Genotype = factor(Genotype, levels = c("XYM", "XYF", "XXM", "XXF", "XYYM", "XYYF", "XXYM", "XXYF")),
+                SexChrom = factor(SexChrom, levels = c("XY", "XX", "XYY", "XXY")),
+                Gonad = factor(Gonad, levels = c("Male", "Female")))
+  seuratdata <- scToNeb(obj = subset, assay = "RNA", id = "data.sampleName", pred = vars, offset = "nCount_RNA")
+  df <- model.matrix()
+  
+  
+  
+} ##WIP 
+
+
+
+```

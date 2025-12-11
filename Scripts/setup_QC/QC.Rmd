@@ -1,0 +1,90 @@
+---
+title: "QC"
+output: html_document
+date: "2024-04-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_sepum_sct")
+
+library(Seurat)
+library(stringr)
+library(readxl)
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readr)
+#library(multtest)
+#library(mutoss)
+#library(metap)
+library(purrr)
+#library(SoupX)
+library(hdf5r)
+library(ggpubr)
+library(RSpectra)
+library(DropletUtils)
+library(BiocParallel)
+library(DoubletFinder)
+library(harmony)
+
+```
+
+```{r}
+#check original object 
+load(file = "~/project-xyang123/medial_septum_sct/Data/Derived/metadata.Rda")
+
+## integrate with standard workflow by sequencing date
+original <- readRDS("~/scratch/medial_septum_sct/Saves/original/For_Figures_clustered.rds")
+sample_metadata <- original@meta.data
+
+cell_ids <- rownames(sample_metadata)
+sample_metadata$orig.ident <- gsub("XY-", "", sample_metadata$orig.ident)
+technical_metadata <- technical_metadata %>% group_by(Genotype) %>% mutate(id = row_number())
+sample_metadata <- sample_metadata %>%
+  left_join(., technical_metadata, by = c("orig.ident" = "Sample_ID"))
+rownames(sample_metadata) <- cell_ids
+sample_metadata$sample2 <- paste0(sample_metadata$Genotype.x, sample_metadata$id)
+
+original$Sequencing_Date <- sample_metadata$Sequencing_Date
+original$Library_Prep <- sample_metadata$Library_Prep
+original$Sample2 <- sample_metadata$sample2
+
+DimPlot(original, group.by = c("Sequencing_Date", "Library_Prep"))
+ggsave(filename = "~/project-xyang123/medial_septum_sct/Plots/Caden/UMAP/UMAP_techvars.pdf", plot = last_plot(), width = 12, height = 5)
+
+DimPlot(original, group.by = c("orig.ident"))
+ggsave(filename = "~/project-xyang123/medial_septum_sct/Plots/Caden/UMAP/UMAP_sample.pdf", plot = last_plot(), width = 6, height = 5)
+
+original$Sequencing_Date <- factor(original$Sequencing_Date)
+plot_list <- list()
+for(i in 1:nlevels(original$Sequencing_Date)) {
+  
+  currentdate <- levels(original$Sequencing_Date)[i]
+  subset <- subset(original, Sequencing_Date == currentdate)
+  
+  plot <- DimPlot(subset, split.by = "Sample2", ncol = 7) + ggtitle(currentdate)
+  plot_list[[currentdate]] <- plot
+}
+
+pdf("~/project-xyang123/medial_septum_sct/Plots/Caden/UMAP/UMAP_SequencingDate_Samples.pdf", width = 20, height = 20)
+ggarrange(plotlist = plot_list, nrow = 6, ncol = 1)
+dev.off()
+
+original$Genotype <- factor(original$Genotype)
+plot_list <- list()
+for(i in 1:nlevels(original$Genotype)) {
+  
+  currentgt <- levels(original$Genotype)[i]
+  subset <- subset(original, Genotype == currentgt)
+  
+  plot <- DimPlot(subset, split.by = "Sample2") + ggtitle(currentgt)
+  plot_list[[currentgt]] <- plot
+}
+
+pdf("~/project-xyang123/medial_septum_sct/Plots/Caden/UMAP/UMAP_Genotype_Samples.pdf", width = 12, height = 25)
+ggarrange(plotlist = plot_list, nrow = 8, ncol = 1)
+dev.off()
+
+
+```

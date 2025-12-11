@@ -1,0 +1,1051 @@
+Job 2520023 started on:  n7677
+Job 2520023 started on:  Wed Apr 3 18:12:49 PDT 2024
+ 
+cellbender:remove-background: Command:
+cellbender remove-background --input /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-1/outs/raw_feature_bc_matrix.h5 --output /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Cellbender_counts/TriSeptum-1/TriSeptum-1.h5
+cellbender:remove-background: CellBender 0.3.0
+cellbender:remove-background: (Workflow hash f8779a37f6)
+cellbender:remove-background: 2024-04-03 18:12:56
+cellbender:remove-background: Running remove-background
+cellbender:remove-background: Loading data from /u/home/j/jshin/scratch/medial_septum_sct/Data/Raw/Counts/TriSeptum-1/outs/raw_feature_bc_matrix.h5
+cellbender:remove-background: CellRanger v3 format
+cellbender:remove-background: Features in dataset: 31053 Gene Expression
+cellbender:remove-background: Trimming features for inference.
+cellbender:remove-background: 25021 features have nonzero counts.
+cellbender:remove-background: Prior on counts for cells is 8566
+cellbender:remove-background: Prior on counts for empty droplets is 727
+cellbender:remove-background: Excluding 6064 features that are estimated to have <= 0.1 background counts in cells.
+cellbender:remove-background: Including 18957 features in the analysis.
+cellbender:remove-background: Trimming barcodes for inference.
+cellbender:remove-background: Excluding barcodes with counts below 363
+cellbender:remove-background: Using 3758 probable cell barcodes, plus an additional 14059 barcodes, and 52163 empty droplets.
+cellbender:remove-background: Largest surely-empty droplet has 982 UMI counts.
+cellbender:remove-background: Attempting to unpack tarball "ckpt.tar.gz" to /work/2520023.1.xyang123_pod.q/tmpv56dsg2g
+cellbender:remove-background: No saved checkpoint.
+cellbender:remove-background: No checkpoint loaded.
+cellbender:remove-background: Running inference...
+cellbender:remove-background: [epoch 001]  average training loss: 8528.6818
+cellbender:remove-background: [epoch 002]  average training loss: 7352.8059  (305.1 seconds per epoch)
+cellbender:remove-background: Will checkpoint every 2 epochs
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 003]  average training loss: 6508.4445
+cellbender:remove-background: [epoch 004]  average training loss: 6064.9200
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 005]  average training loss: 5834.3126
+cellbender:remove-background: [epoch 005] average test loss: 5822.5301
+cellbender:remove-background: [epoch 006]  average training loss: 5736.3815
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 007]  average training loss: 5730.3049
+cellbender:remove-background: [epoch 008]  average training loss: 5703.4538
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 009]  average training loss: 5687.7856
+cellbender:remove-background: [epoch 010]  average training loss: 5673.4462
+cellbender:remove-background: [epoch 010] average test loss: 5702.6551
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 011]  average training loss: 5655.6181
+cellbender:remove-background: [epoch 012]  average training loss: 5665.2240
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 013]  average training loss: 5637.7728
+cellbender:remove-background: [epoch 014]  average training loss: 5625.4465
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 015]  average training loss: 5626.6083
+cellbender:remove-background: [epoch 015] average test loss: 5617.5516
+cellbender:remove-background: [epoch 016]  average training loss: 5606.5023
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 017]  average training loss: 5574.9470
+cellbender:remove-background: [epoch 018]  average training loss: 5572.7327
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 019]  average training loss: 5598.7656
+cellbender:remove-background: [epoch 020]  average training loss: 5618.0883
+cellbender:remove-background: [epoch 020] average test loss: 5664.9403
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 021]  average training loss: 5603.9226
+cellbender:remove-background: [epoch 022]  average training loss: 5578.5310
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 023]  average training loss: 5563.2732
+cellbender:remove-background: [epoch 024]  average training loss: 5583.1292
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 025]  average training loss: 5580.1024
+cellbender:remove-background: [epoch 025] average test loss: 5559.7824
+cellbender:remove-background: [epoch 026]  average training loss: 5550.7309
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 027]  average training loss: 5550.7588
+cellbender:remove-background: [epoch 028]  average training loss: 5548.0282
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 029]  average training loss: 5537.4115
+cellbender:remove-background: [epoch 030]  average training loss: 5531.2409
+cellbender:remove-background: [epoch 030] average test loss: 5550.7456
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 031]  average training loss: 5526.0920
+cellbender:remove-background: [epoch 032]  average training loss: 5514.8440
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 033]  average training loss: 5512.7616
+cellbender:remove-background: [epoch 034]  average training loss: 5509.6386
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 035]  average training loss: 5509.2102
+cellbender:remove-background: [epoch 035] average test loss: 5511.7744
+cellbender:remove-background: [epoch 036]  average training loss: 5499.0236
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 037]  average training loss: 5508.3535
+cellbender:remove-background: [epoch 038]  average training loss: 5497.5736
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 039]  average training loss: 5503.7922
+cellbender:remove-background: [epoch 040]  average training loss: 5506.1253
+cellbender:remove-background: [epoch 040] average test loss: 5517.6821
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 041]  average training loss: 5505.7831
+cellbender:remove-background: [epoch 042]  average training loss: 5508.9581
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 043]  average training loss: 5514.0928
+cellbender:remove-background: [epoch 044]  average training loss: 5517.4931
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 045]  average training loss: 5509.3014
+cellbender:remove-background: [epoch 045] average test loss: 5489.8556
+cellbender:remove-background: [epoch 046]  average training loss: 5506.3605
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 047]  average training loss: 5506.5556
+cellbender:remove-background: [epoch 048]  average training loss: 5512.2153
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 049]  average training loss: 5519.1612
+cellbender:remove-background: [epoch 050]  average training loss: 5521.2660
+cellbender:remove-background: [epoch 050] average test loss: 5489.1887
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 051]  average training loss: 5525.3115
+cellbender:remove-background: [epoch 052]  average training loss: 5530.1163
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 053]  average training loss: 5549.9623
+cellbender:remove-background: [epoch 054]  average training loss: 5600.9511
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 055]  average training loss: 5608.9958
+cellbender:remove-background: [epoch 055] average test loss: 5606.3821
+cellbender:remove-background: [epoch 056]  average training loss: 5611.0487
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 057]  average training loss: 5604.2303
+cellbender:remove-background: [epoch 058]  average training loss: 5617.2186
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 059]  average training loss: 5613.2314
+cellbender:remove-background: [epoch 060]  average training loss: 5608.1696
+cellbender:remove-background: [epoch 060] average test loss: 5611.2423
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 061]  average training loss: 5612.0248
+cellbender:remove-background: [epoch 062]  average training loss: 5622.9038
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 063]  average training loss: 5624.0731
+cellbender:remove-background: [epoch 064]  average training loss: 5620.3706
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 065]  average training loss: 5620.6680
+cellbender:remove-background: [epoch 065] average test loss: 5603.8732
+cellbender:remove-background: [epoch 066]  average training loss: 5623.0190
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 067]  average training loss: 5616.4107
+cellbender:remove-background: [epoch 068]  average training loss: 5622.8474
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 069]  average training loss: 5609.7638
+cellbender:remove-background: [epoch 070]  average training loss: 5615.2935
+cellbender:remove-background: [epoch 070] average test loss: 5632.2540
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 071]  average training loss: 5617.5168
+cellbender:remove-background: [epoch 072]  average training loss: 5606.2253
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 073]  average training loss: 5615.9239
+cellbender:remove-background: [epoch 074]  average training loss: 5625.5609
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 075]  average training loss: 5613.8577
+cellbender:remove-background: [epoch 075] average test loss: 5669.6019
+cellbender:remove-background: [epoch 076]  average training loss: 5622.0140
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 077]  average training loss: 5613.5512
+cellbender:remove-background: [epoch 078]  average training loss: 5617.2377
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 079]  average training loss: 5628.1534
+cellbender:remove-background: [epoch 080]  average training loss: 5611.3931
+cellbender:remove-background: [epoch 080] average test loss: 5637.9438
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 081]  average training loss: 5619.5498
+cellbender:remove-background: [epoch 082]  average training loss: 5648.1178
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 083]  average training loss: 5610.5311
+cellbender:remove-background: [epoch 084]  average training loss: 5613.1807
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 085]  average training loss: 5610.0341
+cellbender:remove-background: [epoch 085] average test loss: 5652.9688
+cellbender:remove-background: [epoch 086]  average training loss: 5610.7267
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 087]  average training loss: 5639.0648
+cellbender:remove-background: [epoch 088]  average training loss: 5621.2354
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 089]  average training loss: 5624.3965
+cellbender:remove-background: [epoch 090]  average training loss: 5619.1397
+cellbender:remove-background: [epoch 090] average test loss: 5677.6921
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 091]  average training loss: 5606.6212
+cellbender:remove-background: [epoch 092]  average training loss: 5612.4934
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 093]  average training loss: 5612.5557
+cellbender:remove-background: [epoch 094]  average training loss: 5605.7856
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 095]  average training loss: 5614.9481
+cellbender:remove-background: [epoch 095] average test loss: 5684.8995
+cellbender:remove-background: [epoch 096]  average training loss: 5635.6392
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 097]  average training loss: 5604.4248
+cellbender:remove-background: [epoch 098]  average training loss: 5605.7802
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 099]  average training loss: 5630.4171
+cellbender:remove-background: [epoch 100]  average training loss: 5614.9943
+cellbender:remove-background: [epoch 100] average test loss: 5657.9766
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 101]  average training loss: 5617.6833
+cellbender:remove-background: [epoch 102]  average training loss: 5623.4683
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 103]  average training loss: 5622.6624
+cellbender:remove-background: [epoch 104]  average training loss: 5614.3937
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 105]  average training loss: 5616.6798
+cellbender:remove-background: [epoch 105] average test loss: 5631.4417
+cellbender:remove-background: [epoch 106]  average training loss: 5609.1324
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 107]  average training loss: 5610.3939
+cellbender:remove-background: [epoch 108]  average training loss: 5615.1350
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 109]  average training loss: 5611.3137
+cellbender:remove-background: [epoch 110]  average training loss: 5609.6264
+cellbender:remove-background: [epoch 110] average test loss: 5630.0365
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 111]  average training loss: 5602.4830
+cellbender:remove-background: [epoch 112]  average training loss: 5610.6082
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 113]  average training loss: 5601.3703
+cellbender:remove-background: [epoch 114]  average training loss: 5611.2658
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 115]  average training loss: 5623.0500
+cellbender:remove-background: [epoch 115] average test loss: 5642.8400
+cellbender:remove-background: [epoch 116]  average training loss: 5614.6600
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 117]  average training loss: 5626.9774
+cellbender:remove-background: [epoch 118]  average training loss: 5620.8853
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 119]  average training loss: 5615.8274
+cellbender:remove-background: [epoch 120]  average training loss: 5603.7350
+cellbender:remove-background: [epoch 120] average test loss: 5631.1629
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 121]  average training loss: 5602.1831
+cellbender:remove-background: [epoch 122]  average training loss: 5603.2328
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 123]  average training loss: 5612.7644
+cellbender:remove-background: [epoch 124]  average training loss: 5600.9176
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 125]  average training loss: 5609.6225
+cellbender:remove-background: [epoch 125] average test loss: 5634.3686
+cellbender:remove-background: [epoch 126]  average training loss: 5601.3591
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 127]  average training loss: 5603.8312
+cellbender:remove-background: [epoch 128]  average training loss: 5604.5293
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 129]  average training loss: 5602.2995
+cellbender:remove-background: [epoch 130]  average training loss: 5607.3904
+cellbender:remove-background: [epoch 130] average test loss: 5647.8465
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 131]  average training loss: 5609.3425
+cellbender:remove-background: [epoch 132]  average training loss: 5608.7764
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 133]  average training loss: 5625.0712
+cellbender:remove-background: [epoch 134]  average training loss: 5604.9942
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 135]  average training loss: 5594.9475
+cellbender:remove-background: [epoch 135] average test loss: 5654.5783
+cellbender:remove-background: [epoch 136]  average training loss: 5624.3837
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 137]  average training loss: 5611.4877
+cellbender:remove-background: [epoch 138]  average training loss: 5608.1323
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 139]  average training loss: 5616.4644
+cellbender:remove-background: [epoch 140]  average training loss: 5613.0106
+cellbender:remove-background: [epoch 140] average test loss: 5652.7090
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 141]  average training loss: 5598.6188
+cellbender:remove-background: [epoch 142]  average training loss: 5613.9600
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 143]  average training loss: 5603.0597
+cellbender:remove-background: [epoch 144]  average training loss: 5603.0187
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 145]  average training loss: 5603.8602
+cellbender:remove-background: [epoch 145] average test loss: 5648.9043
+cellbender:remove-background: [epoch 146]  average training loss: 5604.4334
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 147]  average training loss: 5611.4381
+cellbender:remove-background: [epoch 148]  average training loss: 5604.2250
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: [epoch 149]  average training loss: 5612.4632
+cellbender:remove-background: [epoch 150]  average training loss: 5601.1098
+cellbender:remove-background: [epoch 150] average test loss: 5653.8615
+cellbender:remove-background: Saving a checkpoint...
+cellbender:remove-background: Could not save checkpoint
+cellbender:remove-background: Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/checkpoint.py", line 115, in save_checkpoint
+    torch.save(model_obj, filebase + '_model.torch')
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 629, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/torch/serialization.py", line 841, in _save
+    pickler.dump(obj)
+TypeError: cannot pickle 'weakref' object
+
+cellbender:remove-background: 2024-04-04 04:17:07
+cellbender:remove-background: Inference procedure complete.
+Traceback (most recent call last):
+  File "/u/home/j/jshin/.conda/envs/cellbender/bin/cellbender", line 8, in <module>
+    sys.exit(main())
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/base_cli.py", line 118, in main
+    cli_dict[args.tool].run(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/cli.py", line 185, in run
+    return main(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/cli.py", line 230, in main
+    posterior = run_remove_background(args)
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/run.py", line 104, in run_remove_background
+    posterior = load_or_compute_posterior_and_save(
+  File "/u/home/j/jshin/.conda/envs/cellbender/lib/python3.9/site-packages/cellbender/remove_background/posterior.py", line 59, in load_or_compute_posterior_and_save
+    assert os.path.exists(args.input_checkpoint_tarball), \
+AssertionError: Checkpoint file ckpt.tar.gz does not exist, presumably because saving of the checkpoint file has been manually interrupted. load_or_compute_posterior_and_save() will not work properly without an existing checkpoint file. Please re-run and allow a checkpoint file to be saved.
+Job 2520023 ended on:  n7677
+Job 2520023 ended on:  Thu Apr 4 04:17:09 PDT 2024
+ 

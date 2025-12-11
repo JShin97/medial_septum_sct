@@ -1,0 +1,2252 @@
+---
+title: "DEG visualization for DEG_v2"
+output: html_document
+date: "2024-05-02"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/u/project/xyang123/jshin/medial_septum_sct")
+
+library(data.table)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(ggplot2)
+library(ComplexUpset)
+library(ggpubr)
+library(readxl)
+library(tidytext)
+library(gtools)
+library(GeneOverlap)
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+library(ComplexHeatmap)
+library(circlize)
+library(cowplot)
+library(corrplot)
+library(purrr)
+library(EnhancedVolcano)
+library(metap)
+library(AnnotationHub)
+library(magrittr)
+library(reshape)
+library(nlme)
+library(tibble)
+library(viridis)
+library(emmeans)
+library(broom)
+library(ggrepel)
+library(scales)
+library(patchwork)
+library(openxlsx)
+
+source("/u/project/xyang123/jshin/medial_septum_sct/Scripts/analysis/extra/color_palette.R")
+```
+
+####################################
+## Load in Data 
+####################################
+
+```{r}
+#load(file = "Results/complete_analysis/DEG_processed/DEG_SD_downsample/DEG_df_RNA_SD.rda")
+#load(file = "Results/complete_analysis/DEG_processed/DEG_SD_original/DEG_df_RNA_SD.rda")
+load(file = "Results/complete_analysis/DEG_processed/DEG_SD_metacell_sum_pure/DEG_df_RNA_SD.rda")
+
+gene_annotation <- readRDS("Gene_annotation/gene_annotation.Rds")
+gene_annotation2 <- gene_annotation[!duplicated(gene_annotation$mgi_symbol), c(1:3, 7:9)]
+gene_universe <- read.table("Gene_annotation/gene_universe.txt") %>% unlist(use.names = FALSE)
+
+DEG_df <- DEG_df %>% 
+  mutate(cell_type = replace(cell_type, cell_type == "Inh_IMN", "Inh-IMN")) %>%
+  mutate(cell_type = replace(cell_type, cell_type == "Misc_NT", "Misc-NT")) %>%
+  mutate(cell_type = replace(cell_type, cell_type == "GABA-Chol", "Chol")) %>%
+  mutate(effect = replace(effect, effect == "Gonad", "GE")) %>%
+  mutate(effect = replace(effect, effect == "SexChrom", "SCE")) %>%
+  mutate(effect = replace(effect, effect == "Gonad:SexChrom", "GExSCE")) %>%
+  mutate(effect = replace(effect, effect == "addX", "XCD")) %>%
+  mutate(effect = replace(effect, effect == "addY1", "YCD1")) %>%
+  mutate(effect = replace(effect, effect == "addY2", "YCD2")) %>%
+  dplyr::filter(!cell_type == "Misc-NT") %>% 
+  mutate(cell_type = factor(cell_type, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular")), 
+         effect = factor(effect, levels = c("Normative", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")))
+
+DEG_df_annotated <- left_join(DEG_df, gene_annotation2, by = c("gene"="mgi_symbol"))
+DEG_df_annotated$chromosome_name <- factor(DEG_df_annotated$chromosome_name, levels = c((1:19),"X","Y","MT"))
+
+allcells <- levels(DEG_df$cell_type)
+
+#### make wide dataframe for Armin code
+#add chromosome annotation 
+ah <- AnnotationHub()
+query(ah, c("Mus musculus", "Ensembl", "v97"))
+ensdb <- ah[["AH73905"]]
+columns(ensdb)
+
+gene_info <- ensembldb::select(ensdb,
+                     keys = DEG_df$gene,
+                     keytype = "SYMBOL",
+                     column = c("GENENAME", "ENTREZID", "SEQNAME", "DESCRIPTION"))
+gene_info2 <- ensembldb::select(org.Mm.eg.db, 
+                     keys = DEG_df$gene,
+                     keytype = "SYMBOL", 
+                     column = c("ENSEMBL"))
+gene_info_all <- left_join(gene_info, gene_info2, by = "SYMBOL") %>% unique()
+
+
+DEG_df <-DEG_df %>% dplyr::select(gene, logFC, P.Value, adj.P.Val, cell_type, effect)
+modules <- unique(paste(DEG_df$cell_type, DEG_df$effect, sep = "_"))
+
+ordered_columns <- c("gene", "GENENAME", "CHR", 
+                     unlist(lapply(modules, function(x) c(paste0("logFC_", x), paste0("P.Value_", x), paste0( "adj.P.Val_", x)))))
+par_genes <- c("Mid1", "Erdr1", "Mafl", "Asmtl", "Cd99", "Xg", "Arse", "Sts", "Nlgn4", "Akap17a", "Asmt")
+
+DEG_df_wide <- DEG_df %>%
+  pivot_wider(
+    names_from = c(cell_type, effect),
+    values_from = c(logFC, P.Value, adj.P.Val),
+    names_sep = "_"
+  )
+DEG_df_wide <- DEG_df_wide %>% 
+  left_join(gene_info_all, by = c("gene" = "SYMBOL")) %>% 
+  dplyr::filter(SEQNAME %in% c(as.character(1:19), "MT", "X", "Y")) %>% 
+  dplyr::mutate( PAR = ifelse(gene %in% par_genes, "TRUE", "FALSE")) %>% 
+  dplyr::rename("CHR" = "SEQNAME")
+DEG_df_wide <- DEG_df_wide[ordered_columns] %>% distinct()
+
+DEG_df_long <- DEG_df %>% 
+   left_join(gene_info_all, by = c("gene" = "SYMBOL")) %>% 
+  dplyr::filter(SEQNAME %in% c(as.character(1:19), "MT", "X", "Y")) %>% 
+  dplyr::mutate( PAR = ifelse(gene %in% par_genes, "TRUE", "FALSE")) %>% 
+  dplyr::rename("CHR" = "SEQNAME") %>% 
+  dplyr::select(gene, CHR, logFC, P.Value, adj.P.Val, cell_type, effect) %>% distinct() %>% 
+  dplyr::mutate(Class = ifelse(CHR %in% c("X", "Y"), "Sex Chromosome", "Autosomal"))
+DEG_df_long$CHR <- factor(DEG_df_long$CHR, levels = c((1:19),"X","Y","MT"))
+
+DEG_df_long$effect <- gsub("Normative", "Typical", DEG_df_long$effect)
+
+
+typical_deg <- DEG_df_long %>% dplyr::filter(effect == "Typical") %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::rename(Gene = "gene", 
+                `Cell Type` = "cell_type", 
+                Effect = "effect", 
+                `Genomic Region` = "Class")
+ge_deg <- DEG_df_long %>% dplyr::filter(effect == "GE") %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::rename(Gene = "gene", 
+                `Cell Type` = "cell_type", 
+                Effect = "effect", 
+                `Genomic Region` = "Class")
+sce_deg <- DEG_df_long %>% dplyr::filter(effect == "SCE") %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::rename(Gene = "gene", 
+                `Cell Type` = "cell_type", 
+                Effect = "effect", 
+                `Genomic Region` = "Class")
+gexsce_deg <- DEG_df_long %>% dplyr::filter(effect == "GExSCE") %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::rename(Gene = "gene", 
+                `Cell Type` = "cell_type", 
+                Effect = "effect", 
+                `Genomic Region` = "Class")
+xcd_deg <- DEG_df_long %>% dplyr::filter(effect == "XCD") %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::rename(Gene = "gene", 
+                `Cell Type` = "cell_type", 
+                Effect = "effect", 
+                `Genomic Region` = "Class")
+ycd1_deg <- DEG_df_long %>% dplyr::filter(effect == "YCD1") %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::rename(Gene = "gene", 
+                `Cell Type` = "cell_type", 
+                Effect = "effect", 
+                `Genomic Region` = "Class")
+ycd2_deg <- DEG_df_long %>% dplyr::filter(effect == "YCD2") %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::rename(Gene = "gene", 
+                `Cell Type` = "cell_type", 
+                Effect = "effect", 
+                `Genomic Region` = "Class")
+
+write.xlsx(typical_deg, file = "Plots/Final_Figures/SuppTables/typical_deg.xlsx")
+write.xlsx(ge_deg, file = "Plots/Final_Figures/SuppTables/ge_deg.xlsx")
+write.xlsx(sce_deg, file = "Plots/Final_Figures/SuppTables/sce_deg.xlsx")
+write.xlsx(gexsce_deg, file = "Plots/Final_Figures/SuppTables/gexsce_deg.xlsx")
+write.xlsx(xcd_deg, file = "Plots/Final_Figures/SuppTables/xcd_deg.xlsx")
+write.xlsx(ycd1_deg, file = "Plots/Final_Figures/SuppTables/ycd1_deg.xlsx")
+write.xlsx(ycd2_deg, file = "Plots/Final_Figures/SuppTables/ycd2_deg.xlsx")
+```
+
+####################################
+##Volcano Plots
+####################################
+
+```{r}
+celltypes <- levels(DEG_df$cell_type)
+effect_list <- split.data.frame(DEG_df, f = DEG_df$effect)
+
+effect_plots <- list()
+for(i in 1:length(effect_list)) {
+  
+  effect <- names(effect_list[i])
+  df <- effect_list[[i]]
+  ct_list <- split.data.frame(df, f = df$cell_type)
+  ct_list <- Filter(function(x) nrow(x) > 0, ct_list)
+  
+  ct_plots <- list()
+  for(i in 1:length(ct_list)) {
+    
+    celltype <- names(ct_list[i])
+    ct_df <- ct_list[[i]]
+    
+    plot <- EnhancedVolcano(ct_df,
+        lab = ct_df$gene,
+        x = 'logFC',
+        y = 'adj.P.Val',
+        title = celltype, 
+        pCutoff = 0.05,
+        FCcutoff = 0.1)
+    
+    
+    ct_plots[[celltype]] <- plot
+  }
+  effect_list[[effect]] <- ct_plots
+}
+
+
+png("Plots/DEG/DEG_SD/Volcano/Normative_unfiltered.png", width = 40, height = 12, units = "in", res = 600)
+ggarrange(plotlist = effect_list[["Normative"]], nrow = 2, ncol = 7) 
+dev.off()
+
+png("Plots/DEG/DEG_SD/Volcano/Gonad_unfiltered.png", width = 40, height = 12, units = "in", res = 600)
+ggarrange(plotlist = effect_list[["Gonad"]], nrow = 2, ncol = 7) 
+dev.off()
+
+png("Plots/DEG/DEG_SD/Volcano/SexChrom_unfiltered.png", width = 40, height = 12, units = "in", res = 600)
+ggarrange(plotlist = effect_list[["SexChrom"]], nrow = 2, ncol = 7) 
+dev.off()
+
+png("Plots/DEG/DEG_SD/Volcano/Xdose_unfiltered.png", width = 40, height = 12, units = "in", res = 600)
+ggarrange(plotlist = effect_list[["Xdose"]], nrow = 2, ncol = 7) 
+dev.off()
+
+png("Plots/DEG/DEG_SD/Volcano/Ydose_unfiltered.png", width = 40, height = 12, units = "in", res = 600)
+ggarrange(plotlist = effect_list[["Ydose"]], nrow = 2, ncol = 7) 
+dev.off()
+
+effect_list$addY2
+```
+
+########################################################################
+##Volcano Plots (Normative) -- celltypes merged
+########################################################################
+```{r}
+d <- DEG_df_wide
+
+d$prop.cell.types_normative.DEG <- d %>%
+  dplyr::select(contains("Normative") & contains("adj.P.Val")) %>%
+  rowwise() %>%
+  dplyr::mutate(prop.cell.types_DEG = (sum(c_across(everything()) < 0.05, na.rm = TRUE))/14) %>%
+  ungroup() %>%
+  pull(prop.cell.types_DEG)
+
+d$mean_normative.log10.adj.P.Val <- d %>%
+  dplyr::select(contains("Normative") & contains("adj.P.Val")) %>%
+  rowwise() %>%
+  dplyr::mutate(mean_normative.adj.P.Val = min(c_across(everything()), na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::mutate(mean_normative.adj.P.Val = -log10(mean_normative.adj.P.Val)) %>%
+  dplyr::mutate(mean_normative.adj.P.Val = replace(mean_normative.adj.P.Val, (mean_normative.adj.P.Val=="Inf" | mean_normative.adj.P.Val>100), 100)) %>%
+  pull(mean_normative.adj.P.Val) 
+
+d$mean_normative.logFC <- d %>%
+  dplyr::select(contains("Normative") & contains("logFC")) %>%
+  rowwise() %>%
+  dplyr::mutate(mean_normative.logFC = mean(c_across(everything()), na.rm = TRUE)) %>%
+  ungroup() %>%
+  pull(mean_normative.logFC)
+
+d_for.plot <- d %>%
+  dplyr::select(colnames(.)[1:6], "prop.cell.types_normative.DEG", "mean_normative.logFC", "mean_normative.log10.adj.P.Val") %>% 
+  dplyr::mutate(compartment = as.character(fct_other(CHR, keep=c("X", "Y"), other_level = "AUT"))) %>%
+  dplyr::filter(!prop.cell.types_normative.DEG==0)
+
+#label_data <- d_for.plot %>% dplyr::filter((abs(mean_normative.logFC)>0.25 | mean_normative.log10.adj.P.Val>50 ) & mean_normative.log10.adj.P.Val>5)
+
+#fix Gm47283 info
+d_for.plot[d_for.plot$gene == "Gm47283", "gene"] <- "Gm21887"
+d_for.plot[d_for.plot$gene == "Gm21887", "CHR"] <- "X"
+d_for.plot[d_for.plot$gene == "Gm21887", "compartment"] <- "X"
+
+##only works in local computer for some reason? 
+ggplot() +
+  geom_point(data=d_for.plot, aes(x=mean_normative.logFC, y=mean_normative.log10.adj.P.Val, size=prop.cell.types_normative.DEG, shape=compartment, color=mean_normative.logFC)) +
+  geom_text_repel(data=d_for.plot %>% dplyr::filter((abs(mean_normative.logFC)>0.25 | mean_normative.log10.adj.P.Val>50) & mean_normative.log10.adj.P.Val>5) , 
+                  aes(x=mean_normative.logFC, y=mean_normative.log10.adj.P.Val, label=gene), max.overlaps = 20) +
+  scale_colour_gradient2(low="blue", mid="white", high="red", midpoint=0, limits=c(-.5, .5), breaks=c(-.5, 0, .5), oob=scales::squish) +
+  labs(x = str_wrap("Expression log2 fold change in XY_Testes vs. XX_Ovaries across cell types ", 40), 
+       y = str_wrap("Mean -log10 FDR-adjusted p value across cell types", 40),
+       size = "Prop. of cell types",
+       shape = "Compartment",
+       color = "Mean Normative Log2 FC")
+  # theme(axis.title = element_text(size=26), 
+  #       axis.text = element_text(size=18), 
+  #       legend.title = element_text(size = 20),
+  #       legend.text = element_text(size = 20),
+  #       legend.key.size = unit(1, "cm"),
+  #       legend.key.width = unit(1,"cm")) 
+
+png("Plots/Final_Figures/Dotplot/metacell_normative_volcano.png", width = 9, height = 8, units = "in", res = 1200)
+last_plot()
+dev.off()
+
+DEG_df_annotated %>% dplyr::filter(gene %in% c("Gm47283")) %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::filter(effect == "Normative")
+DEG_df_annotated %>% dplyr::filter(gene %in% c("Gm10800")) %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::filter(effect == "Normative")
+DEG_df_annotated %>% dplyr::filter(gene %in% c("Gm10801")) %>% 
+  dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::filter(effect == "Normative")
+
+```
+########################################################################
+##Dotplot of control genes for Normative Difference 
+########################################################################
+```{r}
+control_genes <- c("Xist", "Ddx3x", "Eif2s3x", "Ddx3y", "Eif2s3y", "Uty", "Kdm6a", "Kdm5d", "Kdm5c")
+DEG_df_long %>% 
+  dplyr::filter(effect == "Normative") %>% 
+  dplyr::filter(gene %in% control_genes) %>% 
+  dplyr::mutate(FDR = -log10(pmax(adj.P.Val, 1e-200))) %>% 
+  ggplot(., aes(x = cell_type, y = gene)) +
+
+  # 1. Add the main scatter plot layer (dots)
+  geom_point(
+    # Map LogFC to fill/color and NegLog10Pval to size
+    aes(fill = logFC, size = FDR),
+    shape = 21, # Shape 21 allows both a border and a fill color
+    color = "black", # Dot border color
+    stroke = 0.5     # Dot border thickness
+  ) +
+
+  # 2. Define the size scale (p-value significance)
+  scale_size_continuous(
+    name = expression(-log[10] * "(adj. P-value)"),
+    range = c(2, 10) # Control the minimum and maximum dot size for visual impact
+  ) +
+
+  # 3. Define the fill color scale (LogFC direction)
+  scale_fill_gradient2(
+    name = "Log2(Fold Change)",
+    low = "blue",      # Color for negative LogFC
+    mid = "white",     # Color for LogFC near zero
+    high = "red",      # Color for positive LogFC
+    midpoint = 0,      # Center the color scale at zero
+    limits = c(-1, 1), # Ensure the scale is symmetrical
+    space = "Lab", 
+    oob = scales::squish
+  ) +
+
+  # 4. Add key labels and axis lines
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  labs(
+    title = "Detection of Sex-linked Genes in Normative Sex Difference",
+    x = expression("Log"[2] * "(Fold Change)"),
+    y = NULL # Remove y-axis label since pathway names are descriptive
+  ) +
+
+  # 5. Apply a clean theme and customize aesthetics
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+    axis.text.y = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 12, angle = 45, hjust = 1),
+    panel.grid.major.y = element_blank(), # Remove horizontal grid lines
+    panel.grid.minor.x = element_blank(),
+    legend.position = "right"
+    #legend.box.background = element_rect(color="gray", linewidth=0.5)
+  )
+
+png("Plots/Final_Figures/Dotplot/metacell_normative_control_genes.png", width = 8, height = 5, units = "in", res = 600)
+last_plot()
+dev.off()
+
+```
+
+####################################
+## Control genes dotplots
+####################################
+```{r}
+library(scales)
+genesofinterest <- c("Xist", "Tsix", "Eif2s3x", "Ddx3x", "Kdm5c", "Kdm6a", "Kdm5d", "Ddx3y", "Eif2s3y", "Uty")
+DEG_df_original <- DEG_df
+
+DEG_df$adj.P.Val <- pmax(DEG_df$adj.P.Val, 1e-200)
+DEG_df_filtered <- DEG_df %>% dplyr::filter(gene %in% genesofinterest) %>% mutate(FDR = -log10(adj.P.Val)) %>% 
+  dplyr::filter(!is.na(FDR)) %>%
+  mutate(effect = factor(effect, levels = c("Normative", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")),
+         cell_type = factor(cell_type, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Misc-NT", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular")),
+         gene = factor(gene, levels = genesofinterest))
+DEG_df_filtered$logFC2 <- DEG_df_filtered$logFC
+
+DEG_df_filtered %>% 
+  #dplyr::filter(effect %in% c("Normative")) %>% 
+  ggplot(., aes(y = gene, x = cell_type)) +
+  geom_tile(fill = "white") +  xlab("")+ylab("")+ ggtitle("Control genes")+      ## to get the rect filled
+  geom_point(aes(colour = logFC2, 
+                 size = FDR))  +  ## geom_point for circle illusion
+  facet_grid(~effect) + 
+  scale_color_gradientn(limits = c(-1.5,1.5), 
+                        oob = scales::squish,
+                        colours  = colorRampPalette(rev(brewer.pal(11,"RdBu")))(40)) + ## color of the corresponding aes      
+  scale_size_continuous(range = c(3, 10)) + ## to tune the size of circles 
+  theme_bw()+theme(axis.text.y = element_text(face = "italic", size = 13),
+                   axis.text.x = element_text(angle = 45, hjust = 1, size = 13),
+                   strip.text.x = element_text(size = 20),
+                   plot.margin = unit(c(0.5,1,0.5,1.3), "cm"))+ guides(colour=guide_legend(title="log2FC"),
+                                                                       size =guide_legend(title="-log10(FDR)"))
+
+pdf("Plots/Final_Figures/Dotplot/metacell_control_genes.pdf", height = 7, width = 20)
+#pdf("Plots/Final_Figures/Dotplot/metacell_normative_control_genes.pdf", height = 7, width = 7)
+last_plot()
+dev.off()
+
+```
+
+
+####################################
+## Count barplots 
+####################################
+
+```{r}
+##Normative count -- limma 
+
+p1 <- DEG_df_long %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & effect == "Typical") %>%
+  dplyr::mutate(sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  dplyr::filter(Var2 == "Typical") %>%
+  mutate(abs_Freq = Freq, 
+         Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = reorder_within(Var1, -abs_Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction")) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30))
+
+# pdf("Plots/DEG_complete/RNA_SD/Barplot/Normative_count.pdf", width = 7, height = 7)
+# last_plot()
+# dev.off()
+
+p2 <- DEG_df_long %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  dplyr::filter(Var2 == "Typical") %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Type")) +
+    scale_fill_manual(values = cell_hex_colors) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30))
+
+p3 <- DEG_df_long %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$Class)} %>%
+  as.data.frame() %>%
+  dplyr::filter(Var2 == "Typical") %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Genomic Region")) +
+    #scale_fill_manual(values = cell_hex_colors) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30))
+
+# pdf("Plots/Final_Figures/DEG/downsample/Normative_count.pdf", width = 14, height = 7)
+# print(p1 + p2)
+# dev.off()
+
+pdf("Plots/Final_Figures/DEG/metacell_sum_pure/Normative_count.pdf", width = 21, height = 7)
+print(p2 + p1 + p3)
+dev.off()
+####################################################################################
+##Normative Count -- MAST
+
+DEG_df %>% filter(effect == "Normative" & comparison1_adjP < 0.05 & abs(comb_log2FC) > 0.1) %>% 
+  mutate(sign = ifelse(comb_log2FC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(Freq = ifelse(Var2 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity", position = "identity") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=.95),
+        text = element_text(size = 14)) +
+  labs(x = NULL) +
+  guides(fill = guide_legend(title = "Direction"))
+
+pdf("Plots/DEG_celltype2_MAST/Barplot/Normative_count.pdf", width = 7, height = 7)
+last_plot()
+dev.off()
+```
+
+```{r}
+##Counts for all Sex Effects - Separate Model 
+p1 <- DEG_df_long %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(effect = factor(effect, levels = c("Typical", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(abs_Freq = Freq, 
+         Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = reorder_within(Var1, -abs_Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction")) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30))
+
+# pdf("Plots/DEG_v2/Barplot/Allsexeffects_count_split_ordered.pdf", width = 23, height = 12)
+# last_plot()
+# dev.off()
+
+p2 <- DEG_df_long %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(effect = factor(effect, levels = c("Typical", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")),
+                 sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Type")) +
+    scale_fill_manual(values = cell_hex_colors) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30))
+
+p3 <- DEG_df_long %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>%
+   dplyr::mutate(effect = factor(effect, levels = c("Typical", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$Class)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Genomic Region")) +
+    #scale_fill_manual(values = cell_hex_colors) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30))
+
+
+# pdf("Plots/DEG_complete/RNA_SD/Barplot/Allsexeffects_count_ordered.pdf", width = 23, height = 24)
+# ggarrange(plotlist = list(p1, p2), nrow = 2)
+# dev.off()
+
+pdf("Plots/Final_Figures/DEG/metacell_sum_pure/Allsexeffects_count_ordered.pdf", width = 25, height = 38)
+ggarrange(plotlist = list(p2, p1, p3), nrow = 3)
+dev.off()
+
+####################################################################################
+##Counts for all Sex Effects - Complete Model 
+p3 <- DEG_df %>% 
+  dplyr::filter(model %in% c("Complete", "Normative")) %>%
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>%
+  dplyr::mutate(comparison = factor(comparison, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "addX", "addY")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$comparison, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(abs_Freq = Freq, 
+         Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = reorder_within(Var1, -abs_Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction")) 
+
+pdf("Plots/DEG_v2/Barplot/Allsexeffects_count_split_ordered.pdf", width = 23, height = 24)
+ggarrange(plotlist = list(p1, p3), nrow = 2)
+dev.off()
+
+p4 <- DEG_df %>% 
+  dplyr::filter(model %in% c("Complete", "Normative")) %>%
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>%
+  dplyr::mutate(comparison = factor(comparison, levels = c("XXF_vs_XYM", "Ovary_vs_Testis", "XX_vs_XY", "addX", "addY")),
+                sign = ifelse(logFC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$comparison)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Type")) 
+
+pdf("Plots/DEG_v2/Barplot/Allsexeffects_count_ordered.pdf", width = 23, height = 24)
+ggarrange(plotlist = list(p2, p4), nrow = 2)
+dev.off()
+
+####################################################################################
+##Counts for all Sex Effects - MAST
+p1 <- DEG_df %>% 
+  dplyr::filter(comparison1_adjP < 0.05 & (comparison2_adjP < 0.05 | is.na(comparison2_adjP)) & abs(comb_log2FC) > 0.1) %>%
+  dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")),
+                sign = ifelse(comb_log2FC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect, .$sign)} %>%
+  as.data.frame() %>%
+  mutate(abs_Freq = Freq, 
+         Freq = ifelse(Var3 == "Down", Freq * (-1), Freq)) %>%
+  ggplot(., aes(x = reorder_within(Var1, -abs_Freq, Var2), y = Freq, fill = Var3)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Direction")) 
+
+p2 <- DEG_df %>% 
+  dplyr::filter(comparison1_adjP < 0.05 & (comparison2_adjP < 0.05 | is.na(comparison2_adjP)) & abs(comb_log2FC) > 0.1) %>%
+  dplyr::mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")),
+                sign = ifelse(comb_log2FC > 0, "Up", "Down")) %>%
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  ggplot(., aes(x = reorder_within(Var1, -Freq, Var2), y = Freq, fill = Var1)) +
+    geom_bar(stat = "identity", position = "identity") +
+    facet_wrap(~Var2, ncol = 11, scales = "free_x") +
+    scale_x_reordered() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 25)) +
+    labs(x = NULL) +
+    guides(fill = guide_legend(title = "Cell Type 2")) 
+
+pdf("Plots/DEG_celltype2_MAST/Barplot/Allsexeffects_count_ordered.pdf", width = 23, height = 24)
+ggarrange(plotlist = list(p1, p2), nrow = 2)
+dev.off()
+```
+
+####################################
+## Proportion barplots
+####################################
+
+```{r}
+sc_seurat <- readRDS(file = "/u/scratch/j/jshin/medial_septum_sct/Saves/MS_cellbender_complete_saves/sum_pure_supercell_seurat_harmony_sampleid_filtered_annotated_unfiltered.Rds")
+
+##Proportion counts
+cluster.set <- unique(sc_seurat$celltype)
+gene.set <- sapply(X = cluster.set, function(c) {
+  cells.c <- WhichCells(object = sc_seurat, expression = celltype == c)
+  nFeature.c <- sum(rowSums(sc_seurat[['RNA']]@counts[, cells.c ]) != 0) ##number of genes with nonzero counts
+  return(nFeature.c)
+})
+#gene.set <- as.data.frame(gene.set) %>% rownames_to_column(var = "Celltype")
+#colnames(gene.set)[2] <- "Count"
+
+gene.set <- as.data.frame(gene.set)
+gene.set$Celltype <- cluster.set
+colnames(gene.set)[1] <- "Count"
+gene.set$Celltype <- gsub("GABA-Chol", "Chol", gene.set$Celltype)
+gene.set$Celltype <- gsub("Inh_IMN", "Inh-IMN", gene.set$Celltype)  
+
+# counts <- read.csv("/u/project/xyang123/jshin/cerebellum_sct/Results/Armin/MS_downsample_celltype_gene_counts.csv")
+# counts <- counts[, c(1,4)]
+# colnames(counts) <- c("Celltype", "Count")
+
+#counts <- read.csv("/u/project/xyang123/jshin/cerebellum_sct/Results/Armin/MS_downsample_celltype_counts.csv") 
+
+DEG_df %>% dplyr::filter(adj.P.Val < 0.05 & abs(logFC) >= 0.1) %>% 
+  {table(.$cell_type, .$effect)} %>%
+  as.data.frame() %>%
+  left_join(gene.set, by = c("Var1" = "Celltype")) %>%
+  mutate(Proportion = Freq / Count,
+         Var2 = factor(Var2, levels = c("Typical", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")), 
+         Var1 = factor(Var1, levels = c("GABA", "Glut", "Chol", "Inh-IMN", "Astrocyte", "Ependymal", "Oligo", "OPC", "Microglia", "Vascular"))) %>%
+ggplot(., aes(x = reorder_within(Var1, -Proportion, Var2), y = Proportion, fill = Var1)) +
+  geom_bar(stat = "identity", position = "identity") +
+  facet_grid(~Var2, scales = "free_x") +
+  scale_x_reordered() +
+  labs(x = NULL) +
+  guides(fill = guide_legend(title = "Cell Type")) +
+  scale_fill_manual(values = cell_hex_colors) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=.95),
+        text = element_text(size = 25))
+
+pdf("Plots/Final_Figures/DEG/metacell_sum_pure/Allsexeffects_prop_ordered.pdf", width = 23, height = 12)
+last_plot()
+dev.off()
+
+# pdf("Plots/Final_Figures/DEG/downsample/Allsexeffects_prop_cellcount_ordered.pdf", width = 23, height = 12)
+# last_plot()
+# dev.off()
+```
+
+####################################
+##Normative diff overlap barplots
+####################################
+
+```{r}
+plot_normative_overlap <- function(DEG_df_long, effects = "all", class = "sex") {
+  
+  # --- 1. Define effects to be used for calculation and plotting ---
+  
+  # Default list of all possible effects
+  all_effects <- c("Normative", "GE", "SCE", "GExSCE", "XCD", "YCD1")
+  
+  # Determine which effects to use for the rowSums/Shared calculation
+  if (length(effects) == 1 && effects == "all") {
+    effects_to_use <- all_effects[all_effects != "Normative"]
+  } else if (all(effects %in% all_effects)) {
+    effects_to_use <- effects
+  } else {
+    stop("Invalid 'effects' parameter. Must be 'all' or one of: Normative, GE, SCE, GExSCE, XCD, YCD1, YCD2")
+  }
+  
+  # --- 2. Filter initial data based on 'class' parameter ---
+  
+  if (class == "autosomal") {
+    # Filter for non-sex, non-mitochondrial chromosomes (Autosomes)
+    DEG_df_filtered <- DEG_df_long %>% 
+      dplyr::filter(!CHR %in% c("X", "Y", "MT"))
+    
+  } else if (class == "sex") {
+    # Filter for sex chromosomes (X and Y)
+    DEG_df_filtered <- DEG_df_long %>% 
+      dplyr::filter(CHR %in% c("X", "Y"))
+      
+  } else if (class == "all") {
+    DEG_df_filtered <- DEG_df_long
+  }
+  
+  # Apply common filters to the already-filtered data
+  DEG_df_filtered <- DEG_df_filtered %>%
+    dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+    dplyr::filter(!effect == "YCD2") %>% 
+    dplyr::select(gene, logFC, P.Value, adj.P.Val, cell_type, effect) %>% 
+    distinct()
+    
+  # --- 3. Initial Wide Transformation and Filtering ---
+  
+  sets <- as.data.frame(table(DEG_df_filtered$gene, DEG_df_filtered$effect, DEG_df_filtered$cell_type)) %>% 
+    pivot_wider(names_from = Var2, values_from = Freq, values_fill = 0) %>% 
+    as.data.frame(check.names = FALSE) %>%
+    
+    # Ensure all required effect columns are present (fill with 0 if gene/cell_type combo is missing)
+    # The columns that exist in 'sets' are filtered against 'all_effects'
+    dplyr::select(Var1, Var3, Normative, all_of(effects_to_use)) %>%
+    
+    # Calculate Normative Overlap filter 
+    dplyr::filter(Normative > 0) %>%
+    
+    # Calculate Shared based on the specified effects_to_use
+    dplyr::rowwise() %>% 
+    dplyr::mutate(Shared = ifelse(sum(c_across(all_of(effects_to_use))) > 1, 1, 0)) %>% 
+    dplyr::ungroup() %>%
+    dplyr::group_by(Var3) %>%
+    dplyr::relocate(Var1, Var3, Normative)
+  
+  # --- 4. Mutually Exclusive Allocation for Non-Normative Effects ---
+  
+  # Effects that will be reset to 0 if 'Shared' is 1.
+  cols_to_reset <- effects_to_use[effects_to_use %in% colnames(sets)]
+  
+  for(col in cols_to_reset) {
+    sets[[col]] <- ifelse(sets$Shared == 1, 0, sets[[col]])
+  }
+  
+  # --- 5. Summarization and Unique Normative Calculation ---
+  
+  sets_summary <- sets %>% 
+    dplyr::summarise(across(where(is.numeric), sum), .groups = 'drop') %>%
+    dplyr::rowwise() %>% 
+    dplyr::mutate(Typical_Unique = Normative - Shared - sum(c_across(all_of(effects_to_use)))) %>%
+    dplyr::ungroup()
+
+  # --- 6. Proportion Calculation and Reshaping ---
+  
+  sets_prop <- sets_summary %>%
+    # Select the columns used for final plotting/proportion
+    # Filter to only include the effects that were actually included in the analysis
+    dplyr::select(Var3, Shared, Typical_Unique, all_of(cols_to_reset[cols_to_reset %in% colnames(.)])) %>%
+    column_to_rownames(var = "Var3")
+  
+  # Calculate proportion relative to the Total Normative genes (sum of all displayed categories)
+  sets_prop <- t(apply(sets_prop, 1, function(row) row / sum(row))) %>% 
+    as.data.frame() %>%
+    rownames_to_column(var = "cell_type")
+  sets_prop <- left_join(sets_prop, sets_summary[, colnames(sets_summary) %in% c("Var3", "Normative")], 
+                         by = c("cell_type" = "Var3")) %>% 
+    dplyr::rename(Normative_Total = "Normative") %>% 
+    dplyr::mutate(cell_type_label = paste0(cell_type, " (", Normative_Total, ")"))
+
+  # Reshape for ggplot
+  sets_prop_long <- sets_prop %>% 
+    pivot_longer(cols = !c(cell_type, cell_type_label), names_to = "Set", values_to = "Proportion")
+    
+  # --- 7. Ordering and Final Plotting ---
+  
+  sets_order <- sets_prop_long %>% 
+    dplyr::filter(Set == "Typical_Unique") %>% 
+    dplyr::arrange(Proportion) %>% 
+    dplyr::pull(cell_type_label)
+    
+  sets_prop_long$cell_type_label <- factor(sets_prop_long$cell_type_label, levels = sets_order)
+  
+  # Order the Sets for the stacked bar plot
+  set_plot_order <- c("Typical_Unique", "Shared", "GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")
+  sets_prop_long$Set <- factor(sets_prop_long$Set, 
+                               levels = set_plot_order[set_plot_order %in% unique(sets_prop_long$Set)])
+
+  # Custom colors (replace with your 'effect_hex_colors' if defined)
+  plot_colors <- effect_hex_colors[names(effect_hex_colors) %in% unique(sets_prop_long$Set)]
+  plot_colors <- c("Typical_Unique" = "#999999", "Shared" = "#1874CD", plot_colors)
+  
+  sets_prop_long <- sets_prop_long %>% 
+    dplyr::filter(Proportion > 0) %>% 
+    dplyr::filter(!is.na(Set))
+  
+  p1 <- ggplot(sets_prop_long, aes(x = cell_type_label, y = Proportion, fill = Set)) +
+    geom_bar(stat = "identity") +
+    labs(x = "", y = "Proportion", fill = "Category") +
+    ggtitle(paste0(str_to_title(class), " - Effects: ", paste(effects_to_use, collapse = ", "))) + 
+    theme(
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0.95), 
+      #plot.title = element_text(size = 35)
+      text = element_text(size = 30)
+    ) +
+    scale_fill_manual(values = plot_colors)
+  
+  return(p1)
+}
+
+p1 <- plot_normative_overlap(DEG_df_long, effect = c("GE", "SCE", "GExSCE"), class = "all")
+p2 <- plot_normative_overlap(DEG_df_long, effect = "all", class = "all")
+p3 <- plot_normative_overlap(DEG_df_long, effect = c("GE", "SCE", "GExSCE"), class = "sex")
+p4 <- plot_normative_overlap(DEG_df_long, effect = "all", class = "sex")
+p5 <- plot_normative_overlap(DEG_df_long, effect = c("GE", "SCE", "GExSCE"), class = "autosomal")
+p6 <- plot_normative_overlap(DEG_df_long, effect = "all", class = "autosomal")
+
+pdf("Plots/Final_Figures/DEG/metacell_subset/Normative_overlap.pdf", width = 16, height = 30)
+ggarrange(plotlist = list(p1, p2, p3, p4, p5, p6), nrow = 3, ncol = 2)
+dev.off()
+
+sex_effects <- c("GE", "SCE", "GExSCE", "XCD", "YCD1")
+overlap_plots <- list()
+for(i in 1:length(sex_effects)) {
+  
+  effect_to_test <- sex_effects[i]
+  plots <- plot_normative_overlap(DEG_df_long, effects = effect_to_test, class = "sex") + 
+    plot_normative_overlap(DEG_df_long, effects = effect_to_test, class = "autosomal")
+  
+  overlap_plots[[effect_to_test]] <- plots
+}
+pdf("Plots/Final_Figures/DEG/metacell/Normative_overlap_alleffects.pdf", width = 48, height = 20)
+ggarrange(plotlist = overlap_plots, nrow = 2, ncol = 3)
+dev.off()
+
+```
+
+##Overlap analysis manual -- ignore 
+```{r}
+##SEPARATE MODEL -- all effects 
+DEG_df_filtered <- DEG_df_long %>% 
+  dplyr::filter(CHR %in% c("X", "Y")) %>% 
+  #dplyr::filter(!CHR %in% c("X", "Y", "MT")) %>% 
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+  dplyr::filter(!effect == "YCD2")
+  
+# ##for female-biased genes
+# DEG_df_filtered <- DEG_df_filtered %>% 
+#   dplyr::group_by(effect) %>% 
+#   dplyr::filter(effect == "Gonad:SexChrom" | 
+#                 (effect %in% c("Normative", "Gonad", "SexChrom", "addX") & logFC > 0.1) | 
+#                 (effect %in% c("addY1", "addY2") & logFC < -0.1)) %>%
+#   dplyr::select(gene, effect, cell_type)
+# 
+# ##for male-biased genes
+# DEG_df_filtered <- DEG_df_filtered %>% 
+#   dplyr::group_by(effect) %>% 
+#   dplyr::filter(effect == "Gonad:SexChrom" | 
+#                 (effect %in% c("Normative", "Gonad", "SexChrom", "addX") & logFC < -0.1) | 
+#                 (effect %in% c("addY1", "addY2") & logFC > 0.1)) %>%
+#   dplyr::select(gene, effect, cell_type)
+
+sets <- as.data.frame(table(DEG_df_filtered$gene, DEG_df_filtered$effect, DEG_df_filtered$cell_type)) %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) %>%
+  as.data.frame(check.names = FALSE) %>%
+  dplyr::filter(!Normative == 0) %>%
+  mutate(Shared = ifelse(rowSums(.[, 3:9]) > 2, 1, 0)) %>% ##make sure all columns are selected here 
+  group_by(Var3) %>%
+  relocate(Var1, Var3, Normative)
+
+for(col in c("GE", "SCE", "GExSCE", "XCD", "YCD1", "YCD2")) {
+  sets[[col]] <- ifelse(sets$Shared == 1, 0, sets[[col]])
+}
+
+sets <- sets %>% dplyr::summarise(across(where(is.numeric), sum)) %>%
+  dplyr::mutate(Normative_Unique = Normative - GE - SCE - GExSCE - XCD - YCD1 - YCD2 - Shared)
+
+sets_prop <- t(apply(sets[-1], 1, function(row) row / row[1])) %>% as.data.frame()
+rownames(sets_prop) <- sets$Var3
+sets_prop <- sets_prop %>% rownames_to_column(var = "cell_type")
+sets_prop$Normative <- NULL
+sets_prop <- sets_prop %>% 
+  pivot_longer(cols = !cell_type, names_to = "Set", values_to = "Proportion")
+
+sets_order <- sets_prop %>% dplyr::filter(Set == "Normative_Unique") %>% arrange(Proportion) %>% dplyr::select(cell_type) %>% unlist(use.names = FALSE)
+sets_prop$cell_type <- factor(sets_prop$cell_type, levels = sets_order)
+sets_prop$Set <- factor(sets_prop$Set, levels = c("Normative_Unique", "Shared", "GE", "SCE", "GExSCE", "XCD", "YCD1"))
+
+p1 <- ggplot(sets_prop, aes(x = cell_type, y = Proportion, fill = Set)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "",
+    y = "Proportion",
+    fill = "Category"
+  ) +
+  ggtitle("Normative Overlap (Sex-linked)") +  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30)) +
+  scale_fill_manual(values=c("Normative_Unique" = "#999999", "Shared" = "#1874CD", 
+                             effect_hex_colors[-1]))
+                             #"#E69F00", "#68228B", "#90EE90", "#698B69", "#FF1493", "#BF3EFF"))
+
+# pdf("Plots/DEG_complete_RNA/Barplot/Normative_overlap.pdf", width = 5, height = 7)
+# print(p1)
+# dev.off()
+
+##SEPARATE MODEL -- fcg effects 
+DEG_df_filtered <- DEG_df_filtered %>% 
+  dplyr::filter(effect %in% c("Normative", "GE", "SCE", "GExSCE")) %>% 
+  dplyr::mutate(effect = factor(effect, levels = c("Normative", "GE", "SCE", "GExSCE")))
+
+sets <- as.data.frame(table(DEG_df_filtered$gene, DEG_df_filtered$effect, DEG_df_filtered$cell_type)) %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) %>%
+  as.data.frame(check.names = FALSE) %>%
+  dplyr::filter(!Normative == 0) %>%
+  mutate(Shared = ifelse(rowSums(.[, 3:ncol(.)]) > 2, 1, 0)) %>% ##make sure all columns are selected here 
+  group_by(Var3) %>%
+  relocate(Var1, Var3, Normative)
+
+for(col in c("GE", "SCE", "GExSCE")) {
+  sets[[col]] <- ifelse(sets$Shared == 1, 0, sets[[col]])
+}
+
+sets <- sets %>% dplyr::summarise(across(where(is.numeric), sum)) %>%
+  dplyr::mutate(Normative_Unique = Normative - GE - SCE - GExSCE - Shared)
+
+sets_prop <- t(apply(sets[-1], 1, function(row) row / row[1])) %>% as.data.frame()
+rownames(sets_prop) <- sets$Var3
+sets_prop <- sets_prop %>% rownames_to_column(var = "cell_type")
+sets_prop$Normative <- NULL
+sets_prop <- sets_prop %>% 
+  pivot_longer(cols = !cell_type, names_to = "Set", values_to = "Proportion")
+
+sets_order <- sets_prop %>% dplyr::filter(Set == "Normative_Unique") %>% arrange(Proportion) %>% dplyr::select(cell_type) %>% unlist(use.names = FALSE)
+sets_prop$cell_type <- factor(sets_prop$cell_type, levels = sets_order)
+sets_prop$Set <- factor(sets_prop$Set, levels = c("Normative_Unique", "Shared", "GE", "SCE", "GExSCE"))
+
+p2 <- ggplot(sets_prop, aes(x = cell_type, y = Proportion, fill = Set)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "",
+    y = "Proportion",
+    fill = "Category"
+  ) +
+  ggtitle("Normative Overlap (Sex-linked)") +  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 30)) +
+  scale_fill_manual(values=c("Normative_Unique" = "#999999", "Shared" = "#1874CD", 
+                             effect_hex_colors[2:4]))
+    #values=c("#999999", "#1874CD", "#E69F00", "#68228B", "#90EE90"))
+
+# pdf("Plots/DEG_complete/RNA_SD/Barplot/Normative_DOWN_overlap.pdf", width = 9, height = 7)
+# print(p2 + p1)
+# dev.off()
+
+pdf("Plots/Final_Figures/DEG/metacell/Normative_sexlinked_overlap.pdf", width = 16, height = 10)
+print(p2 + p1)
+dev.off()
+########################################################################################################################
+## Complete Model 
+DEG_df_filtered <- DEG_df %>% 
+  dplyr::filter(model %in% c("Normative", "Complete")) %>%
+  dplyr::filter(adj.P.Val < 0.05 & abs(logFC) > 0.1 & !cell_type == "Progenitor") %>% 
+  mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "addX", "addY")),
+         cell_type = factor(cell_type)) %>% dplyr::select(gene, effect, cell_type)
+
+sets <- as.data.frame(table(DEG_df_filtered$gene, DEG_df_filtered$effect, DEG_df_filtered$cell_type)) %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) %>%
+  as.data.frame(check.names = FALSE) %>%
+  dplyr::filter(!Normative == 0) %>%
+  mutate(shared = ifelse(rowSums(.[, 3:7]) > 2, 1, 0)) %>% ##make sure all columns are selected here 
+  group_by(Var3) %>%
+  relocate(Var1, Var3, Normative)
+
+for(col in c("Gonad", "SexChrom", "addX", "addY")) {
+  sets[[col]] <- ifelse(sets$shared == 1, 0, sets[[col]])
+}
+
+sets <- sets %>% summarise(across(where(is.numeric), sum)) %>%
+  mutate(normative_unique = Normative - Gonad - SexChrom - addX - addY - shared)
+
+sets_prop <- t(apply(sets[-1], 1, function(row) row / row[1])) %>% as.data.frame()
+rownames(sets_prop) <- sets$Var3
+sets_prop <- sets_prop %>% rownames_to_column(var = "cell_type")
+sets_prop$Normative <- NULL
+sets_prop <- sets_prop %>% 
+  pivot_longer(cols = !cell_type, names_to = "Set", values_to = "Proportion")
+
+sets_prop$Set <- factor(sets_prop$Set, levels = c("normative_unique", "shared", "Gonad", "SexChrom", "addX", "addY"))
+sets_prop$cell_type <- factor(sets_prop$cell_type, levels = c("Microglia", "Endothelial", "Ependymal", "Myelinating.Oligo", "Neuron", "Astrocyte", "Oligo.PC"))
+
+p2 <- ggplot(sets_prop, aes(x = cell_type, y = Proportion, fill = Set)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "",
+    y = "Proportion",
+    fill = "Category"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 14)) +
+  scale_fill_manual(values=c("#999999", "#1874CD", "#E69F00", "#68228B", "#698B69", "#EEA9B8"))
+
+
+pdf("Plots/DEG_v2/Barplot/Normative_overlap.pdf", width = 10, height = 7)
+ggarrange(plotlist = list(p1, p2), nrow = 1, ncol = 2)
+dev.off()
+
+########################################################################################################################
+##MAST MODEL
+DEG_df_filtered <- DEG_df %>% 
+  dplyr::filter(comparison1_adjP < 0.05 & (comparison2_adjP < 0.05 | is.na(comparison2_adjP)) & abs(comb_log2FC) > 0.1) %>% 
+  dplyr::select(gene, effect, cell_type)
+
+sets <- as.data.frame(table(DEG_df_filtered$gene, DEG_df_filtered$effect, DEG_df_filtered$cell_type)) %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) %>%
+  as.data.frame(check.names = FALSE) %>%
+  dplyr::filter(!Normative == 0) %>%
+  mutate(Shared = ifelse(rowSums(.[, 3:9]) > 2, 1, 0)) %>% ##make sure all columns are selected here 
+  group_by(Var3) %>%
+  relocate(Var1, Var3, Normative)
+
+for(col in c("Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2")) {
+  sets[[col]] <- ifelse(sets$Shared == 1, 0, sets[[col]])
+}
+
+sets <- sets %>% dplyr::summarise(across(where(is.numeric), sum)) %>%
+  dplyr::mutate(Normative_Unique = Normative - Gonad - SexChrom - `Gonad:SexChrom` - addX - addY1 - addY2 - Shared)
+
+sets_prop <- t(apply(sets[-1], 1, function(row) row / row[1])) %>% as.data.frame()
+rownames(sets_prop) <- sets$Var3
+sets_prop <- sets_prop %>% rownames_to_column(var = "cell_type")
+sets_prop$Normative <- NULL
+sets_prop <- sets_prop %>% 
+  pivot_longer(cols = !cell_type, names_to = "Set", values_to = "Proportion")
+
+sets_order <- sets_prop %>% filter(Set == "Normative_Unique") %>% arrange(Proportion) %>% dplyr::select(cell_type) %>% unlist(use.names = FALSE)
+sets_prop$cell_type <- factor(sets_prop$cell_type, levels = sets_order)
+sets_prop$Set <- factor(sets_prop$Set, levels = c("Normative_Unique", "Shared", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY1", "addY2"))
+
+p1 <- ggplot(sets_prop, aes(x = cell_type, y = Proportion, fill = Set)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "",
+    y = "Proportion",
+    fill = "Category"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95),
+        text = element_text(size = 14)) +
+  scale_fill_manual(values=c("#999999", "#1874CD", "#E69F00", "#68228B", "#90EE90", "#698B69", "#FF1493", "#BF3EFF"))
+
+pdf("Plots/DEG_celltype2_MAST/Barplot/Normative_overlap.pdf", width = 5, height = 7)
+print(p1)
+dev.off()
+```
+
+####################################
+## logFC correlation plot (Normative)
+####################################
+
+```{r}
+logFC <- DEG_df_annotated %>% 
+  dplyr::filter(effect == "Normative") %>% 
+  #dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::mutate(module = paste(cell_type, effect, sep = "_")) %>% 
+  dplyr::select(gene, logFC, module, chromosome_name) %>% 
+  distinct() %>% 
+  pivot_wider(names_from = module, values_from = logFC) %>% 
+  column_to_rownames(var = "gene")
+
+# Extract annotations from column names
+module_names <- colnames(logFC[-1])
+annotations <- data.frame(
+  celltype = sub("_.*", "", module_names),   # Extract part before the "_"
+  effect = sub(".*_", "", module_names)      # Extract part after the "_"
+)
+
+# Ensure annotations are factors
+annotations$celltype <- factor(annotations$celltype)
+annotations$effect <- factor(annotations$effect)
+
+# Create annotations for cell type and effect
+rowAnnotation <- rowAnnotation(
+  `Cell Type` = annotations$celltype,
+  Effect = annotations$effect,
+  col = list(
+    `Cell Type` = cell_hex_colors,
+    Effect = effect_hex_colors
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+colAnnotation <- HeatmapAnnotation(
+  `Cell Type` = annotations$celltype,
+  Effect = annotations$effect,
+  col = list(
+    `Cell Type` = cell_hex_colors,
+    Effect = effect_hex_colors
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+# Create a correlation matrix
+cor_matrix <- logFC %>% 
+  #dplyr::filter(chromosome_name %in% c("X", "Y")) %>% ##for sex-linked DEGs
+  dplyr::filter(!chromosome_name %in% c("X", "Y", "MT")) %>% ##for autosomal-linked DEGs
+  dplyr::select(-chromosome_name) %>%
+  cor(method = "pearson", use = "pairwise.complete.obs") #use removes NA values
+rownames(cor_matrix) <- gsub("_Normative", "", rownames(cor_matrix))
+colnames(cor_matrix) <- gsub("_Normative", "", colnames(cor_matrix))
+
+# Calculate p-values for the correlation matrix
+cor_pvals <- cor.mtest(logFC %>% 
+                       #dplyr::filter(chromosome_name %in% c("X", "Y")) %>% ##for sex-linked DEGs
+                       dplyr::filter(!chromosome_name %in% c("X", "Y", "MT")) %>%
+                       dplyr::select(-chromosome_name))$p
+rownames(cor_pvals) <- gsub("_Normative", "", rownames(cor_pvals))
+colnames(cor_pvals) <- gsub("_Normative", "", colnames(cor_pvals))
+
+
+# Plot heatmap
+plot <- Heatmap(
+  cor_matrix,
+  name = "Correlation",
+  column_title = "Normative logFC Correlations (Autosomal)",
+  top_annotation = colAnnotation,
+  left_annotation = rowAnnotation,
+  col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")), # Color scale for correlation
+  show_row_names = TRUE,
+  show_column_names = TRUE,
+  column_title_gp = grid::gpar(fontsize = 20),
+  column_names_gp = grid::gpar(fontsize = 18),
+  row_names_gp = grid::gpar(fontsize = 18),
+  heatmap_legend_param = list(
+                            title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+                            labels_gp = grid::gpar(fontsize = 16)    # Legend labels font size
+                          ),
+  row_names_max_width = unit(10, "cm"),
+  column_names_max_height = unit(10, "cm"),
+  cell_fun = function(j, i, x, y, w, h, fill) {
+    if(cor_pvals[i, j] < 0.001) {
+        grid.text("***", x, y)
+    } else if(cor_pvals[i, j] < 0.01) {
+        grid.text("**", x, y)
+    } else if(cor_pvals[i,j] < 0.05) {
+        grid.text("*", x, y)
+    }
+#      grid.rect(x, y, w, h, gp = gpar(fill = "white", col="grey")) # Set non-significant cells to white
+#    }
+  }
+)
+
+plot <- draw(plot, merge_legends = TRUE, annotation_legend_side = "left")
+
+pdf("Plots/Final_Figures/Heatmap/metacell_subset/Normative_logFC_autosomal.pdf", width = 7, height = 6)
+print(plot)
+dev.off()
+```
+
+####################################
+## logFC correlation plot -- all comparisons
+####################################
+
+```{r}
+logFC <- DEG_df_long %>% 
+  dplyr::mutate(module = paste(cell_type, effect, sep = "_")) %>% 
+  dplyr::filter(!is.na(logFC)) %>% 
+  dplyr::select(gene, logFC, module, CHR) %>% 
+  distinct() %>% 
+  pivot_wider(names_from = module, values_from = logFC, values_fill = 0) %>% 
+  column_to_rownames(var = "gene")
+
+# Extract annotations from column names
+module_names <- colnames(logFC[-1])
+annotations <- data.frame(
+  celltype = sub("_.*", "", module_names),   # Extract part before the "_"
+  effect = sub(".*_", "", module_names)      # Extract part after the "_"
+)
+
+# Ensure annotations are factors
+annotations$celltype <- factor(annotations$celltype)
+annotations$effect <- factor(annotations$effect)
+
+# Create annotations for cell type and effect
+names(cell_hex_colors)[names(cell_hex_colors) == "Inh_IMN"] <- "Inh-IMN"
+cell_hex_colors <- cell_hex_colors[names(cell_hex_colors) != "Misc_NT"]
+
+rowAnnotation <- rowAnnotation(
+  CellType = annotations$celltype,
+  Effect = annotations$effect,
+  col = list(
+    CellType = cell_hex_colors,
+    Effect = effect_hex_colors
+  )
+)
+
+colAnnotation <- HeatmapAnnotation(
+  CellType = annotations$celltype,
+  Effect = annotations$effect,
+  col = list(
+    CellType = cell_hex_colors,
+    Effect = effect_hex_colors
+  )
+)
+
+# Create a correlation matrix
+cor_matrix <- logFC %>% 
+  #dplyr::filter(CHR %in% c("X", "Y")) %>% ##for sex-linked DEGs
+  #dplyr::filter(!CHR %in% c("X", "Y", "MT")) %>% ##for autosomal-linked DEGs
+  dplyr::select(-CHR) %>%
+  cor(method = "pearson", use = "pairwise.complete.obs") #use removes NA values 
+
+# Calculate p-values for the correlation matrix
+# cor_pvals <- cor.mtest(logFC %>% 
+#                        dplyr::filter(CHR %in% c("X", "Y")) %>% ##for sex-linked DEGs
+#                        #dplyr::filter(!CHR %in% c("X", "Y", "MT")) %>%
+#                         dplyr::mutate(across(where(is.numeric), ~replace_na(., 0))) %>%
+#                        dplyr::select(-CHR))$p
+
+# Plot heatmap
+plot <- Heatmap(
+  cor_matrix,
+  name = "Correlation",
+  column_title = "LogFC Correlations (Autosomal)",
+  top_annotation = colAnnotation,
+  left_annotation = rowAnnotation,
+  col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")), # Color scale for correlation
+  show_row_names = TRUE,
+  show_column_names = TRUE,
+#  cell_fun = function(j, i, x, y, w, h, fill) {
+#    if(cor_pvals[i, j] > 0.05) {
+#      grid.rect(x, y, w, h, gp = gpar(fill = "white", col="white"))
+#    }
+#  }
+) 
+
+plot <- draw(plot, merge_legends = TRUE)
+
+pdf("Plots/Final_Figures/Heatmap/metacell_subset/logFC_cor_ALL.pdf", width = 18, height = 14)
+print(plot)
+dev.off()
+
+#######get modules 
+#row_order(plot)
+
+#Autosomal genes h: 3 = 5 clusters; 2.8 = 7 clusters; 2.7,2.6 = 8 clusters; 2.5 = 10 clusters
+#Sex-linked genes h: 3.2 = 7 clusters; 3 = 8 clusters; 2.8 = 9 clusters
+#All genes: 2.7 = 8, 2.8 = 6, 3 = 5 
+
+hclust_object <- column_dend(plot) %>% as.hclust()
+module_groups_h_cut <- cutree(hclust_object, h = 2.6) 
+table(module_groups_h_cut)
+
+## 1. Extract and format the Cluster information
+# Convert the named vector to a data frame for easier use
+cluster_df <- module_groups_h_cut %>%
+  as.data.frame() %>%
+  dplyr::rename(Cluster = ".") %>%
+  dplyr::arrange(Cluster)
+
+# Extract the Cluster vector in the order of the original data columns (cor_matrix)
+# Note: module_groups_h_cut is already in the order of the columns in cor_matrix
+cluster_annotation_data <- factor(module_groups_h_cut)
+names(cluster_annotation_data) <- colnames(cor_matrix) # Ensure names match column names
+
+## 2. Define a color mapping for the Cluster
+# You need a color for each unique cluster group (1, 2, 3, etc.).
+# 'Set1' from RColorBrewer is a good choice for distinct categories.
+unique_clusters <- unique(module_groups_h_cut)
+# cluster_hex_colors <- structure(
+#   circlize::rand_color(length(unique_clusters)), # Generate random colors
+#   names = unique_clusters
+# )
+# OR, using a predefined palette (e.g., RColorBrewer::brewer.pal)
+cluster_hex_colors <- RColorBrewer::brewer.pal(n = length(unique_clusters), name = "Spectral")
+names(cluster_hex_colors) <- unique_clusters
+
+## 3. Update the colAnnotation and/or rowAnnotation
+
+# Create the NEW colAnnotation (for column/module groups)
+colAnnotation_updated <- HeatmapAnnotation(
+  CellType = annotations$celltype,
+  Effect = annotations$effect,
+  # ADD THE NEW CLUSTER ANNOTATION
+  Cluster = cluster_annotation_data,
+  col = list(
+    CellType = cell_hex_colors,
+    Effect = effect_hex_colors,
+    # ADD THE NEW CLUSTER COLOR MAPPING
+    Cluster = cluster_hex_colors
+  ),
+  # Optional: Show the dendrogram as part of the annotation
+  show_annotation_name = TRUE
+)
+
+# Since the correlation matrix is symmetric, the row annotation often mirrors the column annotation.
+# If you want a row annotation based on the *same* clustering, you can use the same code:
+rowAnnotation_updated <- rowAnnotation(
+  CellType = annotations$celltype,
+  Effect = annotations$effect,
+  Cluster = cluster_annotation_data, # Use the same cluster data
+  col = list(
+    CellType = cell_hex_colors,
+    Effect = effect_hex_colors,
+    Cluster = cluster_hex_colors # Use the same color mapping
+  )
+)
+
+# Plot heatmap with updated annotations
+plot_updated <- Heatmap(
+  cor_matrix,
+  name = "Correlation",
+  column_title = "LogFC Correlations (Sex-linked) with Clusters",
+  # USE THE UPDATED ANNOTATIONS
+  top_annotation = colAnnotation_updated,
+  left_annotation = rowAnnotation_updated,
+  col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+  show_row_names = TRUE,
+  show_column_names = TRUE
+)
+
+plot_updated <- draw(plot_updated, merge_legends = TRUE)
+
+pdf("Plots/Final_Figures/Heatmap/metacell_subset/logFC_cor_allgenes_withcluster.pdf", width = 18, height = 14)
+print(plot_updated)
+dev.off()
+
+##save cluster memberships 
+write.table(cluster_df, file = "Results/complete_analysis/Pathway/metacell_SD/allgene_gene_modules.txt", quote = FALSE, row.names = TRUE, sep = "\t")
+
+#test <- read.delim("Results/complete_analysis/Pathway/metacell_SD/autosomal_gene_modules.txt", sep = "\t")
+```
+
+####################################
+## logFC PCA plot -- cosine similarity
+####################################
+```{r}
+logFC <- DEG_df_annotated %>% 
+  dplyr::mutate(module = paste(cell_type, effect, sep = "_")) %>% 
+  dplyr::filter(!is.na(logFC)) %>% 
+  dplyr::select(gene, logFC, module, chromosome_name) %>% 
+  distinct() %>% 
+  pivot_wider(names_from = module, values_from = logFC, values_fill = 0) %>% 
+  column_to_rownames(var = "gene")
+
+# Extract annotations from column names
+module_names <- colnames(logFC[-1])
+annotations <- data.frame(
+  celltype = sub("_.*", "", module_names),   # Extract part before the "_"
+  effect = sub(".*_", "", module_names)      # Extract part after the "_"
+)
+
+# Ensure annotations are factors
+annotations$celltype <- factor(annotations$celltype)
+annotations$effect <- factor(annotations$effect)
+
+# Create annotations for cell type and effect
+names(cell_hex_colors)[names(cell_hex_colors) == "Inh_IMN"] <- "Inh-IMN"
+cell_hex_colors <- cell_hex_colors[names(cell_hex_colors) != "Misc_NT"]
+
+rowAnnotation <- rowAnnotation(
+  CellType = annotations$celltype,
+  Effect = annotations$effect,
+  col = list(
+    CellType = cell_hex_colors,
+    Effect = effect_hex_colors
+  )
+)
+
+colAnnotation <- HeatmapAnnotation(
+  CellType = annotations$celltype,
+  Effect = annotations$effect,
+  col = list(
+    CellType = cell_hex_colors,
+    Effect = effect_hex_colors
+  )
+)
+
+# Create a module by PC loading matrix 
+pca_result <- logFC %>%
+  # dplyr::filter(chromosome_name %in% c("X", "Y")) %>% ##for sex-linked DEGs
+  dplyr::filter(!chromosome_name %in% c("X", "Y", "MT")) %>% ##for autosomal-linked DEGs
+  dplyr::select(-chromosome_name) %>%
+  t() %>% # Transpose the matrix
+  # --- FIX STARTS HERE ---
+  # Convert to a matrix for proper column variance calculation
+  as.matrix() %>%
+  # Filter out columns where variance is zero
+  .[, apply(., 2, var) != 0] %>%
+  # --- FIX ENDS HERE ---
+  scale() %>%
+  prcomp()
+
+library(fastICA)
+
+logFC_df <- logFC %>%
+  # dplyr::filter(chromosome_name %in% c("X", "Y")) %>% ##for sex-linked DEGs
+  dplyr::filter(!chromosome_name %in% c("X", "Y", "MT")) %>% ##for autosomal-linked DEGs
+  dplyr::select(-chromosome_name) %>%
+  t() %>% # Transpose the matrix
+  # --- FIX STARTS HERE ---
+  # Convert to a matrix for proper column variance calculation
+  as.matrix() %>%
+  # Filter out columns where variance is zero
+  .[, apply(., 2, var) != 0] %>%
+  # --- FIX ENDS HERE ---
+  scale()
+
+##PCA embeddings 
+pca_result <-logFC_df %>%prcomp()
+similarity <- lsa::cosine(t(pca_result$x))
+
+##ICA embeddings
+ica_result <- fastICA(X = logFC_df, n.comp = 10, )
+similarity <- lsa::cosine(t(ica_result$S))
+
+cosine_plot <- Heatmap(similarity, 
+        name = "Cosine Similarity",
+        column_title = "Cosine Similarity between embeddings",
+        top_annotation = colAnnotation,
+        left_annotation = rowAnnotation,
+        col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")), # Color scale for correlation
+        show_row_names = TRUE,
+        show_column_names = TRUE)
+
+cosine_plot <- draw(cosine_plot, merge_legends = TRUE)
+
+
+
+```
+
+
+####################################
+## logFC correlation plot -- with Normative
+####################################
+
+```{r}
+cell.types <- names(cell_hex_colors)[!names(cell_hex_colors) %in% c("Misc-NT")]
+contrasts <- names(effect_hex_colors)
+
+holder <- matrix(rep(NA, length(cell.types)*(length(contrasts)-1)), nrow=length(cell.types))
+rownames(holder) <- cell.types
+colnames(holder) <- contrasts[2:7]
+holder_pval <- holder
+
+logFC <- DEG_df_annotated %>% 
+  dplyr::mutate(module = paste(cell_type, effect, sep = "_")) %>% 
+  dplyr::select(gene, logFC, module, chromosome_name) %>% 
+  pivot_wider(names_from = module, values_from = logFC) %>% 
+  column_to_rownames(var = "gene")
+
+for(i in 1:length(cell.types)) {
+  
+  logFC_result <- logFC %>%
+    #dplyr::filter(chromosome_name %in% c( "X", "Y")) %>%
+    dplyr::filter(!(chromosome_name %in% c("MT", "X", "Y")))  %>%
+    dplyr::select(matches(cell.types[i])) %>% 
+    cor(use="pairwise.complete.obs")
+  holder[i,] <- logFC_result[1, 2:7] 
+
+  pval_result <- cor.mtest(logFC %>%
+    #dplyr::filter(chromosome_name %in% c("X", "Y")) %>% ##for sex-linked DEGs
+    dplyr::filter(!chromosome_name %in% c("X", "Y", "MT")) %>%
+    dplyr::select(matches(cell.types[i])))$p
+  holder_pval[i, ] <- pval_result[1, 2:7]
+}
+
+# Define color ranges for the heatmap
+heatmap_colors <- colorRamp2(c(-1, 0, 1), c("blue", "white", "red"))
+
+# Create annotation for rows and columns
+row_annotation <- rowAnnotation(
+  CellType = rownames(holder),
+  col = list(
+    CellType = cell_hex_colors
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+col_annotation <- HeatmapAnnotation(
+  Contrast = colnames(holder),
+  col = list(
+    Contrast = setNames(effect_hex_colors[-1], colnames(holder))
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+# Heatmap
+plot <- Heatmap(
+  holder,
+  name = "Correlation",
+  col = heatmap_colors,
+  top_annotation = col_annotation,
+  left_annotation = row_annotation,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  column_title = "Correlation (Autosomal)",
+  column_title_gp = grid::gpar(fontsize = 18),
+  column_names_gp = grid::gpar(fontsize = 18),
+  row_names_gp = grid::gpar(fontsize = 18),
+  heatmap_legend_param = list(
+                            title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+                            labels_gp = grid::gpar(fontsize = 16)    # Legend labels font size
+                          ),
+  row_names_max_width = unit(10, "cm"),
+  column_names_max_height = unit(10, "cm"), 
+  cell_fun = function(j, i, x, y, w, h, fill) {
+    if(holder_pval[i, j] < 0.001) {
+        grid.text("***", x, y)
+    } else if(holder_pval[i, j] < 0.01) {
+        grid.text("**", x, y)
+    } else if(holder_pval[i,j] < 0.05) {
+        grid.text("*", x, y)
+    }
+#      grid.rect(x, y, w, h, gp = gpar(fill = "white", col="grey")) # Set non-significant cells to white
+#    }
+  }
+)
+
+plot <- draw(plot, merge_legends = TRUE, annotation_legend_side = "left")
+
+pdf("Plots/Final_Figures/Heatmap/original/Effect_logFC_cor_autosomal.pdf", width = 6, height = 6)
+print(plot)
+dev.off()
+```
+
+########################################################################
+## logFC regression plot -- with Normative (test all effects at once)
+########################################################################
+
+```{r}
+cell.types <- names(cell_hex_colors)[!names(cell_hex_colors) %in% c("Misc-NT")]
+contrasts <- names(effect_hex_colors)
+
+logFC <- DEG_df_annotated %>% 
+  dplyr::mutate(module = paste(cell_type, effect, sep = "_")) %>% 
+  #dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(gene, logFC, module, chromosome_name) %>% 
+  pivot_wider(names_from = module, values_from = logFC) %>% 
+  column_to_rownames(var = "gene")
+
+results_list <- map(cell.types, function(ct) {
+  ct_data <- logFC %>%  
+    dplyr::filter(chromosome_name %in% c( "X", "Y")) %>%
+    #dplyr::filter(!(chromosome_name %in% c("MT", "X", "Y"))) %>% 
+    dplyr::select(matches(ct))
+  colnames(ct_data) <- gsub(paste0(ct, "_"), "", colnames(ct_data))
+  
+  model <- lm(Normative ~ Gonad + SexChrom + `Gonad:SexChrom` + addX + addY1 + addY2, data = ct_data) ##test all factors in a single model 
+  coef_matrix <- summary(model)$coefficients[, c(1,4)]
+
+})
+regression_matrix <- lapply(results_list, function(mat) t(mat[, 1, drop = FALSE]))
+regression_matrix <- do.call(rbind, regression_matrix)
+rownames(regression_matrix) <- cell.types
+regression_matrix <- regression_matrix[, -1]
+
+pval_matrix <- lapply(results_list, function(mat) t(mat[, 2, drop = FALSE]))
+pval_matrix <- do.call(rbind, pval_matrix)
+rownames(pval_matrix) <- cell.types
+pval_matrix <- pval_matrix[, -1]
+
+# Define color ranges for the heatmap
+heatmap_colors <- colorRamp2(c(-1, 0, 1), c("blue", "white", "red"))
+
+# Create annotation for rows and columns
+row_annotation <- rowAnnotation(
+  CellType = rownames(regression_matrix),
+  col = list(
+    CellType = cell_hex_colors
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+col_annotation <- HeatmapAnnotation(
+  Contrast = colnames(regression_matrix),
+  col = list(
+    Contrast = setNames(effect_hex_colors[-1], colnames(regression_matrix))
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+# Heatmap
+plot <- Heatmap(
+  regression_matrix,
+  name = "Regression",
+  col = heatmap_colors,
+  top_annotation = col_annotation,
+  left_annotation = row_annotation,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  column_title = "Regression (Sex-linked)",
+  column_title_gp = grid::gpar(fontsize = 18),
+  column_names_gp = grid::gpar(fontsize = 18),
+  row_names_gp = grid::gpar(fontsize = 18),
+  heatmap_legend_param = list(
+                            title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+                            labels_gp = grid::gpar(fontsize = 16)    # Legend labels font size
+                          ),
+  row_names_max_width = unit(10, "cm"),
+  column_names_max_height = unit(10, "cm"),
+  cell_fun = function(j, i, x, y, w, h, fill) {
+    if(pval_matrix[i, j] < 0.001) {
+        grid.text("***", x, y)
+    } else if(pval_matrix[i, j] < 0.01) {
+        grid.text("**", x, y)
+    } else if(pval_matrix[i,j] < 0.05) {
+        grid.text("*", x, y)
+    }
+#      grid.rect(x, y, w, h, gp = gpar(fill = "white", col="grey")) # Set non-significant cells to white
+#    }
+  }
+)
+
+plot <- draw(plot, merge_legends = TRUE, annotation_legend_side = "left")
+
+plot
+
+pdf("Plots/Final_Figures/Heatmap/original/Effect_logFC_reg_sexlinked.pdf", width = 6, height = 6)
+print(plot)
+dev.off()
+```
+
+########################################################################
+## logFC regression plot -- with Normative (test effects one at a time)
+########################################################################
+
+```{r}
+cell.types <- names(cell_hex_colors)[!names(cell_hex_colors) %in% c("Misc-NT")]
+contrasts <- names(effect_hex_colors)
+
+logFC <- DEG_df_annotated %>% 
+  dplyr::mutate(module = paste(cell_type, effect, sep = "_")) %>% 
+  #dplyr::filter(adj.P.Val < 0.05) %>% 
+  dplyr::select(gene, logFC, module, chromosome_name) %>% 
+  pivot_wider(names_from = module, values_from = logFC) %>% 
+  dplyr::rename(CHR = chromosome_name)
+
+results_list <- map(cell.types, function(ct) {
+  ct_data <- logFC %>%
+    #dplyr:: filter(!prop.cell.types_normative.DEG==0) %>% 
+    dplyr::filter(CHR %in% c( "X", "Y")) %>%
+    dplyr::filter(!gene %in% c("Xist", "Tsix")) %>% # and this removes XIST as well since outlier
+    #dplyr::filter(!(CHR %in% c("MT", "X", "Y"))) %>%
+    column_to_rownames(var = "gene") %>%
+    dplyr::select(matches(ct))
+    #dplyr::select(matches(ct) & matches("logFC")) 
+  #colnames(ct_data) <- gsub(paste0("logFC_", ct, "_"), "", colnames(ct_data))
+  colnames(ct_data) <- gsub(paste0(ct, "_"), "", colnames(ct_data))
+  
+  coef_matrix <- data.frame()
+  for(i in 1:length(contrasts[-1])) {
+    
+    cur_contrast <- contrasts[i+1]
+    ct_contrast_data <- ct_data[, c("Normative", cur_contrast)]
+    
+    model <- lm(data=ct_contrast_data, Normative ~ get(cur_contrast))
+    
+    ct_matrix <- summary(model)$coefficients[-1, c(1,4)] %>% t()
+    rownames(ct_matrix) <- cur_contrast
+    
+    coef_matrix <- rbind(coef_matrix, ct_matrix)
+  }
+  
+  return(coef_matrix)
+})
+
+regression_matrix <- lapply(results_list, function(mat) t(mat[, 1, drop = FALSE]))
+regression_matrix <- do.call(rbind, regression_matrix)
+rownames(regression_matrix) <- cell.types
+#regression_matrix <- regression_matrix[, -1]
+
+pval_matrix <- lapply(results_list, function(mat) t(mat[, 2, drop = FALSE]))
+pval_matrix <- do.call(rbind, pval_matrix)
+rownames(pval_matrix) <- cell.types
+#pval_matrix <- pval_matrix[, -1]
+
+# Define color ranges for the heatmap
+heatmap_colors <- colorRamp2(c(-1, 0, 1), c("blue", "white", "red"))
+
+# Create annotation for rows and columns
+row_annotation <- rowAnnotation(
+  CellType = rownames(regression_matrix),
+  col = list(
+    CellType = cell_hex_colors
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+col_annotation <- HeatmapAnnotation(
+  Contrast = colnames(regression_matrix),
+  col = list(
+    Contrast = setNames(effect_hex_colors[-1], colnames(regression_matrix))
+  ),
+  annotation_name_gp = grid::gpar(fontsize = 16),
+  annotation_legend_param = list(
+      title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+      labels_gp = grid::gpar(fontsize = 16))
+)
+
+# Heatmap
+plot <- Heatmap(
+  regression_matrix,
+  name = "Regression",
+  col = heatmap_colors,
+  top_annotation = col_annotation,
+  left_annotation = row_annotation,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  column_title = "Regression (Autosomal)",
+  column_title_gp = grid::gpar(fontsize = 18),
+  column_names_gp = grid::gpar(fontsize = 18),
+  row_names_gp = grid::gpar(fontsize = 18),
+  heatmap_legend_param = list(
+                            title_gp = grid::gpar(fontsize = 16),      # Legend title font size
+                            labels_gp = grid::gpar(fontsize = 16)    # Legend labels font size
+                          ),
+  row_names_max_width = unit(10, "cm"),
+  column_names_max_height = unit(10, "cm"),
+  cell_fun = function(j, i, x, y, w, h, fill) {
+    if(pval_matrix[i, j] < 0.001) {
+        grid.text("***", x, y)
+    } else if(pval_matrix[i, j] < 0.01) {
+        grid.text("**", x, y)
+    } else if(pval_matrix[i,j] < 0.05) {
+        grid.text("*", x, y)
+    }
+#      grid.rect(x, y, w, h, gp = gpar(fill = "white", col="grey")) # Set non-significant cells to white
+#    }
+  }
+)
+
+plot <- draw(plot, merge_legends = TRUE, annotation_legend_side = "left")
+
+plot
+
+pdf("Plots/Final_Figures/Heatmap/original/Effect_logFC_sep_reg_sexlinked.pdf", width = 6, height = 6)
+print(plot)
+dev.off()
+```
+
+####################################
+## logFC correlation and regression combined
+####################################
+```{r}
+##remove column with all NAs 
+# d <- d %>% 
+#   dplyr::select(!c(`logFC_Inh-IMN_Gonad:SexChrom`, `adj.P.Val_Inh-IMN_Gonad:SexChrom`))
+
+d$`logFC_Inh-IMN_GExSCE` <- 0
+d$`adj.P.Val_Inh-IMN_GExSCE` <- 0
+
+#######################
+### AUTOSOMAL GENES ###
+#######################
+contrasts <- levels(DEG_df$effect)
+
+# CORRELATIONS FOR AUTOSOMAL GENES
+sexfc.corrs_aut <- matrix(rep(NA, length(allcells)*(length(contrasts)-1)), nrow=length(allcells))
+rownames(sexfc.corrs_aut) <- allcells
+colnames(sexfc.corrs_aut) <- contrasts[-1]
+
+for(i in 1:length(allcells)) {
+  
+  sexfc.corrs_aut[i,] <- d %>%
+    #dplyr::filter(CHR %in% c( "X")) %>%  # just X chromosomes
+    #dplyr::filter(!gene %in% c("Xist", "Tsix")) %>% # and this removes XIST as well since outlier
+    dplyr::filter(!(CHR %in% c("MT", "X", "Y"))) %>% # just autosomes
+    dplyr::filter(!prop.cell.types_normative.DEG==0) %>%
+    dplyr::select(matches('logFC_')) %>% 
+    dplyr::select(matches(allcells[i])) %>% 
+    # {
+    #   # Reorder columns inside a pipe-friendly block
+    #   col_order <- unlist(lapply(contrasts, function(pattern) {
+    #     grep(pattern, names(.), value = TRUE)
+    #   }))
+    #   .[, col_order]
+    # } %>%
+    cor(use="pairwise.complete.obs") %>%
+    #.[1, 2:7]
+    extract(1, -1) 
+}
+
+
+## REGRESSIONS FOR AUTOSOMAL GENES 
+sexfc.regr_aut <- matrix(rep(NA, length(allcells)*(length(contrasts)-1)), nrow=length(allcells))
+rownames(sexfc.regr_aut) <- allcells
+colnames(sexfc.regr_aut) <- contrasts[2:7]
+
+for(i in 1:length(rownames(sexfc.regr_aut))) {
+  
+  for (j in 1:length(colnames(sexfc.regr_aut))) {
+    
+    ind.var.to.get <- paste(paste0("logFC_", rownames(sexfc.regr_aut)[i]), colnames(sexfc.regr_aut)[j], sep="_")
+    dep.var.to.get <- paste(paste0("logFC_", rownames(sexfc.regr_aut)[i]), "Normative", sep="_")
+    
+   reg_result <- d %>%
+      dplyr::filter(CHR %in% c( "X")) %>%  # just sex chromosomes
+      dplyr::filter(!gene %in% c("Xist", "Tsix")) %>% # and this removes XIST as well since outlier
+      #dplyr::filter(!(CHR %in% c("MT", "X", "Y"))) %>% # just autosomes
+      dplyr:: filter(!prop.cell.types_normative.DEG==0) %>% 
+      lm(data=., get(dep.var.to.get) ~ get(ind.var.to.get)) %>% 
+      summary %>% 
+      use_series("coefficients")
+   if(nrow(reg_result) < 2) {
+     sexfc.regr_aut[i,j] <- NA
+   } else {
+     sexfc.regr_aut[i,j] <- reg_result %>% extract(2,1)
+   }
+    # sexfc.regr_aut[i,j] <- d %>%
+    #   #filter(CHR %in% c( "X")) %>%  # just sex chromosomes
+    #   #filter(!gene %in% c("Xist", "Tsix")) %>% # and this removes XIST as well since outlier
+    #   dplyr::filter(!(CHR %in% c("MT", "X", "Y"))) %>% # just autosomes
+    #   dplyr:: filter(!prop.cell.types_normative.DEG==0) %>% 
+    #   lm(data=., get(dep.var.to.get) ~ get(ind.var.to.get)) %>% 
+    #   summary %>% 
+    #   use_series("coefficients") %>% 
+    #   #.[2, 1]
+    #   extract(2,1)
+  }
+}
+
+
+### COMBINING CORR AND REG
+
+sexfc.corrs_aut_long <- sexfc.corrs_aut  %>%
+  as.data.frame %>%
+  tibble::rownames_to_column("Cell_Type") %>%
+  melt(.,  id.var="Cell_Type") %>% 
+  dplyr::rename(Contrast=variable) %>%
+  dplyr::rename(Correlation=value)
+
+sexfc.regr_aut_long <- sexfc.regr_aut  %>%
+  as.data.frame %>%
+  tibble::rownames_to_column("Cell_Type") %>%
+  melt(.,  id.var="Cell_Type") %>% 
+  dplyr::rename(Contrast=variable) %>%
+  dplyr::rename(Regression.slope=value) 
+
+sexfc.corrs.regr_aut_long <- sexfc.corrs_aut_long
+
+sexfc.corrs.regr_aut_long$Regression.slope <- sexfc.regr_aut_long$Regression.slope
+
+
+### PLOTTING
+sexfc.corrs.regr_aut_long_for.plot <- sexfc.corrs.regr_aut_long %>%
+  mutate(Cell_Type=fct_relevel(Cell_Type, rev(allcells))) 
+
+
+ggplot() +
+  geom_point(data=sexfc.corrs.regr_aut_long_for.plot, aes(x = Contrast, y = Cell_Type, size = (abs(Correlation)*1.1)), color="black") +
+  geom_point(data=sexfc.corrs.regr_aut_long_for.plot, aes(x = Contrast, y = Cell_Type, size = abs(Correlation), color=Regression.slope)) +
+  scale_size_area(max_size = 10) +
+  labs(x = "Contrast", y = "Cell Type", size = "|correlation|", color="regression slope") +
+  scale_color_gradient2(low="blue", mid="white", high="red", limits=c(-1, 1), breaks= c(-1, 0, 1), oob=squish) +
+  theme_minimal() +                    
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=20), 
+        axis.text.y = element_text( size=20), 
+        axis.title = element_text(size=22), 
+        legend.text = element_text(size = 20),  
+        legend.title = element_text(size = 20, margin = margin(b = 5)),
+        legend.key.size = unit(1.5, "cm"),
+        legend.key.width = unit(1,"cm"))
+
+png("Plots/Final_Figures/Dotplot/metacell_logFC_corr_reg_sexlinked.png", width = 7, height = 8, units = "in", res = 1200)
+last_plot()
+dev.off()
+```
+
+```{r}
+###############
+### X GENES ###
+###############
+
+# CORRELATIONS FOR X GENES
+sexfc.corrs_X <- matrix(rep(NA, length(allcells)*(length(contrasts)-1)), nrow=length(allcells))
+rownames(sexfc.corrs_X ) <- allcells
+colnames(sexfc.corrs_X ) <- contrasts[2:7]
+
+for(i in 1:length(allcells)) {
+  
+  sexfc.corrs_X [i,] <- d %>%
+    dplyr::filter(CHR %in% c( "X")) %>%  # just X chromosomes
+    dplyr::filter(!gene %in% c("Xist", "Tsix")) %>% # and this removes XIST as well since outlier
+    #filter(!(CHR %in% c("MT", "X", "Y"))) %>% # just autosomes
+    dplyr::filter(!prop.cell.types_normative.DEG==0) %>%
+    dplyr::select(matches('logFC_')) %>% 
+    dplyr::select(matches(allcells[i])) %>% 
+    # { 
+    #   # Reorder columns inside a pipe-friendly block
+    #   col_order <- unlist(lapply(contrasts, function(pattern) {
+    #     grep(pattern, names(.), value = TRUE)
+    #   }))
+    #   .[, col_order]
+    # } %>% 
+    cor(use="pairwise.complete.obs") %>%
+    extract(1, 2:7)
+}
+
+
+
+## REGRESSIONS FOR X GENES 
+
+sexfc.regr_X <- matrix(rep(NA, length(allcells)*(length(contrasts)-1)), nrow=length(allcells))
+rownames(sexfc.regr_X) <- allcells
+colnames(sexfc.regr_X) <- contrasts[2:7]
+
+for(i in 1:length(rownames(sexfc.regr_X))) {
+  
+  for (j in 1:length(colnames(sexfc.regr_X))) {
+    
+    ind.var.to.get <- paste(paste0("logFC_", rownames(sexfc.regr_X)[i]), colnames(sexfc.regr_X)[j], sep="_")
+    dep.var.to.get <- paste(paste0("logFC_", rownames(sexfc.regr_X)[i]), "Normative", sep="_")
+    
+    sexfc.regr_X[i,j] <- d %>%
+      dplyr::filter(CHR %in% c( "X")) %>%  # just sex chromosomes
+      dplyr::filter(!gene %in% c("Xist", "Tisx")) %>% # and this removes XIST as well since outlier
+      #filter(!(CHR %in% c("MT", "X", "Y"))) %>% # just autosomes
+      dplyr::filter(!prop.cell.types_normative.DEG==0) %>% 
+      lm(data=., get(dep.var.to.get) ~ get(ind.var.to.get)) %>% 
+      summary %>% 
+      use_series("coefficients") %>% 
+      extract(2,1)
+  }
+}
+
+
+### COMBINING CORR AND REG
+
+sexfc.corrs_X_long <- sexfc.corrs_X  %>%
+  as.data.frame %>%
+  tibble::rownames_to_column("Cell_Type") %>%
+  melt(.,  id.var="Cell_Type") %>% 
+  dplyr::rename(Contrast=variable) %>%
+  dplyr::rename(Correlation=value)
+
+sexfc.regr_X_long <- sexfc.regr_X  %>%
+  as.data.frame %>%
+  tibble::rownames_to_column("Cell_Type") %>%
+  melt(.,  id.var="Cell_Type") %>% 
+  dplyr::rename(Contrast=variable) %>%
+  dplyr::rename(Regression.slope=value) 
+
+sexfc.corrs.regr_X_long <- sexfc.corrs_X_long
+
+sexfc.corrs.regr_X_long$Regression.slope <- sexfc.regr_X_long$Regression.slope
+
+
+### PLOTTING
+
+sexfc.corrs.regr_X_long_for.plot <- sexfc.corrs.regr_X_long %>%
+  mutate(Cell_Type=fct_relevel(Cell_Type, rev(allcells))) 
+
+
+ggplot() +
+  geom_point(data=sexfc.corrs.regr_X_long_for.plot, aes(x = Contrast, y = Cell_Type, size = (abs(Correlation)*1.1)), color="black") +
+  geom_point(data=sexfc.corrs.regr_X_long_for.plot, aes(x = Contrast, y = Cell_Type, size = abs(Correlation), color=Regression.slope)) +
+  scale_size_area(max_size = 10) +
+  labs(x = "Contrast", y = "Cell Type", size = "|correlation|", color="regression slope") +
+  scale_color_gradient2(low="blue", mid="white", high="red", limits=c(-1, 1), breaks=c(seq(-1, 0, 1)), oob=squish) +
+  theme_minimal() +                    
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size=20), 
+        axis.text.y = element_text( size=20), 
+        axis.title = element_text(size=22), 
+        legend.text = element_text(size = 20),  
+        legend.title = element_text(size = 20,  margin = margin(b = 5)), 
+        legend.key.size = unit(1.5, "lines"))
+
+png("Plots/Final_Figures/Dotplot/logFC_corr_reg_sexlinked.png", width = 7, height = 8, units = "in", res = 1200)
+last_plot()
+dev.off()
+```
+
+
+
+####################################
+## External gene set overlap plots
+####################################
+
+```{r}
+##Read in control sets 
+estrogen1 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_1.xlsx", sheet = 1) %>% dplyr::filter(padj < 0.05)
+colnames(estrogen1)[1] <- "gene"
+estrogen2 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_3.xlsx", sheet = 1) %>% dplyr::filter(padj < 0.05)
+colnames(estrogen2)[1] <- "gene"
+estrogen3 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/humphreys_2014_e2.xlsx", sheet = 2)
+estrogen4 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/gocz_2022_estrogen1.xlsx", sheet = 1, skip = 1) %>% 
+  dplyr::filter(p.adj. < 0.05)
+estrogen5 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/gocz_2022_estrogen2.xlsx", sheet = 1, skip = 1) %>% 
+  dplyr::filter(p.adj < 0.05)
+# estrogen6 <- readxl::read_xlsx("Gene_annotation/external_gene_sets/fels_2021_erb.xlsx", sheet = 2) %>% 
+#   dplyr::filter(padj < 0.05)
+
+estrogen_list <- list()
+for(i in 1:7) {estrogen_list[[i]] <- readxl::read_xlsx("Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_2.xlsx", sheet = i) %>% dplyr::filter(padj < 0.05)
+}
+names(estrogen_list) <- excel_sheets(path = "Gene_annotation/external_gene_sets/Gegenhuber_2022_oestradiol_2.xlsx")
+
+li_androgen <- read_xlsx(path = "~/project-xyang123/cerebellum_sct/Gene_annotation/external_gene_sets/li_2024_androgens.xlsx", col_names = TRUE) %>%
+  dplyr::filter(Tissue == "Brain" & p_val_adj < 0.05)
+
+androgen1 <- li_androgen %>% filter(Comparison == "MSvsFS")
+androgen2 <- li_androgen %>% filter(Comparison == "FDvsFS")
+#androgen3 <- read_xlsx(path = "~/project-xyang123/cerebellum_sct/Gene_annotation/external_gene_sets/keleva_2022_androgen.xlsx", sheet = 2, col_names = TRUE)
+
+x_chromosome_genes <- gene_annotation2 %>% dplyr::filter(chromosome_name == "X")
+y_chromosome_genes <- gene_annotation2 %>% dplyr::filter(chromosome_name == "Y")
+escape_genes <- gene_annotation2 %>% dplyr::filter(Escapee == "Escapee")
+
+hormone_control_genes <- list(estrogen1$gene, estrogen2$gene, estrogen_list[[1]]$...1, estrogen_list[[2]]$...1, estrogen_list[[3]]$...1, estrogen_list[[4]]$...1, estrogen_list[[5]]$...1, estrogen_list[[6]]$...1, estrogen_list[[7]]$...1, estrogen3$`Gene name`, estrogen4$`Gene symbol`, estrogen5$`Gene symbol`, androgen1$Gene_symbol, androgen2$Gene_symbol)
+names(hormone_control_genes) <- c("gonad_estrogen_1", "gonad_estrogen_2", "gonad_estrogen_3", "gonad_estrogen_4", "gonad_estrogen_5", "gonad_estrogen_6", "gonad_estrogen_7", "gonad_estrogen_8", "gonad_estrogen_9", "gonad_estrogen_10", "gonad_estrogen_11", "gonad_estrogen_12", "gonad_androgen_1", "gonad_androgen_2")
+
+sex_control_genes <- list(x_chromosome_genes$gene, y_chromosome_genes$gene)
+names(sex_control_genes) <- c("X_chromosome", "Y_chromosome")
+
+control_genes <- c(hormone_control_genes, sex_control_genes)
+names(control_genes) <- c(names(hormone_control_genes), names(sex_control_genes))
+
+#################################################################
+
+## Separate Model 
+cell_list <- list()
+for(i in 1:length(allcells)){
+  
+  currentcell <- allcells[i]
+  deg_list <- DEG_df %>% 
+    dplyr::filter(cell_type == currentcell & adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+    mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY", "addY1", "addY2"))) %>% 
+    split(., f = .$effect)
+  deg_list <- lapply(deg_list, function(x) {x %>% dplyr::select(gene) %>% unlist(use.names = FALSE)})
+
+  go.obj<- newGOM(control_genes, deg_list, genome.size = length(gene_universe))
+
+  pvals <- getMatrix(go.obj, name="pval") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "pval")
+  odds <- getMatrix(go.obj, name="odds.ratio") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "odds")
+  
+  cell_counts <- lapply(deg_list, function(x) {length(x)}) %>% do.call("rbind", .) %>% as.data.frame() %>% tibble::rownames_to_column(var = "set")
+  df <- left_join(pvals, odds, by=c("setA" = "setA", "setB" = "setB"))
+  df <- left_join(df, cell_counts, by=c("setB" = "set")) %>% dplyr::rename(setB_size = V1)
+  df$cell_type <- currentcell
+  df$adj.pval <- p.adjust(df$pval, method = "BH", n = (nrow(df)*length(allcells)))
+  
+  df$odds <- ifelse(df$adj.pval > 0.05, NA, df$odds)
+  
+  cell_list[[currentcell]] <- df
+}
+
+## Complete Model 
+cell_list <- list()
+for(i in 1:length(allcells)){
+  
+  currentcell <- allcells[i]
+  deg_list <- DEG_df %>% 
+    dplyr::filter(model %in% c("Normative", "Complete")) %>%
+    dplyr::filter(cell_type == currentcell & adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% 
+    mutate(effect = factor(effect, levels = c("Normative", "Gonad", "SexChrom", "addX", "addY"))) %>% 
+    split(., f = .$effect)
+  deg_list <- lapply(deg_list, function(x) {x %>% dplyr::select(gene) %>% unlist(use.names = FALSE)})
+
+  go.obj<- newGOM(control_genes, deg_list, genome.size = length(gene_universe))
+
+  pvals <- getMatrix(go.obj, name="pval") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "pval")
+  odds <- getMatrix(go.obj, name="odds.ratio") %>% as.data.frame() %>% tibble::rownames_to_column(var = "setA") %>% pivot_longer(!setA, names_to = "setB", values_to = "odds")
+  
+  cell_counts <- lapply(deg_list, function(x) {length(x)}) %>% do.call("rbind", .) %>% as.data.frame() %>% tibble::rownames_to_column(var = "set")
+  df <- left_join(pvals, odds, by=c("setA" = "setA", "setB" = "setB"))
+  df <- left_join(df, cell_counts, by=c("setB" = "set")) %>% dplyr::rename(setB_size = V1)
+  df$cell_type <- currentcell
+  df$adj.pval <- p.adjust(df$pval, method = "BH", n = (nrow(df)*length(allcells)))
+  
+  df$odds <- ifelse(df$adj.pval > 0.05, NA, df$odds)
+  
+  cell_list[[currentcell]] <- df
+}
+
+plot_list <- lapply(cell_list, function(x) {
+  subset <- x[is.finite(x$odds), ]
+  max <- max(subset$odds) %>% ceiling()
+  min <- min(subset$odds) %>% floor()
+  
+  x$odds <- ifelse(x$odds == Inf, max + 10, x$odds)
+  x$setA <- factor(x$setA, levels = mixedsort(unique(x$setA)))
+  x$setB <- factor(x$setB, levels = c("Normative", "Gonad", "SexChrom", "Gonad:SexChrom", "addX", "addY", "addY1", "addY2"))
+  
+  ggplot(x, aes(x = setA, y = setB, fill = odds)) +
+    geom_tile() +
+    theme_minimal() +
+    scale_fill_gradient2(low="pink", high="darkred", limits = c(0, max + 10)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.95, size = 30),
+          axis.text.y = element_text(size = 30),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          text = element_text(size= 30)) +
+    ggtitle(x$cell_type)
+})
+
+pdf("Plots/DEG_complete_RNA/Overlap/external_sets_overlap.pdf", height = 40, width = 20)
+print(ggarrange(plotlist = plot_list, ncol = 2, nrow = 5))
+dev.off()
+```
+
+####################################
+## Upset plots 
+####################################
+
+```{r}
+plot_list <- list()
+for (i in 1:length(allcells)) {
+ 
+  currentcell <- as.character(allcells[i])
+  
+  #set_vars <- c("Gonad:SexChrom", "addY2", "addY1", "addX", "SexChrom", "Gonad", "Normative")
+  # gene_list <- DEG_df %>% dplyr::filter(cell_type == currentcell & adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% mutate(direction = ifelse(logFC > 0 , "UP", "DOWN"))
+  # 
+  # gene_presence <- gene_list %>%
+  #   dplyr::select(gene, effect, logFC) %>% 
+  #   pivot_wider(names_from = effect, values_from = logFC, values_fn = length, values_fill = list(logFC = 0)) %>% 
+  #   dplyr::select(gene, any_of(set_vars)) %>% 
+  #   dplyr::filter(Normative != 0)
+  # 
+  # # gene_direction <- gene_list %>%
+  # #   dplyr::select(gene, effect, direction) %>%
+  # #   distinct() %>%
+  # #   pivot_wider(names_from = effect, values_from = direction, values_fill = list(direction = NA)) %>%
+  # #   dplyr::select(gene, any_of(set_vars))
+  # # colnames(gene_direction)[-1] <- paste0(colnames(gene_direction)[-1], "_direction")
+  # 
+  # # gene_list <- left_join(gene_presence, gene_direction, by = "gene")
+  # # gene_list <- gene_list %>% dplyr::filter(Normative != 0)
+  # 
+  # set_counts <- gene_list %>%
+  #   dplyr::filter(gene %in% gene_presence$gene) %>% 
+  #   group_by(effect, direction) %>%
+  #   summarise(count = n(), .groups = "drop") %>%
+  #   group_by(effect) %>%
+  #   mutate(proportion = count / sum(count))
+  # 
+  # upset(
+  #     gene_presence, set_vars,
+  #     min_size=10,
+  #     width_ratio=0.3,
+  #     set_sizes=(
+  #         upset_set_size(
+  #             geom=geom_bar(
+  #                 aes(x = effect, y = count, fill = direction), stat = "identity",
+  #                 width=0.8
+  #                 
+  #             ),
+  #             position='right'
+  #         )
+  #     ),
+  #     # moves legends over the set sizes
+  #     guides='over'
+  # )
+  # 
+  # 
+  # ggplot(set_counts) +
+  #   geom_bar(aes(x = effect, y = count, fill = direction),
+  #            stat = "identity")
+
+  
+  ###
+  gene_list <- DEG_df %>% dplyr::filter(cell_type == currentcell & adj.P.Val < 0.05 & abs(logFC) > 0.1) %>% dplyr::select(gene, effect, logFC)
+  gene_list <- as.data.frame(table(gene_list$gene, gene_list$effect))
+  gene_list <- gene_list %>% pivot_wider(names_from = Var2, values_from = Freq) %>% as.data.frame(check.names = FALSE)
+  gene_list[-1] <- ifelse(gene_list[-1] == 0, 0, 1)
+
+  set_vars <- c("Gonad:SexChrom", "addY2", "addY1", "addY", "addX", "SexChrom", "Gonad", "Normative")
+  gene_list <- gene_list %>% dplyr::select(Var1, any_of(set_vars)) %>% filter(Normative != 0)
+
+  plot <- ComplexUpset::upset(gene_list, 
+                                names(gene_list)[-1], 
+                                sort_sets = FALSE, 
+                                sort_intersections = "descending", 
+                                name = currentcell, 
+                                min_size = 5,
+                                themes=upset_default_themes(text=element_text(size=25)),
+                                base_annotations=list('Intersection size'=intersection_size(counts=FALSE))
+                                )
+  
+  plot
+  
+  plot_list[[currentcell]] <- plot
+}
+
+pdf("Plots/DEG_v2/Overlap/upsets_completemodel.pdf", height = 20, width = 50)
+print(ggarrange(plotlist = plot_list, ncol = 4, nrow = 2))
+dev.off()
+
+```
+

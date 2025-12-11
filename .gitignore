@@ -7,3 +7,10 @@ Saves/
 Data/
 General_Cell_Type_Analysis/
 Plots/
+Results/
+Gene_annotation/
+tmp/
+Scripts/supercell_scripts
+Scripts/cluster_scripts/logs/
+
+
